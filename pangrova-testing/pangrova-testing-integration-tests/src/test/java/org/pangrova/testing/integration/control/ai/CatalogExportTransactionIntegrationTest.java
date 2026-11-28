@@ -9,7 +9,7 @@ import org.pangrova.ai.control.feature.CatalogExportRequest;
 import org.pangrova.ai.control.exception.CatalogExportStorageException;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
-import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
+import org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
 import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;

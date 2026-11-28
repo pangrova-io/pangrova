@@ -36,7 +36,7 @@ class PluginClassLoaderTest {
                 org.pangrova.function.api.registry.FunctionFactory.class,
                 org.pangrova.function.api.runtime.FunctionCallbackScope.class,
                 org.pangrova.coordination.api.membership.WorkerSnapshot.class,
-                org.pangrova.coordination.api.leadership.MaintenanceLeaderAware.class);
+                org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener.class);
         URL[] urls = contracts.stream().map(type -> type.getProtectionDomain().getCodeSource().getLocation())
                 .distinct().toArray(URL[]::new);
         try (var loader = new PluginClassLoader("bundled-domain-contracts", urls,

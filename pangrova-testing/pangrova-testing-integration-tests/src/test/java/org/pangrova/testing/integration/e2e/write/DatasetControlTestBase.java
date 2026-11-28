@@ -7,7 +7,7 @@ import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
+import org.pangrova.coordinator.metadata.CatalogExecutionBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintRequest;
@@ -76,7 +76,7 @@ abstract class DatasetControlTestBase extends NativeWriteLifecycleTestBase {
         var descriptor = metadataBootstrap.catalogRegistry()
                 .getCatalog(denied ? restrictedCatalog : DATASET).getDescriptor();
         var request = DatasetSchemaFingerprintRequest.newBuilder()
-                .setCatalog(CatalogExecutionBindings.from(descriptor)).setSchema(schema)
+                .setCatalog(CatalogExecutionBindingFactory.from(descriptor)).setSchema(schema)
                 .addColumnTypes(LogicalType.newBuilder().setCanonicalSql("ROW(id BIGINT)").setSubstraitType(nested))
                 .setSecurity(authenticatedRequest().getSecurity())
                 .setDeadlineEpochMs(System.currentTimeMillis() + 60_000).build();

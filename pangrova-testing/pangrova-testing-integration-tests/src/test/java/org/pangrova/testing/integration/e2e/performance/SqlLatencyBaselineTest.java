@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.performance;
 
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.setup.TestConnectorFactory;
+import org.pangrova.testing.integration.e2e.fixture.catalog.TestConnectorFactory;
 import org.pangrova.testing.testkit.TestDataGenerator;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;

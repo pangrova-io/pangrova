@@ -4,7 +4,7 @@ import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.ResultValidator;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.fixture.WriteTestHelper;
+import org.pangrova.testing.integration.e2e.fixture.SqlTestRowWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -210,13 +210,13 @@ class FileLayoutTransparencyTest extends SqlE2ETestBase {
         for (int batch = 0; batch < SMALL_BATCH_COUNT; batch++) {
             int startId = batch * SMALL_BATCH_SIZE + 1;
             int endId = startId + SMALL_BATCH_SIZE - 1;
-            WriteTestHelper.insertRows(sqlRunner, fqn(tableName), WriteTestHelper.buildRows(startId, endId));
+            SqlTestRowWriter.insertRows(sqlRunner, fqn(tableName), SqlTestRowWriter.buildRows(startId, endId));
         }
     }
 
     private void insertOneLargeBatch(String tableName) {
         int totalRows = SMALL_BATCH_COUNT * SMALL_BATCH_SIZE;
-        WriteTestHelper.insertRows(sqlRunner, fqn(tableName), WriteTestHelper.buildRows(1, totalRows));
+        SqlTestRowWriter.insertRows(sqlRunner, fqn(tableName), SqlTestRowWriter.buildRows(1, totalRows));
     }
 
     // -----------------------------------------------------------------------

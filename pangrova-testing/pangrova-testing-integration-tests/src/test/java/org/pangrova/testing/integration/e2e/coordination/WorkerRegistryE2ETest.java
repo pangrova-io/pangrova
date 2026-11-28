@@ -10,8 +10,8 @@ import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.coordination.api.membership.WorkerSnapshot;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.integration.e2e.CanonicalWorkerInventory;
-import org.pangrova.testing.integration.e2e.fixture.RegistryTestSchemaHelper;
-import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
+import org.pangrova.testing.integration.e2e.fixture.RegistryPostgresFixture;
+import org.pangrova.testing.integration.e2e.fixture.schema.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,11 +53,11 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        var pg = RegistryTestSchemaHelper.requirePostgres();
+        var pg = RegistryPostgresFixture.requirePostgres();
         dataSource = new DriverManagerDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
         MetadataSchemaInitializer.createSchema(dataSource);
-        RegistryTestSchemaHelper.truncateAll(dataSource, "worker_registry");
+        RegistryPostgresFixture.truncateAll(dataSource, "worker_registry");
         registry = new JdbcWorkerRegistry(dataSource);
     }
 
@@ -66,7 +66,7 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
         if (dataSource == null) {
             return;
         }
-        RegistryTestSchemaHelper.truncateAll(dataSource, "worker_registry");
+        RegistryPostgresFixture.truncateAll(dataSource, "worker_registry");
     }
 
     // -----------------------------------------------------------------------

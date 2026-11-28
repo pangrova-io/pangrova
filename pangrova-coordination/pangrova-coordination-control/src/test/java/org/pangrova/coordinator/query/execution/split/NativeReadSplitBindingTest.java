@@ -5,7 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.paimon.PaimonConnectorFactory;
-import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
+import org.pangrova.coordinator.metadata.CatalogExecutionBindingFactory;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
@@ -52,7 +52,7 @@ class NativeReadSplitBindingTest {
         DataSplit source = split();
         var binding = NativeReadSplitBinding.prepare(catalog, session("tenant-a"));
         DataSplit bound = binding.bind(source);
-        assertThat(bound.getCatalog()).isEqualTo(CatalogExecutionBindings.from(catalog.getDescriptor()));
+        assertThat(bound.getCatalog()).isEqualTo(CatalogExecutionBindingFactory.from(catalog.getDescriptor()));
         assertThat(bound.toBuilder().clearCatalog().build()).isEqualTo(source);
         assertThat(binding.bind(bound)).isSameAs(bound);
         var next = binding.bind(source.toBuilder().setSplitId("next-file").build());
@@ -80,7 +80,7 @@ class NativeReadSplitBindingTest {
 
     @Test
     void rejectsAStaleOrForgedDeploymentRatherThanOverwritingIt() {
-        var stale = CatalogExecutionBindings.from(catalog.getDescriptor()).toBuilder()
+        var stale = CatalogExecutionBindingFactory.from(catalog.getDescriptor()).toBuilder()
                 .setCatalogRevision(catalog.getDescriptor().revision() + 1).build();
         var binding = NativeReadSplitBinding.prepare(catalog, session("tenant-a"));
         assertThatThrownBy(() -> binding.bind(split().toBuilder().setCatalog(stale).build()))

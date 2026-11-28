@@ -21,7 +21,7 @@ import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.metadata.catalog.federation.PluginFederationHandleFactory;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
+import org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.persistence.jdbc.datasource.PooledDataSourceFactory;

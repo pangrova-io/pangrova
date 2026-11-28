@@ -82,7 +82,7 @@ final class AiTaskBudget {
             AiCapabilityDescriptor capability,
             AiInvocationReservation reservation) {
         requireActive();
-        if (!org.pangrova.ai.worker.context.GovernedAiBindings.fromAdmitted(
+        if (!org.pangrova.ai.worker.context.GovernedAiBindingProjector.fromAdmitted(
                         admittedBinding(binding.invocationId()))
                 .equals(binding)) {
             throw authorization(

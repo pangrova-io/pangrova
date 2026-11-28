@@ -7,7 +7,7 @@ import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.setup.TestConnectorFactory;
+import org.pangrova.testing.integration.e2e.fixture.catalog.TestConnectorFactory;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;

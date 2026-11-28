@@ -9,7 +9,7 @@ import org.pangrova.worker.exchange.NativeExchangeTransport;
 import org.pangrova.worker.execution.NativeTaskExecutor;
 import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.worker.result.NativeResultTransport;
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 import org.pangrova.worker.task.QueryCancellationPropagator;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TaskManagerContext;
@@ -46,7 +46,7 @@ public final class WorkerTaskBootstrap {
     public static void startTaskManager(
             WorkerBootstrapConfig config,
             WorkerComponentRefs refs,
-            WorkerObservabilitySetup observability) {
+            WorkerTelemetryInitializer observability) {
         var ownership = new WorkerTaskOwnership(openShuffle(config));
         refs.installTaskOwnership(ownership);
         TaskExecutor executor = createTaskExecutor(refs.nativeAvailable(), config, ownership);
@@ -182,7 +182,7 @@ public final class WorkerTaskBootstrap {
                         ? config.transportSecurityConfig().tlsIdentity()
                         : "";
         String shuffleHost = resolveShuffleAdvertisedHost(config, workerHost);
-        var shuffleProducers = new NativeShuffleProducerRegistration(executor::executeCommand, shuffleHost, tlsIdentity,
+        var shuffleProducers = new NativeShuffleProducerRegistrar(executor::executeCommand, shuffleHost, tlsIdentity,
                 config.shuffleMode() == ShuffleMode.LOCAL);
         String resultBindHost = config.httpHost() == null || config.httpHost().isBlank()
                 ? "0.0.0.0" : config.httpHost().trim();
@@ -396,7 +396,7 @@ public final class WorkerTaskBootstrap {
     }
 
     static RemoteTaskStatusReporter createStatusReporter(
-            WorkerBootstrapConfig config, WorkerObservabilitySetup observability) {
+            WorkerBootstrapConfig config, WorkerTelemetryInitializer observability) {
         String coordinatorUrl = config.coordinatorUrl();
         if (coordinatorUrl == null || coordinatorUrl.isBlank()) {
             throw new org.pangrova.common.exception.BootstrapFailedException(
@@ -444,7 +444,7 @@ public final class WorkerTaskBootstrap {
     }
 
     private static RemoteTaskStatusReporter parseReporterFromUrl(
-            String url, WorkerObservabilitySetup observability, String internalAuthSecret) {
+            String url, WorkerTelemetryInitializer observability, String internalAuthSecret) {
         try {
             return new RemoteTaskStatusReporter(
                     url, observability.tracingProvider(), observability.metricsProvider(), internalAuthSecret);

@@ -7,7 +7,7 @@ import org.pangrova.protocol.function.GovernedBindingProjection;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
-import org.pangrova.ai.worker.context.GovernedAiBindings;
+import org.pangrova.ai.worker.context.GovernedAiBindingProjector;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 
 import java.util.Base64;
@@ -85,7 +85,7 @@ final class GovernedAiBindingArguments {
     }
 
     BoundAiInvocation binding(AiOperation operation) {
-        BoundAiInvocation binding = GovernedAiBindings.fromAdmitted(admitted);
+        BoundAiInvocation binding = GovernedAiBindingProjector.fromAdmitted(admitted);
         if (binding.operation() != operation) {
             throw new IllegalArgumentException("Callback operation differs from the admitted capability");
         }

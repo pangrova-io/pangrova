@@ -16,13 +16,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class WorkerTaskBootstrapTest {
 
-    private static WorkerObservabilitySetup createNoOpObservability() {
-        WorkerObservabilitySetup setup = new WorkerObservabilitySetup();
+    private static WorkerTelemetryInitializer createNoOpObservability() {
+        WorkerTelemetryInitializer setup = new WorkerTelemetryInitializer();
         setup.initialize(WorkerBootstrapConfig.withDefaults("obs-init"));
         return setup;
     }
 
-    private static final WorkerObservabilitySetup NOOP_OBSERVABILITY = createNoOpObservability();
+    private static final WorkerTelemetryInitializer NOOP_OBSERVABILITY = createNoOpObservability();
 
     @Test
     void createStatusReporter_failsFastWhenCoordinatorUrlNull() {

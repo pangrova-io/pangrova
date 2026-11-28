@@ -72,10 +72,10 @@ import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
-import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
-import org.pangrova.testing.integration.e2e.setup.TestCatalogRegistrar;
-import org.pangrova.testing.integration.e2e.setup.TestConnectorHandleFactory;
-import org.pangrova.testing.integration.e2e.setup.TestDataSetup;
+import org.pangrova.testing.integration.e2e.fixture.schema.MetadataSchemaInitializer;
+import org.pangrova.testing.integration.e2e.fixture.catalog.TestCatalogRegistrar;
+import org.pangrova.testing.integration.e2e.fixture.catalog.TestConnectorHandleFactory;
+import org.pangrova.testing.integration.e2e.fixture.dataset.TestDatasetLoader;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
 import org.pangrova.worker.execution.NativeTaskExecutor;
 import org.pangrova.worker.jni.NativeRuntime;
@@ -195,7 +195,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static TestCluster testCluster;
     protected static E2ETestFramework framework;
     protected static SqlTestRunner sqlRunner;
-    protected static TestDataSetup dataSetup;
+    protected static TestDatasetLoader dataSetup;
 
     // nativeEngineLoaded field removed — NativeRuntime.isInitialized() is the
     // single source of truth for native runtime state (Task 11).
@@ -473,7 +473,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         testCluster = createTestCluster();
         framework = new E2ETestFramework(testCluster, SqlE2ETestBase::executeViaRealPipeline);
         sqlRunner = new SqlTestRunner(framework);
-        dataSetup = new TestDataSetup(sqlRunner);
+        dataSetup = new TestDatasetLoader(sqlRunner);
         framework.setup();
         rebuildQueryPipeline();
 
@@ -2237,7 +2237,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     static TransportRefs createTestTransportRefs(TaskExecutor executor) {
         org.pangrova.worker.result.NativeResultTransport resultTransport = null;
         try {
-            var shuffleProducers = new org.pangrova.worker.shuffle.NativeShuffleProducerRegistration(
+            var shuffleProducers = new org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar(
                     executor::executeCommand, IN_PROCESS_WORKER_HOST, "");
             resultTransport = new org.pangrova.worker.result.NativeResultTransport(
                     executor, IN_PROCESS_WORKER_HOST);
@@ -2723,7 +2723,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.file.RemoveStageTask(
                         fileAccess, fileClient, fileClient));
         if (featureAccessControl != null) {
-            var aiStores = org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores.jdbc(
+            var aiStores = org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores.jdbc(
                     stateStoreDataSource, ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource));
             var exports = new org.pangrova.coordinator.feature.DurableFeatureExportService(
                     aiStores.catalogExports(),
@@ -2737,7 +2737,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             org.pangrova.coordinator.feature.FeatureViewMetadataTasks.register(metadataFactory, service);
         }
         if (embeddingRegistry != null) {
-            org.pangrova.server.coordinator.bootstrap.EmbeddingModelTaskRegistration.register(
+            org.pangrova.server.coordinator.bootstrap.EmbeddingModelTaskRegistrar.register(
                     metadataFactory, embeddingRegistry, embeddingWorkers);
         }
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
@@ -2780,7 +2780,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var catalog = materializationCatalog();
         var factory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(
                 new java.util.HashMap<>());
-        org.pangrova.server.coordinator.assembly.materialization.MaterializationDdlRegistration.register(
+        org.pangrova.server.coordinator.assembly.materialization.MaterializationDdlRegistrar.register(
                 factory, repository, catalog,
                 metadataBootstrap.catalogRegistry(), e2eCoordinationService,
                 java.util.Objects.requireNonNull(sharedDdlExecutor),

@@ -16,7 +16,7 @@ import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.spill.SpillManager;
 import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 import org.pangrova.worker.task.memory.MemoryRefs;
 
 import java.net.URI;
@@ -38,7 +38,7 @@ class WorkerSetupFailureAcknowledgementTest {
             throws Exception {
         var registrations = new AtomicInteger();
         try (var runtime = new ActualNativeTaskFixture()) {
-            var shuffle = new NativeShuffleProducerRegistration((handle, command) -> {
+            var shuffle = new NativeShuffleProducerRegistrar((handle, command) -> {
                 if (isRegistration(command)) {
                     registrations.incrementAndGet();
                     if (linkageError) throw new NoClassDefFoundError(SETUP_FAILURE);

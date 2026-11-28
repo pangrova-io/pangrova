@@ -1,7 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings;
 import org.pangrova.governance.api.quality.QualityRuleStore;
@@ -36,7 +36,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import javax.sql.DataSource;
 
 /** Wires optional modules into the coordinator lifecycle. */
-final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCloseable {
+final class ModuleIntegrationBootstrap implements MaintenanceLeadershipListener, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ModuleIntegrationBootstrap.class);
     private static final long INDEX_EVAL_TIMEOUT_MS = 5_000;

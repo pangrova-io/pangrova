@@ -13,7 +13,7 @@ import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.shuffle.api.ShuffleServerHandle;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +43,7 @@ final class TaskLifecycleManager {
     private final TaskMemoryAllocator memoryAllocator;
     private final TaskStatusCollector statusCollector;
     private final TaskCompletionMonitor completionMonitor;
-    private final NativeShuffleProducerRegistration shuffleProducers;
+    private final NativeShuffleProducerRegistrar shuffleProducers;
     private final ResultTransport resultTransport;
     private final ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport;
     private final TaskResourceReleaser resourceReleaser;

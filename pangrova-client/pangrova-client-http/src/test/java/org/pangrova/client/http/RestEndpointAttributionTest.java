@@ -38,7 +38,7 @@ class RestEndpointAttributionTest {
     @Test
     void requestBuiltBeforeAnotherFailoverMustNotSkipTheHealthyNextEndpoint() throws Exception {
         try (var peers = new RoutingPeers(); var owner = RestHttpClientOwner.create(peers.config(true), null)) {
-            var routing = new EndpointRouting(peers.endpoints(), "http");
+            var routing = new EndpointSelector(peers.endpoints(), "http");
             var executor = new RetryableHttpExecutor(owner, RETRIES, routing, TIMEOUT);
             // This is the real request-build/executor boundary, deliberately interleaved;
             // the routing state is advanced only by the other actual HTTP operation.
@@ -62,7 +62,7 @@ class RestEndpointAttributionTest {
     void actualRepeatedRingWrapCannotLetAnOldGenerationAdvanceTheCurrentPreference() throws Exception {
         try (var peers = new RoutingPeers(true, 0);
              var owner = RestHttpClientOwner.create(peers.config(true), null)) {
-            var routing = new EndpointRouting(peers.endpoints(), "http");
+            var routing = new EndpointSelector(peers.endpoints(), "http");
             var executor = new RetryableHttpExecutor(owner, RETRIES, routing, TIMEOUT);
             var retained = peers.statusRequest(routing, "old-generation");
             for (int round = 0; round < 3; round++) {
@@ -92,9 +92,9 @@ class RestEndpointAttributionTest {
         int count = 4;
         try (var peers = new RoutingPeers(false, count);
              var owner = RestHttpClientOwner.create(peers.config(true), null)) {
-            var routing = new EndpointRouting(peers.endpoints(), "http");
+            var routing = new EndpointSelector(peers.endpoints(), "http");
             var executor = new RetryableHttpExecutor(owner, RETRIES, routing, TIMEOUT);
-            var requests = new ArrayList<EndpointRouting.SelectedRequest>();
+            var requests = new ArrayList<EndpointSelector.SelectedRequest>();
             for (int index = 0; index < count; index++) {
                 requests.add(peers.statusRequest(routing, "same-selection-" + index));
             }
@@ -251,7 +251,7 @@ class RestEndpointAttributionTest {
                     .httpExecutorThreads(1).build();
         }
 
-        private EndpointRouting.SelectedRequest statusRequest(EndpointRouting routing, String queryId) {
+        private EndpointSelector.SelectedRequest statusRequest(EndpointSelector routing, String queryId) {
             var selection = routing.current();
             var request = HttpRequest.newBuilder(URI.create(selection.baseUrl()
                     + "/v1/query/" + queryId + "/state")).timeout(TIMEOUT).GET().build();

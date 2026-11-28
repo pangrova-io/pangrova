@@ -194,7 +194,7 @@ artifacts:
       - org.pangrova.ai.worker.governance.observer
       - org.pangrova.ai.worker.invocation
       - org.pangrova.ai.worker.provider
-      - org.pangrova.ai.worker.provider.governed
+      - org.pangrova.ai.worker.provider.governance
       - org.pangrova.ai.worker.text
     pomDependencies:
       pangrova-ai-api: compile
@@ -2348,7 +2348,7 @@ artifacts:
   pangrova-persistence-ai-postgresql:
     path: pangrova-persistence/pangrova-persistence-ai-postgresql
     mainPackages:
-      - org.pangrova.persistence.ai.postgresql.assembly
+      - org.pangrova.persistence.ai.postgresql.controlplane
       - org.pangrova.persistence.ai.postgresql.embedding
       - org.pangrova.persistence.ai.postgresql.evaluation
       - org.pangrova.persistence.ai.postgresql.feature
@@ -2380,7 +2380,7 @@ artifacts:
         - pangrova-security-api
         - pangrova-testing-kit
     exportedPackages:
-      - org.pangrova.persistence.ai.postgresql.assembly
+      - org.pangrova.persistence.ai.postgresql.controlplane
       - org.pangrova.persistence.ai.postgresql.embedding
     providers:
       {}
@@ -4902,9 +4902,10 @@ artifacts:
       - org.pangrova.testing.integration.chaos.linearizability
       - org.pangrova.testing.integration.e2e
       - org.pangrova.testing.integration.e2e.config
+      - org.pangrova.testing.integration.e2e.fixture.catalog
+      - org.pangrova.testing.integration.e2e.fixture.dataset
       - org.pangrova.testing.integration.e2e.generator
       - org.pangrova.testing.integration.e2e.runner
-      - org.pangrova.testing.integration.e2e.setup
       - org.pangrova.testing.integration.enums
       - org.pangrova.testing.integration.exception
     pomDependencies:

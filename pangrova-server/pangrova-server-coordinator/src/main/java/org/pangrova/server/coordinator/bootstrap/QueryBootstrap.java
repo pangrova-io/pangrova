@@ -72,7 +72,7 @@ final class QueryBootstrap {
     private final HighAvailabilityCoordinationService coordinationService;
     private final QueryDurableRecovery durableRecovery;
     private final org.pangrova.security.api.secret.SecretResolver secretResolver;
-    private final org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores aiInfrastructureStores;
+    private final org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores aiInfrastructureStores;
     private final CurrentModelAuthority modelAuthority;
     private final PostgresGenerationStores artifactStores;
 
@@ -146,7 +146,7 @@ final class QueryBootstrap {
                    javax.sql.DataSource metadataDataSource, StreamingBootstrap streamingBootstrap,
                    HighAvailabilityCoordinationService coordinationService,
                    org.pangrova.security.api.secret.SecretResolver secretResolver,
-                   org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores aiInfrastructureStores,
+                   org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores aiInfrastructureStores,
                    CurrentModelAuthority modelAuthority) {
         this.config = config;
         this.tracingProvider = tracingProvider;

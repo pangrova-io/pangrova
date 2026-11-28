@@ -3,7 +3,7 @@ package org.pangrova.coordinator.clustering;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.connector.api.clustering.ClusteringMaintenance;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
-import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
+import org.pangrova.coordinator.metadata.CatalogExecutionBindingFactory;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.protocol.rest.maintenance.ReclusterStageRequest;
@@ -50,7 +50,7 @@ public final class WorkerReclusterDispatcher {
     /** Binds the dispatch lease to one catalog, tenant, principal, table and durable run. */
     public ClusteringMaintenance.StageDispatcher bind(CatalogDescriptor catalog, QualifiedTableName table,
             String tenant, String principal, UUID runId) {
-        String binding = Base64.getEncoder().encodeToString(CatalogExecutionBindings.from(catalog).toByteArray());
+        String binding = Base64.getEncoder().encodeToString(CatalogExecutionBindingFactory.from(catalog).toByteArray());
         return (revision, fence) -> stage(binding, table, tenant, principal, runId, revision, fence);
     }
 

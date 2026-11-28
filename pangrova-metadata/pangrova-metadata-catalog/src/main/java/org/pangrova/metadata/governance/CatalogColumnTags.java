@@ -1,6 +1,6 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.runtime.classification.ColumnTagBindings;
+import org.pangrova.governance.runtime.classification.ColumnTagAuthority;
 import org.pangrova.governance.runtime.classification.ColumnTagService;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.session.MetadataSessionContext;
@@ -12,11 +12,11 @@ import java.util.Map;
 /** Resolves the authenticated column and its table identity before invoking the durable tag binding. */
 public final class CatalogColumnTags {
     private final CatalogRegistry catalogRegistry;
-    private final ColumnTagBindings tagOperations;
+    private final ColumnTagAuthority tagOperations;
 
     public CatalogColumnTags(CatalogRegistry catalogs) {
         catalogRegistry = catalogs;
-        tagOperations = new ColumnTagBindings(catalogs.tableGovernance());
+        tagOperations = new ColumnTagAuthority(catalogs.tableGovernance());
     }
 
     public ColumnTagService columnTagEvents() {

@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.observability;
 
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
+import org.pangrova.testing.integration.e2e.fixture.schema.MetadataSchemaInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

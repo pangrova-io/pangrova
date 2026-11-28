@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.observability.logging.MdcTaskWrapping;
+import org.pangrova.observability.logging.MdcTaskWrapper;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
 import javax.sql.DataSource;
@@ -122,7 +122,7 @@ final class QueryRuntimeFactory {
     }
 
     static ExecutorService createAsyncSubmitExecutor() {
-        return new MdcTaskWrapping().wrapExecutorService(
+        return new MdcTaskWrapper().wrapExecutorService(
                 ManagedExecutorFactory.newBoundedThreadPool("async-query-submit", 4, 128));
     }
 

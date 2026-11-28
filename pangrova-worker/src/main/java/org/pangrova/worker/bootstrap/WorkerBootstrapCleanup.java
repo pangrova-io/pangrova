@@ -8,7 +8,7 @@ import org.pangrova.worker.bootstrap.lifecycle.WorkerCleanupSteps;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
 import org.pangrova.worker.bootstrap.phase.WorkerHeartbeatBootstrap;
 import org.pangrova.worker.bootstrap.phase.WorkerHttpBootstrap;
-import org.pangrova.worker.bootstrap.phase.WorkerObservabilitySetup;
+import org.pangrova.worker.bootstrap.phase.WorkerTelemetryInitializer;
 import org.pangrova.worker.bootstrap.phase.WorkerResourceBootstrap;
 
 /** One dependency-ordered cleanup path for shutdown and failed startup. */
@@ -22,7 +22,7 @@ final class WorkerBootstrapCleanup {
 
     void close(
             WorkerBootstrapConfig config,
-            WorkerObservabilitySetup observability) {
+            WorkerTelemetryInitializer observability) {
         steps.attempt(this::closeCdc);
         // Stop accepting work first, but keep heartbeating through the drain.
         // Stopping the heartbeat before draining made the Coordinator declare

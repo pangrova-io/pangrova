@@ -69,7 +69,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
     private final RestHttpClientOwner httpOwner;
     private final ObjectMapper objectMapper;
     private final FlightResultFetcher resultFetcher;
-    private final EndpointRouting routing;
+    private final EndpointSelector routing;
     private final RestResponseHandler responseHandler;
     private final RetryableHttpExecutor executor;
 
@@ -83,7 +83,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         this.connectionPoolConfig = config.connectionPoolConfig();
         this.objectMapper = JsonMapperFactory.create();
         this.responseHandler = new RestResponseHandler(objectMapper);
-        this.routing = new EndpointRouting(resolveEndpoints(), config.scheme());
+        this.routing = new EndpointSelector(resolveEndpoints(), config.scheme());
 
         this.httpOwner = RestHttpClientOwner.create(config, sharedClient);
         try {
@@ -128,7 +128,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
     }
 
     private SubmitQueryResponse submitQuery(String sql, Map<String, String> sessionProperties,
-            EndpointRouting.Selection selection) {
+            EndpointSelector.Selection selection) {
         var properties = new java.util.HashMap<>(branchRoutes);
         if (sessionProperties != null) properties.putAll(sessionProperties);
         var request = new SubmitQueryRequest(sql, properties);
@@ -149,7 +149,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         return cancelQuery(queryId, routing.current(), false, null);
     }
 
-    private CancelOutcome cancelQuery(String queryId, EndpointRouting.Selection selection, boolean ownerBound,
+    private CancelOutcome cancelQuery(String queryId, EndpointSelector.Selection selection, boolean ownerBound,
             String routeTicket) {
         if (queryId == null || queryId.isBlank()) {
             throw new IllegalArgumentException("Query cancellation requires its query identity");
@@ -285,7 +285,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         return new Builder();
     }
 
-    private record QueryControlRoute(EndpointRouting.Selection selection, String ticket) {}
+    private record QueryControlRoute(EndpointSelector.Selection selection, String ticket) {}
 
     private final class OwnerQuery implements QueryExecution {
         private final SubmitQueryResponse receipt;
@@ -295,7 +295,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         private volatile boolean branchApplied;
         private Long version;
 
-        OwnerQuery(SubmitQueryResponse receipt, EndpointRouting.Selection selection) {
+        OwnerQuery(SubmitQueryResponse receipt, EndpointSelector.Selection selection) {
             this.receipt = receipt;
             this.route = routeFor(selection);
         }
@@ -368,7 +368,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
             return status;
         }
 
-        private QueryStatusResponse awaitRetirement(EndpointRouting.Selection selected, long deadlineEpochMillis) {
+        private QueryStatusResponse awaitRetirement(EndpointSelector.Selection selected, long deadlineEpochMillis) {
             long recoveryDeadline = Math.min(deadlineEpochMillis, System.currentTimeMillis() + RECOVERY_MAX_WAIT_MS);
             while (true) {
                 try {
@@ -389,7 +389,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
             }
         }
 
-        private QueryStatusResponse readRecovered(EndpointRouting.Selection selected, long deadlineEpochMillis) {
+        private QueryStatusResponse readRecovered(EndpointSelector.Selection selected, long deadlineEpochMillis) {
             long remaining = deadlineEpochMillis - System.currentTimeMillis();
             if (remaining <= 0) throw statusDeadline(null);
             String path = "/v1/query/" + receipt.queryId() + "/receipt-recovery";
@@ -422,7 +422,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
             }
         }
 
-        private HttpResponse<String> executeObservation(EndpointRouting.Selection selected,
+        private HttpResponse<String> executeObservation(EndpointSelector.Selection selected,
                 HttpRequest.Builder builder, long remaining) {
             try {
                 return executor.execute(routing.bind(selected, builder.build()));
@@ -434,7 +434,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
             }
         }
 
-        private QueryControlRoute routeFor(EndpointRouting.Selection selected) {
+        private QueryControlRoute routeFor(EndpointSelector.Selection selected) {
             return new QueryControlRoute(selected, routing.routeTicket(selected, receipt.ownerEndpoint()));
         }
 
@@ -481,7 +481,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
                     ? observeCancellation(current.selection(), null) : outcome;
         }
 
-        private CancelOutcome observeCancellation(EndpointRouting.Selection selected,
+        private CancelOutcome observeCancellation(EndpointSelector.Selection selected,
                 PangrovaClientException original) {
             try {
                 readRecovered(selected, Long.MAX_VALUE);
@@ -505,7 +505,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
     // ---- internal HTTP helpers ----
 
     private <T> T postNonIdempotent(String path, Object body, Class<T> responseType,
-                                   EndpointRouting.Selection selection) {
+                                   EndpointSelector.Selection selection) {
         byte[] bodyBytes = serializeBody(body, path);
         String requestId = java.util.UUID.randomUUID().toString();
         HttpRequest.Builder builder = HttpRequest.newBuilder()

@@ -10,8 +10,8 @@ import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
 import org.pangrova.ai.api.enums.EmbeddingPurpose;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.worker.context.AiExecutionContext;
-import org.pangrova.ai.worker.provider.governed.GovernedEmbeddingProvider;
-import org.pangrova.ai.worker.provider.governed.GovernedInferenceProvider;
+import org.pangrova.ai.worker.provider.governance.GovernedEmbeddingProvider;
+import org.pangrova.ai.worker.provider.governance.GovernedInferenceProvider;
 
 import java.util.List;
 

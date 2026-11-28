@@ -4,7 +4,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 
-import org.pangrova.observability.api.context.TaskWrapping;
+import org.pangrova.observability.api.context.TaskWrapper;
 
 /**
  * Propagates MDC context from the submitting thread to async executing threads.
@@ -17,7 +17,7 @@ import org.pangrova.observability.api.context.TaskWrapping;
  * }</pre>
  *
  * <p>For the full unified API (Callable, Executor, ExecutorService wrapping),
- * use an explicitly supplied {@link TaskWrapping}.
+ * use an explicitly supplied {@link TaskWrapper}.
  *
  * <p>Thread safety: captures MDC snapshot at decoration time (immutable copy),
  * restores on the target thread before execution, and cleans up after execution
@@ -25,7 +25,7 @@ import org.pangrova.observability.api.context.TaskWrapping;
  */
 public final class MdcContextPropagator {
 
-    private static final MdcTaskWrapping DELEGATE = new MdcTaskWrapping();
+    private static final MdcTaskWrapper DELEGATE = new MdcTaskWrapper();
 
     private MdcContextPropagator() {}
 

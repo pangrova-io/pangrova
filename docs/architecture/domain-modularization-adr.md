@@ -658,7 +658,7 @@ transactions, lease renewal, or Native resources.
 `pangrova-shuffle-api` owns Common/JDK-only domain contracts; Planner and
 Operations depend only on that contract artifact. The former ShuffleTransport
 implemented only Native service binding and has been removed from the general API.
-NativeShuffleProducerRegistration lives in the `org.pangrova.worker.shuffle`
+NativeShuffleProducerRegistrar lives in the `org.pangrova.worker.shuffle`
 package of `pangrova-worker` and registers producers through the task owner's
 protected command channel using a borrowed executor handle. The C++
 FlightServerRegistry holds the process-shared listening port. The Worker task

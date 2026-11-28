@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.write;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
+import org.pangrova.coordinator.metadata.CatalogExecutionBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;
@@ -98,7 +98,7 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
                 properties, "Actual tenant rejection before secret resolution", Set.of("allowed-only"));
         metadataBootstrap.catalogRegistry().register(descriptor);
         try (var fixture = runtimeFixture(coordinatorUrl())) {
-            assertThatThrownBy(() -> fixture.runtime().leaseControl(CatalogExecutionBindings.from(descriptor),
+            assertThatThrownBy(() -> fixture.runtime().leaseControl(CatalogExecutionBindingFactory.from(descriptor),
                     authenticatedRequest().getSecurity(), Optional.empty()))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("not authorized");
             assertThat(fixture.runtime().cachedCatalogRevisionCount()).isZero();
@@ -111,7 +111,7 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
     void cachedControlLeaseRejectsWrongAlgorithmAndForeignOutputBeforeSharingCredentials() {
         var current = metadataBootstrap.catalogRegistry().getCatalog(DATASET).getDescriptor();
         var other = metadataBootstrap.catalogRegistry().getCatalog(PLAIN).getDescriptor();
-        var binding = CatalogExecutionBindings.from(current);
+        var binding = CatalogExecutionBindingFactory.from(current);
         var security = authenticatedRequest().getSecurity();
         try (var fixture = runtimeFixture(coordinatorUrl());
              var lease = fixture.runtime().leaseControl(binding, security, Optional.empty())) {
@@ -121,7 +121,7 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
             assertThatThrownBy(() -> fixture.runtime().leaseControl(malformed, security, Optional.empty()))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("fingerprint");
             var foreign = org.pangrova.protocol.v2.WriteOutputBinding.newBuilder();
-            foreign.getLanceBuilder().setCatalog(CatalogExecutionBindings.from(other));
+            foreign.getLanceBuilder().setCatalog(CatalogExecutionBindingFactory.from(other));
             assertThatThrownBy(() -> fixture.runtime().leaseControl(binding, security, Optional.of(foreign.build())))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different catalog");
         }
@@ -132,7 +132,7 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
         // All actual installed writable plugins have a codec. Missing Native S3 settings fail after it.
         var descriptor = metadataBootstrap.catalogRegistry().getCatalog(INVALID_STORAGE).getDescriptor();
         try (var fixture = runtimeFixture(coordinatorUrl())) {
-            assertThatThrownBy(() -> fixture.runtime().leaseControl(CatalogExecutionBindings.from(descriptor),
+            assertThatThrownBy(() -> fixture.runtime().leaseControl(CatalogExecutionBindingFactory.from(descriptor),
                     authenticatedRequest().getSecurity(), Optional.empty()))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("native.storage.s3.endpoint");
             assertThat(fixture.runtime().cachedCatalogRevisionCount()).isZero();

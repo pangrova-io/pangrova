@@ -20,7 +20,7 @@ import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
+import org.pangrova.testing.integration.e2e.fixture.schema.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;

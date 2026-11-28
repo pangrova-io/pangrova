@@ -22,7 +22,7 @@ public final class CatalogControlLease implements AutoCloseable {
     }
 
     public void requireDatasetLocation(String location) {
-        NativeObjectStoreBindings.requireLocation(storageBinding(), location);
+        NativeObjectStoreBindingFactory.requireLocation(storageBinding(), location);
     }
 
     @Override

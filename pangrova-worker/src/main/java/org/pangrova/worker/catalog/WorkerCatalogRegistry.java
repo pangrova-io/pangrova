@@ -228,7 +228,7 @@ final class WorkerCatalogRegistry implements AutoCloseable {
         String provider = deployment.connectorProvider();
         boolean nativeStorage = java.util.Set.of("lance", "paimon").contains(provider)
                 || ("iceberg".equals(provider) && resolved.getOrDefault("warehouse", "").startsWith("s3://"));
-        var storage = nativeStorage ? NativeObjectStoreBindings.create(binding, tenantId, resolved) : null;
+        var storage = nativeStorage ? NativeObjectStoreBindingFactory.create(binding, tenantId, resolved) : null;
         return new CatalogRuntime(connector, codec, storage);
     }
 

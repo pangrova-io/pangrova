@@ -41,7 +41,7 @@ import org.pangrova.persistence.indexing.api.metadata.CacheEvent;
 import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
-import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
@@ -71,7 +71,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>Shutdown: LIFO order via {@link #close()}.</p>
  */
-public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoCloseable {
+public final class IndexingBootstrap implements MaintenanceLeadershipListener, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexingBootstrap.class);
 

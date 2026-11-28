@@ -11,7 +11,7 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 import com.google.protobuf.ByteString;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 
 import java.util.List;
 
@@ -30,7 +30,7 @@ class NativeExchangeTransportTest {
             var secondRequest = producer.toBuilder().setAttempt(producer.getAttempt().toBuilder()
                     .setTaskId(producer.getAttempt().getTaskId() + "-second").setPartitionId(1)).build();
             long second = runtime.createPending(secondRequest);
-            var servers = new NativeShuffleProducerRegistration(runtime.executor()::executeCommand, "127.0.0.1", "");
+            var servers = new NativeShuffleProducerRegistrar(runtime.executor()::executeCommand, "127.0.0.1", "");
             var firstServer = servers.registerProducer(first, 1);
             var secondServer = servers.registerProducer(second, 1);
             var consumer = runtime.valuesRequest(false);

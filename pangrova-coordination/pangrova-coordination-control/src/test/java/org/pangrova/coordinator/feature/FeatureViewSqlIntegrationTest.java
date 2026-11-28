@@ -39,7 +39,7 @@ import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
+import org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;

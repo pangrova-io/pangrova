@@ -15,7 +15,7 @@ import org.pangrova.worker.bootstrap.phase.NativeRuntimeBootstrap;
 import org.pangrova.worker.bootstrap.phase.WorkerHeartbeatBootstrap;
 import org.pangrova.worker.cache.NativeCacheConfig;
 import org.pangrova.worker.bootstrap.phase.WorkerHttpBootstrap;
-import org.pangrova.worker.bootstrap.phase.WorkerObservabilitySetup;
+import org.pangrova.worker.bootstrap.phase.WorkerTelemetryInitializer;
 import org.pangrova.worker.bootstrap.phase.WorkerResourceBootstrap;
 import org.pangrova.worker.bootstrap.phase.WorkerTaskBootstrap;
 import org.pangrova.worker.task.TaskManager;
@@ -36,7 +36,7 @@ public final class WorkerBootstrap {
     private final WorkerBootstrapLifecycle lifecycle = new WorkerBootstrapLifecycle();
     private final AtomicBoolean started = lifecycle.readyFlag();
     private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
-    private final WorkerObservabilitySetup observability = new WorkerObservabilitySetup();
+    private final WorkerTelemetryInitializer observability = new WorkerTelemetryInitializer();
     private final WorkerComponentRefs refs = new WorkerComponentRefs();
 
     public WorkerBootstrap(WorkerBootstrapConfig config, AuditEventWriter fileAudit) {

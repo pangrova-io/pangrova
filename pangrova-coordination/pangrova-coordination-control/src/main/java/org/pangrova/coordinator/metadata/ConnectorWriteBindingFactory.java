@@ -112,7 +112,7 @@ public final class ConnectorWriteBindingFactory {
     }
 
     private static CatalogExecutionBinding catalogBinding(CatalogDescriptor descriptor) {
-        return CatalogExecutionBindings.from(descriptor);
+        return CatalogExecutionBindingFactory.from(descriptor);
     }
 
     private static Checksum checksum(byte[] value) {

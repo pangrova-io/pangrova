@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.spill;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.fixture.WriteTestHelper;
+import org.pangrova.testing.integration.e2e.fixture.SqlTestRowWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -120,7 +120,7 @@ class DiskFaultQueryRecoveryTest extends SqlE2ETestBase {
         List<TypedRow> data = IntStream.rangeClosed(1, rowCount)
                 .mapToObj(i -> TypedRow.builder().putRaw("id", (long) i).putRaw("grp", (long) (i % 50)).putRaw("amount", i * 1.5).build())
                 .collect(Collectors.toList());
-        WriteTestHelper.insertRows(sqlRunner, fqn(table), data);
+        SqlTestRowWriter.insertRows(sqlRunner, fqn(table), data);
     }
 
     // -----------------------------------------------------------------------

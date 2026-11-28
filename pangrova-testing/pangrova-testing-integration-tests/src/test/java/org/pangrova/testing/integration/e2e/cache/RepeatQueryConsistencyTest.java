@@ -4,7 +4,7 @@ import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.ResultValidator;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.fixture.WriteTestHelper;
+import org.pangrova.testing.integration.e2e.fixture.SqlTestRowWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -182,11 +182,11 @@ class RepeatQueryConsistencyTest extends SqlE2ETestBase {
         String columns = "id BIGINT, name VARCHAR, amount DOUBLE";
         sqlRunner.executeDdl(String.format(
                 "CREATE TABLE %s (%s)", fqn(tableName), columns));
-        WriteTestHelper.insertRows(sqlRunner, fqn(tableName), WriteTestHelper.buildRows(1, rowCount));
+        SqlTestRowWriter.insertRows(sqlRunner, fqn(tableName), SqlTestRowWriter.buildRows(1, rowCount));
     }
 
     private void insertAdditionalRows(String tableName, int startId, int endId) {
-        WriteTestHelper.insertRows(sqlRunner, fqn(tableName), WriteTestHelper.buildRows(startId, endId));
+        SqlTestRowWriter.insertRows(sqlRunner, fqn(tableName), SqlTestRowWriter.buildRows(startId, endId));
     }
 
     // -----------------------------------------------------------------------

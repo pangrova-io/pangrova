@@ -47,7 +47,7 @@ class PlannerApiClasspathTest {
                 }
             }
             assertThat(loader.loadClass("org.pangrova.governance.api.enums.ColumnDerivationKind").isEnum()).isTrue();
-            for (String excluded : List.of("org.pangrova.governance.runtime.classification.ColumnTagBindings",
+            for (String excluded : List.of("org.pangrova.governance.runtime.classification.ColumnTagAuthority",
                     "org.pangrova.connector.api.plugin.Connector",
                     "org.pangrova.protocol.v2.ExchangeInputBinding",
                     "org.pangrova.protocol.substrait.SubstraitProtocolVersion",

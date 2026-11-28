@@ -4,7 +4,7 @@ import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
-import org.pangrova.testing.integration.e2e.setup.TestDataSetup;
+import org.pangrova.testing.integration.e2e.fixture.dataset.TestDatasetLoader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,7 +30,7 @@ class VirtualWorkerRoutingHarnessLifecycleTest {
                 () -> sharedClosed::incrementAndGet, () -> sharedClosed::incrementAndGet);
         E2ETestFramework framework = new E2ETestFramework(cluster, sql -> List.of());
         SqlTestRunner runner = new SqlTestRunner(framework);
-        shared = new SharedState(cluster, framework, runner, new TestDataSetup(runner));
+        shared = new SharedState(cluster, framework, runner, new TestDatasetLoader(runner));
         SharedProbe.restore(shared);
         framework.setup();
     }
@@ -115,7 +115,7 @@ class VirtualWorkerRoutingHarnessLifecycleTest {
     }
 
     private record SharedState(TestCluster cluster, E2ETestFramework framework,
-                               SqlTestRunner runner, TestDataSetup setup) { }
+                               SqlTestRunner runner, TestDatasetLoader setup) { }
 
     private abstract static class SharedProbe extends SqlE2ETestBase {
         static SharedState capture() {

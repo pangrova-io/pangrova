@@ -513,7 +513,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
     }
 
     private CatalogExecutionBinding catalogBinding() {
-        return CatalogExecutionBindings.from(catalog);
+        return CatalogExecutionBindingFactory.from(catalog);
     }
 
     private URI endpoint() {

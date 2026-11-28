@@ -241,7 +241,7 @@
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.runtime.classification.ColumnTagBindings"/>
+        <Class name="org.pangrova.governance.runtime.classification.ColumnTagAuthority"/>
         <Field name="events"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>

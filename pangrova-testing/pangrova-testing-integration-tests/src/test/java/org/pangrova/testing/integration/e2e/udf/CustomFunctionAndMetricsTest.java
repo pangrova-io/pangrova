@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.udf;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.fixture.WriteTestHelper;
+import org.pangrova.testing.integration.e2e.fixture.SqlTestRowWriter;
 import org.pangrova.testing.integration.e2e.runner.QueryError;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.junit.jupiter.api.BeforeEach;
@@ -226,7 +226,7 @@ class CustomFunctionAndMetricsTest extends SqlE2ETestBase {
         sqlRunner.executeDdl(String.format(
                 "CREATE TABLE %s (id BIGINT, name VARCHAR, amount DOUBLE)",
                 fqn(tableName)));
-        WriteTestHelper.insertRows(sqlRunner, fqn(tableName), WriteTestHelper.buildRows(1, rowCount));
+        SqlTestRowWriter.insertRows(sqlRunner, fqn(tableName), SqlTestRowWriter.buildRows(1, rowCount));
     }
 
     // -----------------------------------------------------------------------

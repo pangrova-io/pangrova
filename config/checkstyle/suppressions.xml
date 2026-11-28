@@ -332,7 +332,7 @@
     <suppress files="[\\/]org[\\/]pangrova[\\/]governance[\\/]core[\\/]quality[\\/]GovernanceStatementHandler\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]indexing[\\/]build[\\/]IndexBuildCoordinator\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]sdk[\\/]profiling[\\/]QueryFlameGraphGenerator\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]PredictiveScaling\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]PredictiveScalingPolicy\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]protocol[\\/]rest[\\/]config[\\/]ShuffleConfig\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]resilience[\\/]degradation[\\/]DegradationThresholds\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]common[\\/]value[\\/]MemoryPressure\.java$" checks="MagicNumber"/>
@@ -380,7 +380,7 @@
     <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]service[\\/]QueryLifecycleReport\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]sdk[\\/]metrics[\\/]CacheStatsSnapshot\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]EmergencyThreshold\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]PredictiveScaling\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]PredictiveScalingPolicy\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]ScalingPolicy\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]planner[\\/]cache[\\/]SecurityPolicyChangeListener\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]common[\\/]value[\\/]MemoryPressure\.java$" checks="MissingJavadocMethod"/>

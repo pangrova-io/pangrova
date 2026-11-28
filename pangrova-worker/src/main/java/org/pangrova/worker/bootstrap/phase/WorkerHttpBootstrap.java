@@ -53,7 +53,7 @@ public final class WorkerHttpBootstrap {
     public static void startHttp(
             WorkerBootstrapConfig config,
             WorkerComponentRefs refs,
-            WorkerObservabilitySetup observability,
+            WorkerTelemetryInitializer observability,
             AtomicBoolean started, AuditEventWriter fileAudit) {
         try {
             int resultPort = refs.resultServerPort();

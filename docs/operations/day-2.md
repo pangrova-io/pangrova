@@ -563,7 +563,7 @@ public class ScalingPolicy {
 /**
  * Predictive scaling (based on historical patterns)
  */
-public class PredictiveScaling {
+public class PredictiveScalingPolicy {
 
     private final TimeSeriesPredictor predictor;
 

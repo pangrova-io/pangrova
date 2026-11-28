@@ -483,7 +483,7 @@ final class QueryExecutionBootstrap {
             org.pangrova.coordinator.query.statement.DdlExecutor ddlExecutor,
             org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch) {
         org.pangrova.coordinator.materialization.MaterializationKernelFactory kernels =
-                org.pangrova.server.coordinator.assembly.materialization.MaterializationDdlRegistration.register(
+                org.pangrova.server.coordinator.assembly.materialization.MaterializationDdlRegistrar.register(
                         factory,
                         metadataBootstrap.materializationRepository(),
                         metadataBootstrap.materializationCatalog(),
@@ -624,7 +624,7 @@ final class QueryExecutionBootstrap {
         if (metadataFactory == null || registry == null) {
             return;
         }
-        EmbeddingModelTaskRegistration.register(
+        EmbeddingModelTaskRegistrar.register(
                 metadataFactory, registry, requireWorkerManager());
     }
 

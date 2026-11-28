@@ -30,7 +30,7 @@ import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
-import org.pangrova.testing.integration.e2e.setup.TestDataSetup;
+import org.pangrova.testing.integration.e2e.fixture.dataset.TestDatasetLoader;
 import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -72,7 +72,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         return java.util.Objects.requireNonNull(sqlRunner, "Shared SQL setup runner is absent");
     }
 
-    protected static TestDataSetup setupData() {
+    protected static TestDatasetLoader setupData() {
         return java.util.Objects.requireNonNull(dataSetup, "Shared table setup is absent");
     }
 

@@ -19,7 +19,7 @@ import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
 import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
+import org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.security.api.authorization.AccessControl;

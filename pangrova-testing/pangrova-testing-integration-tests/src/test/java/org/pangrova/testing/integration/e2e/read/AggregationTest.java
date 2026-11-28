@@ -39,7 +39,7 @@ class AggregationTest extends SqlE2ETestBase {
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         dataSetup.loadTpcHDataViaConnector(
-                org.pangrova.testing.integration.e2e.setup.TestConnectorFactory.createIcebergConnector(icebergWarehouse()),
+                org.pangrova.testing.integration.e2e.fixture.catalog.TestConnectorFactory.createIcebergConnector(icebergWarehouse()),
                 SCALE_FACTOR);
     }
 

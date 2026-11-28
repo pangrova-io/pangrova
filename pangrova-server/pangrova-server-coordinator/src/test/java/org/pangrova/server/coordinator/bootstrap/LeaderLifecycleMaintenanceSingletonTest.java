@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
-import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,7 +34,7 @@ class LeaderLifecycleMaintenanceSingletonTest {
 
     /**
      * Verifies that when a node becomes leader for the first time via start(),
-     * the failover callback fires and would trigger MaintenanceLeaderAware.onLeaderElected().
+     * the failover callback fires and would trigger MaintenanceLeadershipListener.onLeaderElected().
      */
     @Test
     void firstLeaderElection_triggersMaintenanceStart() {
@@ -225,7 +225,7 @@ class LeaderLifecycleMaintenanceSingletonTest {
     /**
      * Records leader lifecycle transitions for assertions.
      */
-    private static final class MaintenanceRecorder implements MaintenanceLeaderAware {
+    private static final class MaintenanceRecorder implements MaintenanceLeadershipListener {
         final AtomicInteger leaderElectedCount = new AtomicInteger();
         final AtomicInteger leadershipLostCount = new AtomicInteger();
         final List<String> events = Collections.synchronizedList(new ArrayList<>());
