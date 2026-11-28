@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash, latency-fixture]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash, macos-arm-acceptance, latency-fixture]
         default: macos-docker
       production_source:
         description: Exact production source revision
@@ -97,13 +97,14 @@ jobs:
             "-Dpangrova.e2e.ai.image-id=$ai_image"
 
   macos-arm-crash:
-    name: Diagnose ARM64 Native runtime failures with their verified SDK
-    if: inputs.probe == 'macos-arm-crash'
+    name: Verify ARM64 Native runtime with the archived SDK
+    if: inputs.probe == 'macos-arm-crash' || inputs.probe == 'macos-arm-acceptance'
     runs-on: macos-15
-    timeout-minutes: 170
+    timeout-minutes: 230
     env:
       ORIGINAL_BUILD: b470b54b75bc6caeb7ca4dfa91a5926350593eea
       ORIGINAL_RUN: '45963319376'
+      SOURCE_COMMIT: ${{ inputs.production_source }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -136,6 +137,7 @@ jobs:
           SKIP_DEPS=1 SKIP_VELOX=1 bash pangrova-worker-native/bin/setup-native-build-env.sh
           bash pangrova-worker-native/bin/build-lance-ffi.sh
       - name: Build the actual Native implementation with the affected test suites
+        if: inputs.probe == 'macos-arm-crash'
         working-directory: pangrova-worker-native
         run: |
           set -eo pipefail
@@ -168,6 +170,7 @@ jobs:
           cp "$VELOX_BUILD_DIR/CMakeCache.txt" "$RUNNER_TEMP/native-crash-diagnostics/velox-cmake-cache.txt"
           otool -L build/pangrova_native_tests
       - name: Capture representative crash stacks and compare Mach-O visibility
+        if: inputs.probe == 'macos-arm-crash'
         working-directory: pangrova-worker-native
         run: |
           set -eo pipefail
@@ -217,6 +220,12 @@ jobs:
             "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-exported_symbols_list,$PWD/test_asan_exported_symbols_macos.list"
           cmake --build build --parallel 2 --target pangrova_native_tests
           python3 "$RUNNER_TEMP/run-crash-probe.py" private
+      - name: Rebuild the archived Folly source with the Release profile
+        working-directory: pangrova-worker-native
+        run: |
+          set -eo pipefail
+          source ~/.pangrova/env.sh
+          mkdir -p "$RUNNER_TEMP/native-crash-diagnostics"
           folly_source="$VELOX_HOME/deps-download/folly"
           folly_build="$RUNNER_TEMP/release-folly"
           folly_archive="$VELOX_HOME/deps-install/lib/libfolly.a"
@@ -233,15 +242,90 @@ jobs:
           test -s "$folly_build/libfolly.a"
           cp "$folly_build/CMakeCache.txt" "$RUNNER_TEMP/native-crash-diagnostics/release-folly-cache.txt"
           cp "$folly_build/libfolly.a" "$folly_archive"
+      - name: Measure Release Folly against the original link inputs
+        if: inputs.probe == 'macos-arm-crash'
+        working-directory: pangrova-worker-native
+        run: |
+          set -eo pipefail
+          source ~/.pangrova/env.sh
           cmake --preset dev-release -G Ninja -DCMAKE_EXE_LINKER_FLAGS=
           cmake --build build --parallel 2 --target pangrova_native_tests
           python3 "$RUNNER_TEMP/run-crash-probe.py" release-folly
           test "$(cat "$RUNNER_TEMP/native-crash-diagnostics/standard.result")" -eq 0
+      - name: Apply the candidate Thrift selection and fixture startup changes
+        if: inputs.probe == 'macos-arm-acceptance'
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --depth 1 origin "$SOURCE_COMMIT"
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_COMMIT"
+          for file in \
+            pangrova-worker-native/cmake/FindVelox.cmake \
+            pangrova-worker-native/bin/run-native-tests.py \
+            pangrova-worker-native/test/RunNativeTestsTest.py \
+            pangrova-connector/pangrova-connector-lance/src/test/java/org/pangrova/connector/lance/LanceCatalogTestDatabase.java \
+            pangrova-connector/pangrova-connector-lance/src/test/java/org/pangrova/connector/lance/LanceManagedSourceFixtureBroker.java; do
+            git show "$SOURCE_COMMIT:$file" > "$file"
+          done
+          git diff --check
+      - uses: ./.github/actions/prepare-native-java-fixture
+        if: inputs.probe == 'macos-arm-acceptance'
+      - name: Build the full Native test executable with the canonical Thrift archive
+        if: inputs.probe == 'macos-arm-acceptance'
+        working-directory: pangrova-worker-native
+        run: |
+          set -eo pipefail
+          source ~/.pangrova/env.sh
+          cmake --preset dev-release -G Ninja
+          cmake --build build --parallel 2 --target all
+          link_plan="$RUNNER_TEMP/native-crash-diagnostics/native-link.txt"
+          ninja -C build -t commands pangrova_native_tests | tail -1 > "$link_plan"
+          grep -q 'thrift_ep-install/lib/libthrift.a' "$link_plan"
+          if grep -Eq '/lib(transport|thrift[^ .\/]+)\.a' "$link_plan"; then
+            exit 1
+          fi
+      - name: Prepare the same cold Docker endpoint as full macOS CI
+        if: inputs.probe == 'macos-arm-acceptance'
+        run: bash .pangrova/scripts/setup-macos-native-test-docker.sh
+      - name: Run all Native cases against the fresh real PostgreSQL fixture
+        if: inputs.probe == 'macos-arm-acceptance'
+        working-directory: pangrova-worker-native
+        run: |
+          python3 bin/run-native-tests.py --prepared-java "$RUNNER_TEMP/native-java-fixture" \
+            -- --output-junit test-results.xml
+      - name: Diagnose remaining Flight failures in the full executable
+        if: failure() && inputs.probe == 'macos-arm-acceptance'
+        working-directory: pangrova-worker-native
+        run: |
+          [[ -s build/test-results.xml ]] || exit 0
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          results = ET.parse("build/test-results.xml")
+          directory = Path(os.environ["RUNNER_TEMP"], "native-crash-diagnostics")
+          cases = [case.get("name") for case in results.iter("testcase")
+                   if case.find("failure") is not None and case.get("name", "").startswith(
+                      ("ResultFlightStreamTest.", "NativeExchangeDataPlaneE2ETest."))]
+          for name in cases:
+              with (directory / (name + ".lldb.log")).open("w") as output:
+                  command = ["xcrun", "lldb", "-b", "-o", "settings set target.disable-aslr false",
+                             "-o", "run", "-k", "thread backtrace all", "-o", "thread backtrace all",
+                             "--", "build/pangrova_native_tests", "--gtest_filter=" + name]
+                  try:
+                      subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, timeout=35)
+                  except subprocess.TimeoutExpired:
+                      output.write("Debugger exceeded its diagnostic budget\n")
+          PY
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: archived-macos-arm-crash-diagnostics
-          path: ${{ runner.temp }}/native-crash-diagnostics/
+          path: |
+            ${{ runner.temp }}/native-crash-diagnostics/
+            pangrova-worker-native/build/test-results.xml
+            pangrova-worker-native/build/Testing/LanceFixture/*/*.log
 
   metadata-regression:
     name: Verify rollback, UTF-8 plans and Arrow metadata on the exact repaired source
