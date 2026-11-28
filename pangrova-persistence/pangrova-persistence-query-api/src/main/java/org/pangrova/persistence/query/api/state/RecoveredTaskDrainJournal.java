@@ -29,7 +29,7 @@ public interface RecoveredTaskDrainJournal {
     /** Outcomes of an authoritative drain check under the current execution fence. */
     enum DrainOutcome {
         LOST_CLAIM, NO_SQL_EVIDENCE, MISSING_ISSUANCE, PENDING_COORDINATOR_STATEMENT,
-        PENDING_RECEIPTS, PENDING_WRITE, CONFIRMED
+        PENDING_RECEIPTS, PENDING_WRITE, CONFIRMED, CONFIRMED_STAGING
     }
 
     /** Original immutable task issuance and its opaque paging key. */

@@ -276,7 +276,16 @@ Worker and Coordinator exit check records the exact execution token that
 proves staging has stopped. Local retirement can record the same proof from
 its completed drain. The proof and staged object receipts survive execution
 retirement together. File deletion still requires a separate cleanup claim
-and confirmation from the file store.
+and confirmation from the file store. For observed SDK files in the same
+Linux local storage namespace, the recovery callback claims reclamation
+before unlinking and records completion for the exact fingerprint afterward.
+The worker receipt binds the namespace to the kernel boot identity and the
+database directory inode. Recovery verifies that binding before treating any
+missing path as absent, and uses directory-relative operations that do not
+follow links beneath the database directory. A successor can repeat a partial
+deletion under its new claim. The completion record covers only reported files.
+Native physical output, external roots, unreported files, and an unavailable
+original storage namespace retain the staging obligation.
 
 ![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](../../website/static/img/diagrams/query-execution-flow.svg)
 

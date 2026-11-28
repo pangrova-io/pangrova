@@ -46,7 +46,8 @@ import java.util.OptionalLong;
  * Paimon metadata implementation delegating to real Paimon Catalog API.
  * Acts as anti-corruption layer: Paimon SDK types stay within this module.
  */
-public class PaimonMetadata implements ConnectorMetadata {
+public class PaimonMetadata implements ConnectorMetadata,
+        org.pangrova.connector.api.metadata.DistributedWriteStagingCleanup {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaimonMetadata.class);
 
@@ -373,6 +374,12 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public boolean requiresPublicationClaim() { return true; }
+
+    @Override
+    public boolean reclaimObservedStaging(ConnectorSession session, ConnectorOutputTableHandle verifiedOutput,
+            java.util.List<byte[]> fragments, DistributedWriteCommitContext context) {
+        return writes.reclaimObservedStaging(session, (PaimonOutputTableHandle) verifiedOutput, fragments, context);
+    }
 
     org.pangrova.connector.api.metadata.NativePhysicalWriteProvider physicalWriteProvider() {
         return writes.physical();

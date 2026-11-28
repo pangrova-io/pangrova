@@ -17,6 +17,7 @@ import org.pangrova.connector.api.exception.SourcePublicationRetryableException;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.DistributedWriteStagingCleanup;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
@@ -64,6 +65,20 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
     public DefaultWriteCommitReconciler(WriteCommitJournal journal, CatalogResolver catalogResolver) {
         this.journal = checkNotNull(journal, "journal must not be null");
         this.catalogResolver = checkNotNull(catalogResolver, "catalogResolver must not be null");
+    }
+
+    /** Resolves the original catalog and binding before asking its storage to reclaim reported objects. */
+    public static boolean reclaimObservedStaging(WriteCommitEntry entry, ConnectorCatalogHandle catalog) {
+        if (entry.state() != WriteCommitState.ABORTED || entry.publication() != null) {
+            throw new IllegalArgumentException("Observed staging cleanup requires an unpublished abort");
+        }
+        SchemaTableName table = parseTable(entry.tableName());
+        if (table == null || catalog == null) return false;
+        var handle = decodeExactHandle(entry, table, catalog);
+        var session = new RecoveryConnectorSession(entry.catalogName(), table.schema(), entry.tenantId(),
+                entry.principal());
+        return catalog.getMetadata(session) instanceof DistributedWriteStagingCleanup reclaim
+                && reclaim.reclaimObservedStaging(session, handle, entry.fragments(), entry.commitContext());
     }
 
     @Override

@@ -12,6 +12,7 @@ import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.paimon.write.PaimonNativePhysicalWriteProvider;
+import org.pangrova.connector.paimon.write.PaimonObservedWriteStaging;
 import org.pangrova.connector.paimon.write.PaimonPhysicalWriteAllocations;
 import org.pangrova.protocol.write.PhysicalFileWriteReceipts;
 import org.pangrova.protocol.v2.WriteOutputBinding;
@@ -21,6 +22,7 @@ import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.enums.CommitEventType;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,6 +43,21 @@ final class PaimonWriteLifecycle {
     }
 
     PaimonNativePhysicalWriteProvider physical() { return physical; }
+
+    boolean reclaimObservedStaging(ConnectorSession session, PaimonOutputTableHandle verifiedOutput,
+            List<byte[]> fragments,
+            DistributedWriteCommitContext context) {
+        if (verifiedOutput.nativePhysicalWriteAllocation().isPresent()) return false;
+        if (!tenantId(session).equals(context.tenantId()) || context.copyFile() != null) {
+            throw new IllegalArgumentException("Paimon cleanup context differs from the bound tenant");
+        }
+        try {
+            return PaimonObservedWriteStaging.reclaim(verifiedOutput, fragments);
+        } catch (IOException e) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Observed Paimon staged objects could not be reclaimed", e);
+        }
+    }
 
     PaimonOutputTableHandle create(org.pangrova.connector.api.metadata.table.ConnectorTableMetadata metadata) {
         PaimonTableHandleFactory.requireWriteDeclarationSupported(metadata.properties());

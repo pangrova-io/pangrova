@@ -32,7 +32,7 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
 
     private final RecoveredTaskDrainJournal journal;
     private final Function<TaskStateEvent, CompletableFuture<SchedulerCancelResult>> seal;
-    private final java.util.function.Predicate<ExecutionAnchor> retire;
+    private final java.util.function.BiPredicate<ExecutionAnchor, RecoveredTaskDrainJournal.DrainOutcome> retire;
     private final Executor executor;
     private final long retryNanos;
     private final CoordinatorCallbackLifetime callbacks = new CoordinatorCallbackLifetime();
@@ -46,7 +46,8 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
 
     RecoveredTaskDrainPoll(RecoveredTaskDrainJournal journal,
             Function<TaskStateEvent, CompletableFuture<SchedulerCancelResult>> seal,
-            java.util.function.Predicate<ExecutionAnchor> retire, Executor executor, long retryMillis) {
+            java.util.function.BiPredicate<ExecutionAnchor, RecoveredTaskDrainJournal.DrainOutcome> retire,
+            Executor executor, long retryMillis) {
         this.journal = journal;
         this.seal = seal;
         this.retire = retire;
@@ -202,9 +203,10 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
             return new Scan(current.claim(), page.get(page.size() - 1).rowId(), unresolved, System.nanoTime());
         }
         if (unresolved) return retrySweep(current);
-        return switch (journal.confirmRecoveredTaskDrains(current.claim())) {
+        var outcome = journal.confirmRecoveredTaskDrains(current.claim());
+        return switch (outcome) {
             case PENDING_RECEIPTS -> retrySweep(current);
-            case CONFIRMED -> retire.test(current.claim()) ? null : retrySweep(current);
+            case CONFIRMED, CONFIRMED_STAGING -> retire.test(current.claim(), outcome) ? null : retrySweep(current);
             case MISSING_ISSUANCE -> {
                 LOG.warn("event=recovered_task_drain_incomplete_issuance queryId={}", current.claim().executionId());
                 yield null;

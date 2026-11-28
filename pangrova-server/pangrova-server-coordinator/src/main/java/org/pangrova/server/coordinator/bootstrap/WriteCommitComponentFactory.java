@@ -12,6 +12,7 @@ import org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.api.exception.CatalogNotFoundException;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
@@ -54,6 +55,18 @@ final class WriteCommitComponentFactory {
         WriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(journal,
                 catalogName -> resolveCatalog(catalog, catalogName));
         return new WriteCommitRecoveryService(journal, reconciler, quarantineStore);
+    }
+
+    static boolean reclaimObservedStaging(CatalogRegistry catalog,
+            org.pangrova.persistence.query.api.commit.WriteCommitEntry entry) {
+        if (catalog == null) return false;
+        try {
+            var handle = catalog.getCatalog(entry.catalogName());
+            return handle instanceof ConnectorCatalogHandle connector
+                    && DefaultWriteCommitReconciler.reclaimObservedStaging(entry, connector);
+        } catch (CatalogNotFoundException removed) {
+            return false;
+        }
     }
 
     /**

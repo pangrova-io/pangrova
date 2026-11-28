@@ -187,6 +187,30 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     }
 
     @Test
+    void observedStagingReplaysDeletionOnlyInTheOriginalLocalStorageNamespace() throws Exception {
+        createTable(false, false);
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var handle = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var first = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, handle), SURVIVOR);
+        var second = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, handle), SURVIVOR);
+        var prior = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(first, handle);
+        var current = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(second, handle);
+        var deleted = java.nio.file.Path.of(java.net.URI.create(prior.objects().get(0).uri()));
+        var remaining = java.nio.file.Path.of(java.net.URI.create(current.objects().get(0).uri()));
+        assertThat(deleted).isNotEqualTo(remaining);
+        java.nio.file.Files.delete(deleted);
+        var fragments = List.of(first, second);
+        var context = PaimonCommitTestSupport.context(metadata, SESSION, handle, fragments);
+        boolean authoritative = !current.localAuthority().isEmpty();
+
+        assertThat(metadata.reclaimObservedStaging(SESSION, handle, fragments, context)).isEqualTo(authoritative);
+        assertThat(java.nio.file.Files.exists(remaining)).isEqualTo(!authoritative);
+        assertThat(metadata.reclaimObservedStaging(SESSION, handle, fragments, context)).isEqualTo(authoritative);
+        assertThat(snapshotId()).isEqualTo(-1L);
+    }
+
+    @Test
     void durableCommitReplayDoesNotPublishDuplicateRowsOrSnapshots() throws Exception {
         createTable(false, false);
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());

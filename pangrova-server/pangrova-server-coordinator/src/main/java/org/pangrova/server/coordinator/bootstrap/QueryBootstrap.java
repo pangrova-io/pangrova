@@ -562,11 +562,16 @@ final class QueryBootstrap {
                 queryDispatcher.workerSelector(), taskTracker, taskStatusReceiver, stateJournal);
     }
 
-    private boolean releaseDrainedRecovery(org.pangrova.execution.api.ownership.ExecutionAnchor claim) {
+    private boolean releaseDrainedRecovery(org.pangrova.execution.api.ownership.ExecutionAnchor claim,
+            org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainOutcome outcome) {
         // The same process can claim its own expired grant while local resources still exist.
         var original = queryManager.getStateMachine(claim.executionId());
         if (original != null && !original.physicalCleanupApplied()) return false;
-        if (!durableRecovery.releaseRecoveredQuery(claim)) return false;
+        var catalog = metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry();
+        if (!durableRecovery.releaseRecoveredQuery(claim, catalog, outcome
+                == org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainOutcome.CONFIRMED_STAGING)) {
+            return false;
+        }
         if (original != null) original.confirmPhysicalRetirement();
         return true;
     }

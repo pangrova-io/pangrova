@@ -2,6 +2,7 @@ package org.pangrova.metadata.coordination;
 
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.query.postgresql.transaction.JdbcObservedWriteStaging;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
@@ -308,6 +309,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     @Test
     void unpublishedAbortHandoffWaitsForTheExactWorkersToDrain() throws SQLException {
         var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var staging = new JdbcObservedWriteStaging(dataSource);
         var lease = Duration.ofMinutes(1);
         var prior = anchors.tryAcquire("recover-aborted-write", "original", "original-boot", lease).orElseThrow();
         var intent = entry(prior.executionId(), "catalog-a", "schema.table", WriteCommitState.PENDING, 1L, prior);
@@ -327,16 +329,29 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
             assertThat(facts.confirmRecoveredTaskDrains(prior)).isEqualTo(DrainOutcome.LOST_CLAIM);
             assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.PENDING_RECEIPTS);
             assertThat(stagingDrainToken(intent)).isZero();
+            assertThat(staging.claim(successor)).isEmpty();
             assertThat(anchors.releaseDrainedQuery(successor, false)).isFalse();
 
             var issued = facts.pendingTaskDrains(successor, 0).get(0);
             assertThat(facts.retainTaskDrains(successor, List.of(new DrainReceipt(issued.rowId(), new byte[] {2}))))
                     .isTrue();
-            assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.CONFIRMED);
+            assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.CONFIRMED_STAGING);
             assertThat(stagingDrainToken(intent)).isEqualTo(successor.fencingToken());
             assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isTrue();
             assertThat(stagingDrainToken(intent)).isEqualTo(successor.fencingToken());
-            assertThat(anchors.releaseDrainedQuery(successor, false)).isTrue();
+            assertThat(staging.claim(successor)).get().extracting(WriteCommitEntry::commitFingerprint)
+                    .isEqualTo(intent.commitFingerprint());
+            assertThat(staging.claim(successor)).isPresent();
+            assertThat(anchors.yield(successor)).isTrue();
+            var retry = anchors.tryAcquire(intent.queryId(), "retry", "retry-boot", lease).orElseThrow();
+            assertThat(staging.complete(successor, intent.commitFingerprint())).isFalse();
+            assertThat(facts.confirmRecoveredTaskDrains(retry)).isEqualTo(DrainOutcome.CONFIRMED_STAGING);
+            assertThat(staging.claim(retry)).isPresent();
+            assertThat(staging.complete(retry, "0".repeat(64))).isFalse();
+            assertThat(staging.complete(retry, intent.commitFingerprint())).isTrue();
+            assertThat(facts.confirmRecoveredTaskDrains(retry)).isEqualTo(DrainOutcome.CONFIRMED);
+            assertThat(staging.claim(retry)).isEmpty();
+            assertThat(anchors.releaseDrainedQuery(retry, false)).isTrue();
             assertThat(stagingDrainToken(intent)).isEqualTo(successor.fencingToken());
             assertThat(journal.getEntry(intent.queryId())).get().extracting(WriteCommitEntry::state)
                     .isEqualTo(WriteCommitState.ABORTED);

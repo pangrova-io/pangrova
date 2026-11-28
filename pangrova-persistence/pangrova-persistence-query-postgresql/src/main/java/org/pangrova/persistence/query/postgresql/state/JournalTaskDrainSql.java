@@ -72,7 +72,8 @@ final class JournalTaskDrainSql {
                        EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
                            AS query_observed
             ), write_state AS MATERIALIZED (
-                SELECT w.query_id, w.commit_fingerprint, w.state, w.staging_drain_token, w.execution_fencing_token
+                SELECT w.query_id, w.commit_fingerprint, w.state, w.staging_drain_token,
+                       w.execution_fencing_token, w.staging_observed_reclaimed_at
                 FROM write_commit_journal w JOIN claim c ON w.query_id = c.execution_id
             ), outcome AS MATERIALIZED (
                 SELECT CASE
@@ -147,7 +148,11 @@ final class JournalTaskDrainSql {
                     AND q.state IN ('FINISHED', 'FAILED', 'CANCELLED')
                 )
             )
-            SELECT state FROM outcome
+            SELECT CASE WHEN state = 'CONFIRMED' AND EXISTS (
+                SELECT 1 FROM write_state w JOIN claim c ON c.execution_id = w.query_id
+                WHERE w.staging_drain_token IS NOT NULL AND w.staging_observed_reclaimed_at IS NULL
+                  AND w.execution_fencing_token < c.fencing_token
+            ) THEN 'CONFIRMED_STAGING' ELSE state END FROM outcome
             """;
 
     private static final String RETAIN = """

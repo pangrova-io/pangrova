@@ -774,7 +774,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         }
     }
 
-    private static WriteCommitEntry readEntry(ResultSet rs) throws SQLException {
+    static WriteCommitEntry readEntry(ResultSet rs) throws SQLException {
         return new WriteCommitEntry(
                 rs.getString("query_id"),
                 rs.getString("catalog_name"),

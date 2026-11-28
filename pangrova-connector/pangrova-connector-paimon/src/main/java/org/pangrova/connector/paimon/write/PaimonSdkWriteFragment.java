@@ -27,13 +27,14 @@ import java.util.UUID;
 
 /** SDK messages and exact observations of staged data objects under the bound table root. */
 public final class PaimonSdkWriteFragment {
-    private static final int FRAGMENT_VERSION = 1;
+    private static final int FRAGMENT_VERSION = 2;
 
     private PaimonSdkWriteFragment() {}
 
     public record StagedObject(String uri, long sizeBytes) {}
 
-    public record Decoded(CommitEventType eventType, List<CommitMessage> messages, List<StagedObject> objects) {
+    public record Decoded(CommitEventType eventType, List<CommitMessage> messages,
+                          List<StagedObject> objects, String localAuthority) {
         public Decoded {
             messages = List.copyOf(messages);
             objects = List.copyOf(objects);
@@ -52,6 +53,9 @@ public final class PaimonSdkWriteFragment {
             out.writeUTF(event.name());
             out.writeUTF(handle.schemaName());
             out.writeUTF(handle.tableName());
+            var root = PaimonLocalStagingAuthority.absolutePath(new Path(handle.tableLocation()).toUri());
+            out.writeUTF(!objects.isEmpty() && root != null
+                    ? PaimonLocalStagingAuthority.observe(root.getParent()) : "");
             out.writeInt(serializer.getVersion());
             out.writeInt(messages.size());
             for (var message : messages) {
@@ -82,12 +86,16 @@ public final class PaimonSdkWriteFragment {
             if (!handle.schemaName().equals(in.readUTF()) || !handle.tableName().equals(in.readUTF())) {
                 throw new IllegalArgumentException("Paimon fragment target differs from the bound table");
             }
+            String localAuthority = in.readUTF();
+            if (!localAuthority.isEmpty() && !localAuthority.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("Invalid Paimon local staging authority");
+            }
             var messages = readMessages(in, in.readInt());
             var objects = readObjects(in, handle, messages);
             if (in.available() != 0) {
                 throw new IllegalArgumentException("Trailing bytes in Paimon commit fragment");
             }
-            return new Decoded(event, messages, objects);
+            return new Decoded(event, messages, objects, localAuthority);
         }
     }
 
