@@ -136,6 +136,9 @@ using the window 50 ms early for clock uncertainty. Object PUTs run outside
 transactions. One publication transaction rechecks the live fences, publishes
 the ordered inventory as a group and consumes the reservation. The stream
 flushes its last group before acknowledging the producer's half-close.
+For unexpected stream failures, Worker logs record
+`remote_shuffle_producer_failed` with the shuffle ID, task ID and gRPC status
+before the error crosses the JNI boundary.
 
 The PostgreSQL/MinIO regression verifies the same eight authorization and
 inventory statements for one batch, 32 batches and 128 chunks within a single

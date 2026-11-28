@@ -19,6 +19,8 @@ import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.protocol.v2.shuffle.WriteBatchResponse;
 import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.grpc.Status;
 import io.grpc.stub.ClientCallStreamObserver;
@@ -26,6 +28,7 @@ import io.grpc.stub.ClientResponseObserver;
 
 /** One flow-controlled multiplexed stream for a producer and data endpoint. */
 final class RemoteShuffleProducerStream implements AutoCloseable {
+    private static final Logger LOG = LoggerFactory.getLogger(RemoteShuffleProducerStream.class);
 
     private final Object readinessMonitor = new Object();
     private final CountDownLatch completed = new CountDownLatch(1);
@@ -187,7 +190,10 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
 
         @Override
         public void onError(Throwable failure) {
-            error.compareAndSet(null, failure);
+            if (error.compareAndSet(null, failure) && state.get() != ProducerStreamState.ABORTED) {
+                LOG.warn("event=remote_shuffle_producer_failed shuffleId={} taskId={} grpcCode={}",
+                        shuffleId, taskAttempt.taskId(), Status.fromThrowable(failure).getCode(), failure);
+            }
             completed.countDown();
             signalReady();
         }
