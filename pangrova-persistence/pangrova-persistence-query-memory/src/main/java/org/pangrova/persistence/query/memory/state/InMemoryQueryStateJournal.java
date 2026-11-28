@@ -112,6 +112,7 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         Objects.requireNonNull(principal, "principal");
         Objects.requireNonNull(idempotencyKeyDigest, "idempotencyKeyDigest");
         return Optional.ofNullable(findAcceptanceEvent(principal, idempotencyKeyDigest))
+                .filter(event -> !isExpired(event))
                 .map(QueryStateEvent::acceptance);
     }
 

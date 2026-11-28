@@ -292,6 +292,30 @@ class QueryManagerDurableAcceptanceTest {
     }
 
     @Test
+    void capacityDenialOnlyReplaysTheMatchingPrincipalAndExplicitKey() throws Exception {
+        var journal = new InMemoryQueryStateJournal();
+        var original = manager(firstDispatcher, journal).submitQueryAsync("q-original", "SELECT 1",
+                session("q-original", "alice"), acceptance("alice", FINGERPRINT))
+                .toCompletableFuture().get(5, TimeUnit.SECONDS);
+        var full = manager(secondDispatcher, journal, new CountingAdmission(true));
+
+        var replay = full.submitQueryAsync("q-replay", "SELECT 1", session("q-replay", "alice"),
+                acceptance("alice", FINGERPRINT)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(replay).isEqualTo(original);
+        assertThat(full.getStateMachine("q-replay")).isNull();
+        assertThat(secondDispatcher.calls).hasValue(0);
+
+        assertThatThrownBy(() -> full.submitQueryAsync("q-conflict", "SELECT 2", session("q-conflict", "alice"),
+                acceptance("alice", "c".repeat(64)))).isInstanceOf(IdempotencyConflictException.class);
+        assertThatThrownBy(() -> full.submitQueryAsync("q-bob", "SELECT 1", session("q-bob", "bob"),
+                acceptance("bob", FINGERPRINT))).isInstanceOf(
+                        org.pangrova.security.exception.TenantQuotaExceededException.class);
+        assertThatThrownBy(() -> full.submitQueryAsync("q-fresh", "SELECT 1", session("q-fresh", "alice"),
+                new QueryAcceptanceRequest("alice", KEY_DIGEST, FINGERPRINT, null, false))).isInstanceOf(
+                        org.pangrova.security.exception.TenantQuotaExceededException.class);
+    }
+
+    @Test
     void replayReleasesCandidateAdmissionAndThrottle() throws Exception {
         var journal = new InMemoryQueryStateJournal();
         var first = manager(firstDispatcher, journal);
@@ -375,6 +399,11 @@ class QueryManagerDurableAcceptanceTest {
     private static final class CountingAdmission implements org.pangrova.query.lifecycle.QueryAdmissionPort {
         private final AtomicInteger throttleReleases = new AtomicInteger();
         private final AtomicInteger clusterReleases = new AtomicInteger();
+        private final boolean full;
+
+        private CountingAdmission() { this(false); }
+
+        private CountingAdmission(boolean full) { this.full = full; }
 
         @Override
         public boolean acquireHealthProbe() {
@@ -389,6 +418,7 @@ class QueryManagerDurableAcceptanceTest {
         @Override
         public void checkCluster(String queryId, org.pangrova.security.api.tenant.ResolvedTenantContext tenant,
                 QueryStateMachine state) {
+            if (full) throw new org.pangrova.security.exception.TenantQuotaExceededException("tenant is full");
             state.retainAdmissionRelease(clusterReleases::incrementAndGet);
         }
 

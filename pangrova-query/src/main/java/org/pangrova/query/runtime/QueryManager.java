@@ -14,6 +14,7 @@ import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.query.api.enums.QueryState;
 
+import org.pangrova.query.api.exception.IdempotencyConflictException;
 import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
@@ -351,7 +352,22 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                 lifecycleMetrics.recordRejection(AdmissionRejection.THROTTLED);
                 throw throttled;
             }
-            var ownership = admitExecution(queryId, tenantId, tenant, sm);
+            QueryExecutionPort.Ownership ownership;
+            try {
+                ownership = admitExecution(queryId, tenantId, tenant, sm);
+            } catch (PangrovaException denied) {
+                if (denied.getErrorCode() != PangrovaErrorCode.TENANT_QUOTA_EXCEEDED
+                        || acceptanceRequest == null || !acceptanceRequest.explicitKey()) {
+                    throw denied;
+                }
+                var previous = journalLifecycle.findAcceptance(
+                        acceptanceRequest.principal(), acceptanceRequest.idempotencyKeyDigest())
+                        .orElseThrow(() -> denied);
+                if (!previous.requestFingerprint().equals(acceptanceRequest.requestFingerprint())) {
+                    throw new IdempotencyConflictException();
+                }
+                return replayAcceptance(queryId, sm, previous);
+            }
             sm.bindJournalGrant(ownership.anchor());
             queryDispatcher.bindConnectorAuthority(sm, queryId);
             sm.resolveOwnership(true);
@@ -363,13 +379,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                 acceptanceAdmission = journalLifecycle.accept(queryId, sm.getSql(), enriched, sm,
                         acceptanceRequest, QueryAcceptance.DEFAULT_RETENTION_MS, ownership.anchor());
                 if (!acceptanceAdmission.newExecution()) {
-                    pendingCancellations.remove(queryId);
-                    sm.resolveOwnership(false);
-                    sm.releaseAdmission();
-                    admission.releaseThrottle(queryId);
-                    cleanupCandidate(queryId, sm);
-                    queries.releaseSubmission(queryId, sm);
-                    return new StartedSubmission(null, null, acceptanceAdmission.acceptance().receipt());
+                    return replayAcceptance(queryId, sm, acceptanceAdmission.acceptance());
                 }
             }
 
@@ -433,6 +443,16 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                     () -> failQuery(queryId, submissionError("INTERNAL_ERROR", failure), "dispatch_failed"));
             throw failure;
         }
+    }
+
+    private StartedSubmission replayAcceptance(String queryId, QueryStateMachine state, QueryAcceptance acceptance) {
+        pendingCancellations.remove(queryId);
+        state.resolveOwnership(false);
+        state.releaseAdmission();
+        admission.releaseThrottle(queryId);
+        cleanupCandidate(queryId, state);
+        queries.releaseSubmission(queryId, state);
+        return new StartedSubmission(null, null, acceptance.receipt());
     }
 
     private void applyPendingCancellation(String queryId, QueryStateMachine state) {
