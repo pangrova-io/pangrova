@@ -1652,10 +1652,15 @@ the task's canonical terminal report. The Coordinator selects up to four pairs
 with disjoint build and probe stages, prioritizing estimated probe bytes and file
 count. Each probe uses its own winning build cohort. The pairs share one 200 ms
 wait window after initial source scheduling. One build can release its probe
-while another is still collecting. An incomplete or late cohort leaves its
-probe's static constraints in effect. A proven all-NULL cohort still validates
-the pinned read authority and emits no probe splits. Proven nonempty ranges join
-the existing constraints in the same Iceberg scan.
+while another is still collecting. The deadline releases scheduling. Each probe
+samples the completed build evidence immediately before opening split
+enumeration, which lets a build finishing after the deadline still prune that
+scan. The wait outcome in the profile records the scheduling decision, and the
+enumeration log indicates when it used evidence after a timeout. If the evidence
+is still incomplete when enumeration starts, the probe uses its static constraints.
+A proven all-NULL cohort still validates the pinned read authority and emits no
+probe splits. Proven nonempty ranges join the existing constraints in the same
+Iceberg scan.
 
 ![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](../../website/static/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
 

@@ -87,8 +87,9 @@ public final class StageSplitFetcher {
         var splits = splitSource.fetchAndFilterSplits(fragment, List.of(pruned), overrides, session,
                 fileGranularity);
         if (original != pruned) {
-            LOG.info("event=runtime_filter_probe_splits queryId={} stageId={} splitCount={} emptyBuild={}",
-                    session.queryId(), plan.stageId(), splits.size(), ranges.isEmpty());
+            LOG.info("event=runtime_filter_probe_splits queryId={} stageId={} splitCount={} "
+                            + "emptyBuild={} afterWaitDeadline={}",
+                    session.queryId(), plan.stageId(), splits.size(), ranges.isEmpty(), filter.releasedOnTimeout());
         }
         return new FetchedSplits(splits, sourcePlan);
     }

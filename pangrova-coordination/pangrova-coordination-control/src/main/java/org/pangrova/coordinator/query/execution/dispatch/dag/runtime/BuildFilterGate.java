@@ -111,19 +111,28 @@ public final class BuildFilterGate {
     /** Releases exactly one decision inside the common query-level wait window. */
     public CompletionStage<ProbeRelease> releaseProbe(CompletableFuture<?> queryCompletion,
             ScheduledExecutorService deadlines, long deadlineNanos) {
+        var probeDecision = new CompletableFuture<ProbeRelease>();
+        completedBuild.thenAccept(probeDecision::complete);
         queryCompletion.whenComplete((result, failure) -> completedBuild.complete(TERMINATED));
-        var timeout = completedBuild.isDone() ? null : deadlines.schedule(
-                () -> { completedBuild.complete(TIMEOUT); },
+        var timeout = probeDecision.isDone() ? null : deadlines.schedule(
+                () -> { probeDecision.complete(TIMEOUT); },
                 Math.max(0, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
-        return completedBuild.thenApply(decision -> {
+        return probeDecision.thenApply(decision -> {
             if (timeout != null) timeout.cancel(false);
             releasedProbe = decision;
             return decision;
         });
     }
 
+    /** Takes the best available build evidence when the exact probe reaches split enumeration. */
     public Map<Integer, List<BuildKeyRange>> probeRanges(int stageId) {
         var released = releasedProbe;
-        return released != null && isProbe(stageId) ? released.ranges() : null;
+        if (released == null || !isProbe(stageId)) return null;
+        return (released == TIMEOUT ? completedBuild.getNow(TIMEOUT) : released).ranges();
+    }
+
+    /** Indicates that the probe was released by the wait deadline. */
+    public boolean releasedOnTimeout() {
+        return releasedProbe == TIMEOUT;
     }
 }
