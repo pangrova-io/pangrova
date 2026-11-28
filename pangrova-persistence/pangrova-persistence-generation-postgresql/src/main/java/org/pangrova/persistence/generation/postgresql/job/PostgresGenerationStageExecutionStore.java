@@ -116,7 +116,6 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                     completion.fencingToken(),
                     completion.controlTerm(), bytes, org.pangrova.common.util.DigestUtils.sha256Hex(bytes), List.of(),
                     completion.completedAt(), completion.executionOwner());
-            requireCompletion(report);
             return PostgresGenerationCompletion.completeLockedProducer(
                     executionFence, connection, report, job, page);
         });

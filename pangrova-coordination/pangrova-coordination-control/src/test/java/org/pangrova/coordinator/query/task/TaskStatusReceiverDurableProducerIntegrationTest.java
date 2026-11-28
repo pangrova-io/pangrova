@@ -44,7 +44,9 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.enums.GenerationJobState;
@@ -652,23 +654,52 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     @Test
-    void corruptedWinnerCannotChangeTheOriginalAllocationEpochEvenWithAnUpdatedStorageSha() throws Exception {
-        assertThat(receiver.onTaskStatus(status(request, originalWire(request)))).isTrue();
-        var replacement = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement-coordinator", 9);
+    void storedWinnerWithValidDigestCannotChangeTheOriginalAllocationEpoch() throws Exception {
+        var attempt = request.taskRequest().getAttempt();
         byte[] changed = originalWire(request(8));
-        try (var connection = dataSource.getConnection(); var update = connection.prepareStatement(
-                "UPDATE artifact_build_pages SET report_bytes=?,report_sha256=? WHERE tenant_id=? AND job_id=? "
-                        + "AND page_id=?")) {
-            update.setBytes(1, changed);
-            update.setString(2, DigestUtils.sha256Hex(changed));
-            update.setString(3, KEY.tenantId());
-            update.setString(4, KEY.jobId());
-            update.setString(5, lease.pageId());
-            assertThat(update.executeUpdate()).isEqualTo(1);
-        }
+        assertThat(stages.completeProducer(new GenerationStageExecutionStore.ProducerCompletion(KEY,
+                GenerationExecutionOwner.from(anchor), attempt.getStageId(), attempt.getPartitionId(),
+                attempt.getPlanEpoch(), attempt.getAttemptId(), attempt.getFencingToken(), attempt.getControlEpoch(),
+                changed, Instant.now()))).isTrue();
+
+        var replacement = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement-coordinator", 9);
         var runtime = runtime(replacement);
         assertThatThrownBy(() -> runtime.winner(1, 0, runtime.inspect(1, 0, 1).get(0)))
                 .hasMessageContaining("original allocation epoch");
+    }
+
+    @Test
+    void finalizedExchangeDoesNotReloadProducerReportsForClaimOrReplay() throws Exception {
+        assertThat(receiver.onTaskStatus(status(request, originalWire(request)))).isTrue();
+        var store = ModelAuthorityFixtures.artifacts().exchanges(dataSource);
+        var owner = GenerationExecutionOwner.from(anchor);
+        var registration = store.load(KEY, owner).get(0).registration();
+        byte[] provider = new byte[]{1, 4, 2};
+        var proof = new GenerationExchangeFinalization(registration.exchangeId(),
+                GenerationExchangeEvidenceCodec.sha256(registration), registration.shuffleId(),
+                registration.planEpoch(), owner, registration.producerCount(), registration.producerSetSha256(),
+                List.of(new GenerationExchangeFinalization.Partition(0, 0, 0, -1, "d".repeat(64))),
+                0, 0, DigestUtils.sha256Hex(provider));
+
+        installStatementCounters();
+        String reportScan = "SELECT partition_id,state,report_bytes,report_sha256,%FROM artifact_build_pages%";
+        String exactRegistration = "WITH exact_registration_edge AS MATERIALIZED%";
+        long before = statementReads(reportScan);
+        long registrationsBefore = statementReads(exactRegistration);
+        String graphLookup = "SELECT exchange_id,producer_stage_id,consumer_stage_id,%"
+                + "FROM artifact_stage_exchanges WHERE tenant_id=%";
+        long globalBefore = statementReads(graphLookup);
+        store.finalizeExchange(KEY, owner, proof, provider);
+        store.finalizeExchange(KEY, owner, proof, provider);
+        assertThat(statementReads(exactRegistration) - registrationsBefore).isEqualTo(2);
+        assertThat(statementReads(graphLookup) - globalBefore).isZero();
+        assertThat(stages.prepareExecution(KEY, anchor).exchanges()).singleElement()
+                .satisfies(evidence -> assertThat(evidence.finalization()).contains(proof));
+        var terminal = stages.preparePartition(claim(0, 1), prepared -> prepared.lease()).orElseThrow();
+        var leasedEvidence = stages.prepareLeasedPartition(terminal, Instant.now(), prepared -> prepared.exchanges());
+        assertThat(leasedEvidence).singleElement()
+                .satisfies(evidence -> assertThat(evidence.finalization()).contains(proof));
+        assertThat(statementReads(reportScan) - before).isZero();
     }
 
     private DurableStageRuntime runtime(ExecutionAnchor current) {

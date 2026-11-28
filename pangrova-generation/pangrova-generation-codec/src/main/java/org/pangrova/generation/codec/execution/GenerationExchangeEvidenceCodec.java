@@ -48,8 +48,14 @@ public final class GenerationExchangeEvidenceCodec {
     /** Binds the response to the exact persisted allocation, never a newly enumerated producer cohort. */
     public static void requireRegistration(GenerationExchangeFinalization finalization,
             GenerationExchangeRegistration registration) {
+        requireRegistration(finalization, registration, sha256(registration));
+    }
+
+    /** Uses the registration digest already verified while decoding its canonical stored bytes. */
+    public static void requireRegistration(GenerationExchangeFinalization finalization,
+            GenerationExchangeRegistration registration, String verifiedRegistrationDigest) {
         if (!finalization.exchangeId().equals(registration.exchangeId())
-                || !finalization.registrationSha256().equals(sha256(registration))
+                || !finalization.registrationSha256().equals(verifiedRegistrationDigest)
                 || !finalization.shuffleId().equals(registration.shuffleId())
                 || finalization.planEpoch() != registration.planEpoch()
                 || finalization.producerCount() != registration.producerCount()

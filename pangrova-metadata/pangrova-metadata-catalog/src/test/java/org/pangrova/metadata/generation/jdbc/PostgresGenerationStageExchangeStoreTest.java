@@ -21,6 +21,7 @@ import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
+import org.pangrova.persistence.generation.api.exception.GenerationStorageException;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,7 @@ import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import javax.sql.DataSource;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -243,7 +245,8 @@ class PostgresGenerationStageExchangeStoreTest {
         var allocation = registration();
         exchanges.register(KEY, owner(), allocation);
         assertThatThrownBy(() -> exchanges.finalizeExchange(KEY, owner(), proof(allocation), providerResponse()))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("immutable producer winners");
+                .isInstanceOf(GenerationStorageException.class).rootCause()
+                .hasMessageContaining("immutable producer winners");
         completeProducer();
         assertThat(builds.listRunnableJobs(10, NOW)).isEmpty();
         assertThat(builds.claimNextPage(KEY.tenantId(), KEY.jobId(), anchor, 8, Duration.ofMinutes(1), NOW)).isEmpty();
@@ -336,6 +339,33 @@ class PostgresGenerationStageExchangeStoreTest {
         exchanges.register(KEY, owner(), allocation);
         exchanges.finalizeExchange(KEY, owner(), proof(allocation), providerResponse());
         assertThat(stages.preparePartition(partitionClaim(0, 0, 1), value -> callbacks.incrementAndGet())).hasValue(1);
+    }
+
+    @Test
+    void freezesSuccessfulReportsAndFinalizationsUntilJobRetirement() throws Exception {
+        var registration = registration();
+        exchanges.register(KEY, owner(), registration);
+        completeProducer();
+        exchanges.finalizeExchange(KEY, owner(), proof(registration), providerResponse());
+
+        String job = " WHERE tenant_id='stage-tenant' AND job_id='stage-job'";
+        for (String mutation : List.of(
+                "UPDATE artifact_build_pages SET report_sha256=repeat('0',64)" + job + " AND stage_id=1",
+                "DELETE FROM artifact_build_pages" + job + " AND stage_id=1",
+                "UPDATE artifact_exchange_finalizations SET finalization_sha256=repeat('0',64)" + job,
+                "DELETE FROM artifact_exchange_finalizations" + job)) {
+            assertThatThrownBy(() -> changeEdges(mutation)).isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Committed artifact exchange evidence is immutable");
+        }
+
+        changeEdges("DELETE FROM artifact_build_jobs" + job);
+        assertThat(builds.findJob(KEY.tenantId(), KEY.jobId())).isEmpty();
+        try (var connection = dataSource.getConnection(); var sql = connection.createStatement();
+             var rows = sql.executeQuery("SELECT (SELECT count(*) FROM artifact_build_pages" + job + "), "
+                     + "(SELECT count(*) FROM artifact_exchange_finalizations" + job + ")")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(List.of(rows.getLong(1), rows.getLong(2))).containsExactly(0L, 0L);
+        }
     }
 
     @Test

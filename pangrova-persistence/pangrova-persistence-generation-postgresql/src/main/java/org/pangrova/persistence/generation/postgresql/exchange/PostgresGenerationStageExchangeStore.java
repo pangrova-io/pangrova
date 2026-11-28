@@ -170,14 +170,12 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
-            var registration = findRegistration(connection, job, finalization.exchangeId()).orElseThrow(() ->
+            var registration = lockRegistration(connection, context, finalization.exchangeId()).orElseThrow(() ->
                     new IllegalStateException("Cannot finalize an unregistered durable exchange"));
-            validateRegistration(connection, context, registration, requireGraphEdges(connection, context));
             GenerationExchangeEvidenceCodec.requireRegistration(finalization, registration);
             if (!owner.equals(finalization.finalizingOwner())) {
                 throw new IllegalArgumentException("External finalize response belongs to a different current owner");
             }
-            requireProducerWinners(connection, job, registration);
             if (!insertFinalization(connection, job, finalization, providerResponse)) {
                 requireSameFinalizedData(connection, job, registration, finalization, providerResponse);
             }
@@ -191,7 +189,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         return transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
-            return readLockedEvidence(connection, context, null, false, true);
+            return readLockedEvidence(connection, context, null, true);
         });
     }
 
@@ -217,23 +215,23 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     /** Called before job/page locks. A successful metadata page alone can never open an exchange consumer. */
     public static void lockValidatedBarriers(Connection connection, PostgresCurrentGenerationAuthority context)
             throws SQLException {
-        readLockedEvidence(connection, context, null, true, false);
+        readLockedEvidence(connection, context, null, false);
     }
 
     /** Locks each barrier and returns the same validated registration and finalization bytes. */
     public static List<ExchangeEvidence> lockAndLoadValidatedEvidence(Connection connection,
             PostgresCurrentGenerationAuthority context) throws SQLException {
-        return readLockedEvidence(connection, context, null, true, true);
+        return readLockedEvidence(connection, context, null, true);
     }
 
     /** Locks and validates only the exchange edges incident to an exact stage claim. */
     public static List<ExchangeEvidence> lockAndLoadStageEvidence(Connection connection,
             PostgresCurrentGenerationAuthority context, int stage) throws SQLException {
-        return readLockedEvidence(connection, context, stage, true, true);
+        return readLockedEvidence(connection, context, stage, true);
     }
 
     private static List<ExchangeEvidence> readLockedEvidence(Connection connection,
-            PostgresCurrentGenerationAuthority context, Integer stage, boolean verifyWinners, boolean retainEvidence)
+            PostgresCurrentGenerationAuthority context, Integer stage, boolean retainEvidence)
             throws SQLException {
         var spec = context.dispatchSpec();
         var job = new GenerationJobKey(spec.tenantId(), spec.jobId());
@@ -260,9 +258,6 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                     if (finalized == null && !retainEvidence) continue;
                     var value = readExchangeEvidence(context, rows, edge, graphSha256, finalized);
                     if (value == null) continue;
-                    if (verifyWinners && value.finalization().isPresent()) {
-                        requireProducerWinners(connection, job, value.registration());
-                    }
                     if (retainEvidence) evidence.add(value);
                 }
                 requireEdgeCount(expected.size(), count);
@@ -278,8 +273,8 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             if (finalized != null) throw new IllegalStateException("Barrier has no allocation");
             return null;
         }
-        var allocation = GenerationExchangeEvidenceCodec.decodeRegistration(
-                registered, row.getString("registration_sha256"));
+        String registrationDigest = row.getString("registration_sha256");
+        var allocation = GenerationExchangeEvidenceCodec.decodeRegistration(registered, registrationDigest);
         var stage = context.dispatchSpec().stageGraph().requireStage(edge.upstreamStageId());
         requireRegistrationIdentity(context, allocation, stage, edge, graphSha256);
         requireSourceSnapshot(allocation, row.getString("source_snapshot"));
@@ -287,7 +282,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         if (finalized != null) {
             var value = GenerationExchangeEvidenceCodec.decodeFinalization(
                     finalized, row.getString("finalization_sha256"));
-            GenerationExchangeEvidenceCodec.requireRegistration(value, allocation);
+            GenerationExchangeEvidenceCodec.requireRegistration(value, allocation, registrationDigest);
             finalization = Optional.of(value);
         }
         return new ExchangeEvidence(allocation, finalization);
@@ -372,35 +367,6 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     private static void requireEdgeCount(int expected, int actual) {
         if (actual != expected) {
             throw new IllegalStateException("Persisted exchange edges are missing from the immutable stage graph");
-        }
-    }
-
-    private static void requireProducerWinners(Connection connection, GenerationJobKey job,
-            GenerationExchangeRegistration registration) throws SQLException {
-        try (var statement = connection.prepareStatement("SELECT partition_id,state,report_bytes,report_sha256,"
-                + "execution_owner_token FROM artifact_build_pages WHERE tenant_id=? AND job_id=? AND stage_id=? "
-                + "ORDER BY partition_id")) {
-            statement.setString(1, job.tenantId());
-            statement.setString(2, job.jobId());
-            statement.setInt(3, registration.producerStageId());
-            int partition = 0;
-            try (var row = statement.executeQuery()) {
-                while (row.next()) {
-                    requireProducerWinner(row, partition++);
-                }
-            }
-            if (partition != registration.producerCount()) {
-                throw new IllegalStateException("External finalize producer cohort is incomplete");
-            }
-        }
-    }
-
-    private static void requireProducerWinner(java.sql.ResultSet row, int partition) throws SQLException {
-        byte[] report = row.getBytes("report_bytes");
-        if (row.getInt("partition_id") != partition || !"SUCCEEDED".equals(row.getString("state"))
-                || report == null || report.length == 0 || row.getLong("execution_owner_token") <= 0
-                || !org.pangrova.common.util.DigestUtils.matchesSha256(report, row.getString("report_sha256"))) {
-            throw new IllegalStateException("External finalize lacks exact, immutable producer winners");
         }
     }
 
