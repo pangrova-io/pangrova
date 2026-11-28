@@ -24,6 +24,10 @@ final class TableFormatter {
     private TableFormatter() {}
 
     static String formatPage(List<String> columnNames, List<List<String>> rows) {
+        return formatPage(columnNames, rows, TerminalStyle.plain());
+    }
+
+    static String formatPage(List<String> columnNames, List<List<String>> rows, TerminalStyle style) {
         if (columnNames.isEmpty()) return "(no columns)\n";
 
         int columnCount = columnNames.size();
@@ -32,16 +36,16 @@ final class TableFormatter {
         StringBuilder sb = new StringBuilder();
         String separator = buildSeparator(widths);
 
-        sb.append(separator);
-        sb.append(buildRow(columnNames, widths));
-        sb.append(separator);
+        sb.append(style.dim(separator));
+        sb.append(style.header(buildRow(columnNames, widths)));
+        sb.append(style.dim(separator));
 
         for (List<String> row : rows) {
             List<String> paddedRow = padRow(row, columnCount);
             sb.append(buildRow(paddedRow, widths));
         }
 
-        sb.append(separator);
+        sb.append(style.dim(separator));
         return sb.toString();
     }
 
