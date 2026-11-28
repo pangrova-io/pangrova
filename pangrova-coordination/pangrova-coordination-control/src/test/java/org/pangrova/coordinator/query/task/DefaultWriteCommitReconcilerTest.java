@@ -55,6 +55,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 Map.of(), "", Set.of(), incarnation, 1L);
         return new ConnectorCatalogHandle(descriptor, new Connector() {
             @Override public ConnectorMetadata getMetadata(ConnectorSession session) {
+                metadata.metadataReads.incrementAndGet();
                 return metadata;
             }
             @Override public ConnectorSplitManager getSplitManager() {
@@ -67,7 +68,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 if (metadata.codecUnavailable) {
                     throw new UnsupportedOperationException("codec unavailable");
                 }
-                return new TestOutputCodec(metadata.decodeCount);
+                return new TestOutputCodec(metadata.decodeCount, metadata.encodeCount);
             }
         });
     }
@@ -140,6 +141,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.COMMITTED);
         assertThat(md.decodeCount.get()).as("exact handle decoded").isEqualTo(1);
+        assertThat(md.encodeCount.get()).as("one canonical binding verification").isEqualTo(1);
         assertThat(md.finishCount.get()).as("commit re-driven (idempotent)").isEqualTo(1);
         assertThat(md.lastFragments).as("original worker fragments replayed").hasSize(1);
         assertThat(md.lastTable).isEqualTo(new SchemaTableName("sales", "orders"));
@@ -170,6 +172,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.finishCount.get()).isZero();
+        assertThat(md.decodeCount.get()).as("abort reuses the verified handle").isEqualTo(1);
+        assertThat(md.metadataReads.get()).as("abort uses the same catalog authority").isEqualTo(1);
     }
 
     @Test
@@ -294,6 +298,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
     }
 
     private static final class RecordingMetadata implements ConnectorMetadata {
+        final AtomicInteger metadataReads = new AtomicInteger();
+        final AtomicInteger encodeCount = new AtomicInteger();
         final AtomicInteger decodeCount = new AtomicInteger();
         final AtomicInteger finishCount = new AtomicInteger();
         volatile boolean codecUnavailable = false;
@@ -374,11 +380,12 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         }
     }
 
-    private record TestOutputCodec(AtomicInteger decoded) implements ConnectorOutputHandleCodec {
+    private record TestOutputCodec(AtomicInteger decoded, AtomicInteger encoded) implements ConnectorOutputHandleCodec {
         @Override public String typeUrl() { return "test/output"; }
         @Override public int codecVersion() { return 1; }
         @Override public byte[] serialize(ConnectorOutputTableHandle handle) {
             TestOutputHandle value = (TestOutputHandle) handle;
+            encoded.incrementAndGet();
             return (value.table() + "\n" + value.mode() + "\n" + value.nativeOutput())
                     .getBytes(StandardCharsets.UTF_8);
         }

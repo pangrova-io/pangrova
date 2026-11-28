@@ -354,6 +354,10 @@ publication updates are mutually exclusive on the journal row; a published PENDI
 be aborted. Missing intent evidence fails closed, rather than being treated as a successful abort.
 This barrier does not close the separate execution-anchor check/update transaction race or define
 safe long-term terminal retention. Ambiguous PENDING writes still require explicit reconciliation.
+The Coordinator decodes the exact Worker write binding and rebuilds it once
+to verify the canonical payload, columns, and allocation. If publication
+reports a missing target, abort confirmation uses the same bound handle and
+connector metadata authority.
 Native task authorization ends at the earlier of the initial execution lease and task timeout;
 database lease renewal does not extend an already issued Native credential. Large builds need
 a canonical acknowledged Native lease-renewal contract rather than a widened timeout.
