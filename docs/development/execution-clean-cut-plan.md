@@ -58,7 +58,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 | ID | 已存在机制 | 尚缺证据 |
 |---|---|---|
 | B1 | journal conflict reconciliation、execution anchor fencing、恢复 | 双 Coordinator 并发、未知提交、owner incarnation 与真实 PostgreSQL 故障组合 |
-| B2 | `QueryStateMachine` 原子 version/waiter/drain；HTTP 使用生产指标 provider 按目标和结束原因记录资源占用，超时、断连和状态更新仅归还一次。已加入真实 HTTP 的逻辑终态及物理排空归因覆盖 | 待统一运行回归，并补租户/principal 上限及故障流量验收 |
+| B2 | `QueryStateMachine` 原子 version/waiter/drain；HTTP 使用生产指标 provider 按目标和结束原因记录资源占用，超时、断连和状态更新仅归还一次。已加入真实 HTTP 的逻辑终态、物理排空归因、租户及 principal 上限，以及停机拒绝和断连释放的用例 | 待统一运行回归，并补跨进程故障流量验收 |
 | B3 | callback 隔离、query-order/admission、阶段准备和 durable commit 容量 | 固定到达率叠加阻塞目录、慢对象存储和终态报告压力 |
 | B4 | identity projection 移除、local aggregate reduction | 真实聚合 CPU、首批/完成时延、跨 Worker 与 benchmark 结果 |
 | B5 | 实时单输入与对齐双输入 AQE 的实际范围映射已验证 | 不同 Join/NULL/重复键/重试/混合负载的阈值与尾时延校准 |
