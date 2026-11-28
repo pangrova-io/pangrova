@@ -792,7 +792,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$(git rev-parse HEAD)" = "$TEST_SOURCE"
-          test "$TEST_SOURCE" = 4cc9724a3776eab4b96640e87c3b83608404b825
+          test "$TEST_SOURCE" = 6d0ea018c86cd8ec571be96b14930a9591180f13
           test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/46064151775" --jq .head_sha)" = "$RUNTIME_SOURCE"
           test "$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/140725911731" --jq .conclusion)" = success
           git fetch --depth=1 origin "$RUNTIME_SOURCE"
