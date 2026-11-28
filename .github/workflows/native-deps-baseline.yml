@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash, macos-arm-acceptance, latency-fixture]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash, macos-arm-acceptance, latency-fixture, chaos-completion]
         default: macos-docker
       production_source:
         description: Exact production source revision
@@ -773,6 +773,111 @@ jobs:
             sleep 2
           done
           exit 1
+
+  chaos-completion:
+    name: Verify Flight completion and process failures using archived Linux JNI
+    if: inputs.probe == 'chaos-completion'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TEST_SOURCE: ${{ inputs.production_source }}
+      RUNTIME_SOURCE: b0cd3a5c1b32ecb1407a2edaeb6b0101b142e73d
+      MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.production_source }}
+      - name: Verify test source and the earlier successful Native run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$TEST_SOURCE"
+          test "$TEST_SOURCE" = 4cc9724a3776eab4b96640e87c3b83608404b825
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/46064151775" --jq .head_sha)" = "$RUNTIME_SOURCE"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/140725911731" --jq .conclusion)" = success
+          git fetch --depth=1 origin "$RUNTIME_SOURCE"
+          git diff --exit-code "$RUNTIME_SOURCE" HEAD -- ':(glob)**/src/main/**' ':(exclude)pangrova-testing/**'
+          git worktree add --detach "$RUNNER_TEMP/archived-runtime-source" "$RUNTIME_SOURCE"
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          name: pinned-iceberg-sdk
+          path: ${{ runner.temp }}/pangrova-iceberg-sdk
+          github-token: ${{ github.token }}
+          run-id: '46064151775'
+          digest-mismatch: error
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-library-linux-x86_64
+          path: ${{ runner.temp }}/archived-native
+          github-token: ${{ github.token }}
+          run-id: '46064151775'
+          digest-mismatch: error
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-bundle-linux-x86_64
+          path: ${{ runner.temp }}/archived-bundle
+          github-token: ${{ github.token }}
+          run-id: '46064151775'
+          digest-mismatch: error
+      - name: Build the role image from its archived matching Linux source and JNI
+        run: |
+          cd "$RUNNER_TEMP/archived-runtime-source"
+          archive="$RUNNER_TEMP/archived-native/libpangrova_native.so"
+          test -f "$archive"
+          sha256sum "$archive"
+          readelf -d "$archive" | grep NEEDED
+          if readelf -V "$archive" | grep -E 'Name: GLIBC_2[.](3[6-9]|[4-9][0-9])([[:space:]]|$)' >/dev/null; then
+            # The Ubuntu 24.04 Native test runner can use a newer glibc than production Jammy.
+            sed -i 's/^FROM eclipse-temurin:17-jre-jammy@sha256:[0-9a-f]*$/FROM eclipse-temurin:17-jre-noble/' deploy/docker/Dockerfile
+          fi
+          cat > Dockerfile.archived-native <<'DOCKERFILE'
+          FROM ubuntu:22.04 AS native-build
+          RUN apt-get update && apt-get install -y --no-install-recommends binutils file && rm -rf /var/lib/apt/lists/*
+          WORKDIR /workspace
+          COPY pangrova-worker-native/ pangrova-worker-native/
+          COPY pangrova-protocol/ pangrova-protocol/
+          COPY --from=archived_jni /libpangrova_native.so pangrova-worker-native/build/libpangrova_native.so
+          DOCKERFILE
+          image="pangrova/pangrova:chaos-proof-$GITHUB_RUN_ID"
+          IMAGE="$image" SOURCE_COMMIT="$RUNTIME_SOURCE" \
+            docker buildx bake --load -f deploy/docker/docker-bake.hcl \
+              --allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk" \
+              --allow "fs.read=$RUNNER_TEMP/archived-native" \
+              --set native-build.dockerfile=Dockerfile.archived-native \
+              --set "native-build.contexts.archived_jni=$RUNNER_TEMP/archived-native" \
+              --set 'pangrova.args.MAVEN_ARGS=-C --global-settings /build/.mvn/ci-settings.xml' \
+              --set "pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk" pangrova
+          image_id=$(docker image inspect --format '{{.Id}}' "$image")
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")" = "$RUNTIME_SOURCE"
+          echo "PANGROVA_E2E_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "PANGROVA_E2E_IMAGE_ID=$image_id" >> "$GITHUB_ENV"
+      - name: Install reactor and run the real restart cases
+        run: |
+          mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
+          cp -R "$RUNNER_TEMP/pangrova-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"
+          bundles=("$RUNNER_TEMP/archived-bundle/"*-linux-x86_64.jar)
+          test "${#bundles[@]}" = 1
+          mvn -B install:install-file -Dfile="${bundles[0]}" -DpomFile=pangrova-native-bundle/pom.xml \
+            -Dclassifier=linux-x86_64 -Dpackaging=jar
+          mvn -B -Pnative-runtime -DskipTests install -pl '!pangrova-native-bundle'
+          mvn -B -Pnative-runtime,full-regression \
+            -pl pangrova-testing/pangrova-testing-integration-tests \
+            -Dpangrova.e2e.excludedGroups=none -Dtest=CoordinatorRestartChaosTest test \
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
+            -Dpangrova.e2e.local.source-commit="$RUNTIME_SOURCE"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: process-chaos-completion
+          path: '**/target/surefire-reports/*CoordinatorRestartChaosTest*'
 
   production-regression:
     name: Production image and full regression (JDK 17)
