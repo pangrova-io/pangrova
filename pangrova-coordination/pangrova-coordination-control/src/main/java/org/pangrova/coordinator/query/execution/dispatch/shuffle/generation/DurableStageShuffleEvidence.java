@@ -35,12 +35,12 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
     private final ConcurrentMap<Integer, GenerationExchangeRegistration> registered = new ConcurrentHashMap<>();
 
     /** Binds a durable artifact job to its real shuffle allocation and finalization store. */
-    /** Retains Shuffle evidence for one persisted graph and execution authority. */
     public DurableStageShuffleEvidence(GenerationStageExchangeStore store, GenerationDispatchSpec spec,
             String sourceSnapshot, Supplier<GenerationExecutionOwner> currentOwner) {
         this(store, spec, sourceSnapshot, currentOwner, stage -> spec.stageGraph().requireStage(stage).parallelism());
     }
 
+    /** Binds Shuffle evidence using the frozen physical producer count for each stage. */
     public DurableStageShuffleEvidence(GenerationStageExchangeStore store, GenerationDispatchSpec spec,
             String sourceSnapshot, Supplier<GenerationExecutionOwner> currentOwner, IntUnaryOperator producerCount) {
         this.producerCount = java.util.Objects.requireNonNull(producerCount, "producerCount");
