@@ -35,7 +35,7 @@ import json, sys
 workers = json.load(sys.stdin)
 for w in workers:
     status_flag = '⚠' if w['healthState'] != 'ACTIVE' else ' '
-    print(f\"{status_flag} {w['host']}:{w['httpPort']}: {w['healthState']}  tasks={w['runningTaskCount']}  lastHeartbeat={w['lastHeartbeat']}\")
+    print(f\"{status_flag} {w['host']}:{w['httpPort']}: {w['healthState']}  tasks={w['inFlightTaskCount']}  lastHeartbeat={w['lastHeartbeat']}\")
 "
 
 # Confirm from the worker node directly
@@ -163,13 +163,13 @@ for w in workers:
   sleep 5
 done
 
-# Verify the restarted worker carries no stale tasks (runningTaskCount should be 0 initially)
+# Verify the restarted worker carries no stale tasks (inFlightTaskCount should be 0 initially)
 curl -s http://coordinator:8080/api/workers | \
   python3 -c "
 import json, sys
 for w in json.load(sys.stdin):
     if '${TARGET_WORKER}' in w['host']:
-        print(f'runningTasks: {w[\"runningTaskCount\"]}')
+        print(f'inFlightTasks: {w[\"inFlightTaskCount\"]}')
 "
 
 # Run a test query to confirm the worker accepts new work

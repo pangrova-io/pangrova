@@ -207,21 +207,24 @@ public final class NativeExchangeTransport
         var publications = input.getExternal().getPublicationsList();
         try {
             for (int index = 0; index < publications.size() && !session.isClosed(); index++) {
+                var publication = publications.get(index);
+                long offset = Math.subtractExact(sequenceBase, publication.getStartSequence());
                 var source = pending.partitions().open(index);
                 try (source) {
                     session.addSource(source);
                     BatchChunk chunk;
                     while (!session.isClosed() && (chunk = source.nextVerifiedChunk()) != null
                             && !session.isClosed()) {
-                        pushChunk(handle, attempt, input, chunk, sequenceBase);
+                        pushChunk(handle, attempt, input, chunk, offset);
                     }
                     if (!session.isClosed()
-                            && source.lastCompletedSequence() != publications.get(index).getLastSequence()) {
+                            && source.lastCompletedSequence() != publication.getLastSequence()) {
                         throw new IllegalStateException("External shuffle partition ended before its publication");
                     }
                 }
                 session.removeClosedSource(source);
-                sequenceBase = Math.addExact(sequenceBase, publications.get(index).getLastSequence() + 1);
+                sequenceBase = Math.addExact(sequenceBase,
+                        publication.getLastSequence() - publication.getStartSequence() + 1);
             }
             if (!session.isClosed()) {
                 finishInput(handle, attempt, input, sequenceBase - 1, null);
@@ -236,10 +239,10 @@ public final class NativeExchangeTransport
             TaskAttemptId attempt,
             ExchangeInputBinding input,
             BatchChunk chunk,
-            long sequenceBase) {
+            long sequenceOffset) {
         var chunkMetadata = chunk.toBuilder().clearData();
-        if (sequenceBase != 0) {
-            chunkMetadata.setBatchSequence(Math.addExact(sequenceBase, chunk.getBatchSequence()));
+        if (sequenceOffset != 0) {
+            chunkMetadata.setBatchSequence(Math.addExact(sequenceOffset, chunk.getBatchSequence()));
         }
         PushExchangeBatchRequest payload = PushExchangeBatchRequest.newBuilder()
                 .setPlanNodeId(input.getPlanNodeId())

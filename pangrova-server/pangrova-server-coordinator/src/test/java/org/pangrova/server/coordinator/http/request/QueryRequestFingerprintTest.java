@@ -18,6 +18,15 @@ class QueryRequestFingerprintTest {
     }
 
     @Test
+    void freshSubmissionsDoNotShareTheClientKeyNamespace() {
+        var first = QueryRequestFingerprint.freshKeyDigest("query-a");
+        assertThat(first).matches("[0-9a-f]{64}")
+                .isNotEqualTo(QueryRequestFingerprint.keyDigest("query-a"))
+                .isNotEqualTo(QueryRequestFingerprint.freshKeyDigest("query-b"));
+        assertThat(QueryRequestFingerprint.freshKeyDigest("query-a")).isEqualTo(first);
+    }
+
+    @Test
     void requestFingerprintCanonicalizesPropertiesWithoutConcatenationCollisions() {
         var first = QueryRequestFingerprint.request(
                 new SubmitQueryRequest("SELECT 1", Map.of("ab", "c")));

@@ -19,12 +19,15 @@ class QueryRetentionSchedulerTest {
     @Test
     void physicalCompletionRetriesDoNotWaitForRetentionSweep() throws Exception {
         var retried = new java.util.concurrent.CountDownLatch(1);
-        var scheduler = new QueryRetentionScheduler(new QueryRegistry(), ignored -> true, retried::countDown);
+        var sweeps = new java.util.concurrent.atomic.AtomicInteger();
+        var scheduler = new QueryRetentionScheduler(new QueryRegistry(), ignored -> true, retried::countDown,
+                sweeps::incrementAndGet);
         var timer = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
         var cleanup = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             scheduler.startPeriodicCleanup(timer, cleanup, Duration.ofHours(1), Duration.ofHours(1));
             assertThat(retried.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(sweeps.get()).isZero();
         } finally {
             scheduler.stopPeriodicCleanup();
             timer.shutdownNow();
@@ -35,10 +38,28 @@ class QueryRetentionSchedulerTest {
     }
 
     @Test
+    void acceptanceRetentionFailureDoesNotObstructCompletedQueryEviction() {
+        var queries = new QueryRegistry();
+        var retried = new java.util.concurrent.atomic.AtomicInteger();
+        var swept = new java.util.concurrent.atomic.AtomicInteger();
+        var scheduler = new QueryRetentionScheduler(queries, ignored -> false, retried::incrementAndGet,
+                () -> {
+                    swept.incrementAndGet();
+                    throw new IllegalStateException("retention store unavailable");
+                });
+        queries.register("terminal", terminalStateMachine(), () -> { });
+
+        assertThat(scheduler.cleanupTerminalQueries(Duration.ZERO)).isEqualTo(1);
+        assertThat(retried.get()).isEqualTo(1);
+        assertThat(swept.get()).isEqualTo(1);
+        assertThat(queries.snapshot()).isEmpty();
+    }
+
+    @Test
     void cleanupRemovesTerminalQueryState() {
         QueryRegistry queries = new QueryRegistry();
         QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
-                queries, ignored -> false, () -> { });
+                queries, ignored -> false, () -> { }, () -> { });
 
         QueryStateMachine sm = terminalStateMachine();
         queries.register("q1", sm, () -> { });
@@ -53,7 +74,7 @@ class QueryRetentionSchedulerTest {
     void cleanupPreservesActiveQuery() {
         QueryRegistry queries = new QueryRegistry();
         QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
-                queries, ignored -> false, () -> { });
+                queries, ignored -> false, () -> { }, () -> { });
 
         QueryStateMachine active = new QueryStateMachine();
         active.tryTransition(QueryState.PLANNING);
@@ -69,7 +90,7 @@ class QueryRetentionSchedulerTest {
     void cleanupRemovesMultipleTerminalQueries() {
         QueryRegistry queries = new QueryRegistry();
         QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
-                queries, ignored -> false, () -> { });
+                queries, ignored -> false, () -> { }, () -> { });
 
         for (int i = 0; i < 3; i++) {
             String qid = "q-batch-" + i;
@@ -85,19 +106,19 @@ class QueryRetentionSchedulerTest {
     @Test
     void logicalTerminalWithoutPhysicalCleanupIsRetained() {
         var queries = new QueryRegistry();
-        var scheduler = new QueryRetentionScheduler(queries, ignored -> false, () -> { });
+        var scheduler = new QueryRetentionScheduler(queries, ignored -> false, () -> { }, () -> { });
         // This is a lifecycle-state boundary test, not Native release evidence.
         var state = logicalTerminal();
         queries.register("physical-owner", state, () -> { });
         assertThat(scheduler.cleanupTerminalQueries(Duration.ZERO)).isZero();
         assertThat(queries.snapshot()).containsKey("physical-owner");
-        assertThat(state.claimPhysicalCleanup()).isTrue();
+        assertThat(state.claimPhysicalCleanup(true)).isTrue();
         assertThat(scheduler.cleanupTerminalQueries(Duration.ZERO)).isEqualTo(1);
     }
 
     private static QueryStateMachine terminalStateMachine() {
         var sm = logicalTerminal();
-        sm.claimPhysicalCleanup();
+        sm.claimPhysicalCleanup(true);
         return sm;
     }
 

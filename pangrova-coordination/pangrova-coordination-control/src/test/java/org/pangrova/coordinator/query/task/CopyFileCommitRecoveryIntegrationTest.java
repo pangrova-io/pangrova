@@ -136,7 +136,7 @@ class CopyFileCommitRecoveryIntegrationTest {
 
             var reconciler = new DefaultWriteCommitReconciler(journal,
                     name -> (ConnectorCatalogHandle) registry.getCatalog(name));
-            assertThat(reconciler.reconcile(intent))
+            assertThat(reconciler.reconcile(intent, 0L))
                     .isEqualTo(WriteRecoveryOutcome.COMMITTED);
             assertThat(journal.findCopyFilePublication(intent).orElseThrow().snapshotId())
                     .isEqualTo(publishedSnapshot);
@@ -145,7 +145,7 @@ class CopyFileCommitRecoveryIntegrationTest {
             journal.markCommitted(EXECUTION);
 
             table.manageSnapshots().rollbackTo(baseSnapshot).commit();
-            assertThat(reconciler.reconcile(journal.getEntry(EXECUTION).orElseThrow()))
+            assertThat(reconciler.reconcile(journal.getEntry(EXECUTION).orElseThrow(), 0L))
                     .isEqualTo(WriteRecoveryOutcome.QUARANTINED);
             table.refresh();
             assertThat(table.currentSnapshot().snapshotId()).isEqualTo(baseSnapshot);

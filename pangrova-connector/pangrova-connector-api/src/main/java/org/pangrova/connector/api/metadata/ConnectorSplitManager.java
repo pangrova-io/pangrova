@@ -13,10 +13,7 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
  * <p>The engine calls {@link #getSplits} to obtain a {@link ConnectorSplitSource}
  * that enumerates the splits for a given table, allowing parallel data reading.</p>
  *
- * <p>Connectors that support incremental scanning (see
- * {@link IncrementalScanCapability}) may override
- * {@link #getIncrementalSplits} to return only the data files added
- * between two snapshots, enabling O(delta) refresh instead of O(total).</p>
+ * <p>Incremental scans use a selected read whose handle carries a snapshot range.</p>
  */
 @Stable(since = "1.0")
 public interface ConnectorSplitManager {
@@ -45,38 +42,13 @@ public interface ConnectorSplitManager {
      */
     default ConnectorSplitSource getBoundSplits(ConnectorTransactionHandle transaction,
             ConnectorSession session, ConnectorMetadata metadata, ConnectorReadBinding binding,
-            DynamicFilter dynamicFilter, Constraint constraint) {
+            DynamicFilter dynamicFilter, Constraint constraint, SplitPlanningBudget budget) {
+        budget.check(0);
         if (binding.state() == ReadSnapshotState.EMPTY) {
             throw new IllegalArgumentException("An empty binding has no splits to enumerate");
         }
         metadata.validateReadBinding(session, binding);
         return getSplits(transaction, session, binding.handle(), dynamicFilter, constraint);
-    }
-
-    /**
-     * Returns a split source containing only data files added between two
-     * snapshots (exclusive lower bound, inclusive upper bound).
-     *
-     * <p>The default implementation falls back to {@link #getSplits} for
-     * backward compatibility with connectors that do not support
-     * incremental scanning. Connectors that advertise
-     * {@link IncrementalScanCapability#supportsIncrementalAppendScan()}
-     * should override this method to return only the delta files.</p>
-     *
-     * @param session        the current session context
-     * @param table          the table handle to generate splits for
-     * @param fromSnapshotId exclusive lower-bound snapshot ID
-     * @param toSnapshotId   inclusive upper-bound snapshot ID
-     * @param constraint     pushed-down predicate constraint
-     * @return a split source for iterating over incremental splits, never null
-     */
-    default ConnectorSplitSource getIncrementalSplits(
-            ConnectorSession session,
-            ConnectorTableHandle table,
-            long fromSnapshotId,
-            long toSnapshotId,
-            Constraint constraint) {
-        return getSplits(ConnectorTransactionHandle.empty(), session, table, DynamicFilter.ALL, constraint);
     }
 
     /**

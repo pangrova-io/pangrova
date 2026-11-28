@@ -6,6 +6,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -21,11 +23,10 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationIdentity
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationShape;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.BatchIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.PublishedPartition;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.PartitionPublication;
@@ -68,20 +69,6 @@ final class PostgresShuffleRecords {
             WHERE a.shuffle_id = ?
             FOR UPDATE OF a
             """;
-    private static final String CLEANUP_OBJECTS_BASE_SQL =
-            "SELECT b.object_key, b.shuffle_id, b.producer_partition_id, "
-                    + "b.producer_attempt_id, b.output_partition_id, b.batch_sequence "
-                    + "FROM shuffle_batch b JOIN shuffle_allocation a USING (shuffle_id) "
-                    + "WHERE a.query_id = ? ";
-    private static final String CLEANUP_OBJECTS_ORDER_SQL =
-            "ORDER BY b.shuffle_id, b.producer_partition_id, b.producer_attempt_id, "
-                    + "b.output_partition_id, b.batch_sequence LIMIT ?";
-    private static final String CLEANUP_OBJECTS_FIRST_SQL =
-            CLEANUP_OBJECTS_BASE_SQL + CLEANUP_OBJECTS_ORDER_SQL;
-    private static final String CLEANUP_OBJECTS_AFTER_SQL = CLEANUP_OBJECTS_BASE_SQL
-            + "AND (b.shuffle_id, b.producer_partition_id, b.producer_attempt_id, "
-            + "b.output_partition_id, b.batch_sequence) > (?, ?, ?, ?, ?) "
-            + CLEANUP_OBJECTS_ORDER_SQL;
 
     private PostgresShuffleRecords() {}
 
@@ -143,19 +130,22 @@ final class PostgresShuffleRecords {
     }
 
     static PublishedPartition readPublishedPartition(
-            Connection connection, String queryId, String shuffleId, int partitionId) throws SQLException {
+            Connection connection, String queryId, String shuffleId, int partitionId, boolean includeRanges)
+            throws SQLException {
         String sql = """
                 SELECT a.state, a.partition_count, a.plan_epoch, a.expected_producer_count,
                        a.producer_set_checksum, p.committed_last_sequence,
-                       p.total_bytes, p.total_rows, p.output_checksum, p.manifest_root
+                       p.total_bytes, p.total_rows, p.output_checksum, p.manifest_root,
+                       CASE WHEN ? THEN p.read_ranges ELSE ''::bytea END AS read_ranges
                 FROM shuffle_allocation a
                 LEFT JOIN shuffle_finalized_partition p ON p.shuffle_id = a.shuffle_id AND p.partition_id = ?
                 WHERE a.shuffle_id = ? AND a.query_id = ?
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setInt(1, partitionId);
-            statement.setString(2, shuffleId);
-            statement.setString(3, queryId);
+            statement.setBoolean(1, includeRanges);
+            statement.setInt(2, partitionId);
+            statement.setString(3, shuffleId);
+            statement.setString(4, queryId);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) {
                     throw new ShuffleServiceException(FailureKind.NOT_FOUND, "shuffle does not exist");
@@ -171,7 +161,8 @@ final class PostgresShuffleRecords {
                     throw new IllegalStateException("finalized partition missing");
                 }
                 var partition = new FinalizedPartition(partitionId, row.getLong("total_bytes"),
-                        row.getLong("total_rows"), lastSequence, row.getBytes("output_checksum"));
+                        row.getLong("total_rows"), lastSequence, row.getBytes("output_checksum"),
+                        ShuffleReadRanges.decode(row.getBytes("read_ranges")));
                 return new PublishedPartition(row.getLong("plan_epoch"), row.getInt("expected_producer_count"),
                         row.getBytes("producer_set_checksum"),
                         new PartitionPublication(partition, row.getBytes("manifest_root")));
@@ -249,8 +240,10 @@ final class PostgresShuffleRecords {
         }
     }
 
-    static String findExpiredCleanup(Connection connection, long nowMs) throws SQLException {
-        String sql = "SELECT query_id FROM shuffle_query_scope "
+    record ExpiredCleanupScope(String queryId, Long leaseExpiresAtMs) {}
+
+    static ExpiredCleanupScope lockExpiredCleanupScope(Connection connection, long nowMs) throws SQLException {
+        String sql = "SELECT query_id, cleanup_lease_expires_at_ms FROM shuffle_query_scope "
                 + "WHERE state = 'CLEANING' "
                 + "AND (cleanup_lease_expires_at_ms IS NULL "
                 + "OR cleanup_lease_expires_at_ms <= ?) "
@@ -265,123 +258,116 @@ final class PostgresShuffleRecords {
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, nowMs);
             try (ResultSet rows = statement.executeQuery()) {
-                return rows.next() ? rows.getString(1) : null;
+                return rows.next() ? new ExpiredCleanupScope(rows.getString(1), rows.getObject(2, Long.class)) : null;
             }
         }
     }
 
-    static void sealCleanupAdmission(Connection connection, String queryId) throws SQLException {
-        try (PreparedStatement seal = connection.prepareStatement(
-                "UPDATE shuffle_query_scope SET state = 'CLEANING' WHERE query_id = ? AND state = 'ACTIVE'")) {
-            seal.setString(1, queryId);
-            if (seal.executeUpdate() == 1) markCleaningAllocations(connection, queryId);
+    static void sealCleanupAdmission(Connection connection, CleanupCommand command, CleanupLease lease)
+            throws SQLException {
+        String sql = """
+                WITH sealed AS (
+                    UPDATE shuffle_query_scope SET state = 'CLEANING',
+                        cleanup_lease_owner = ?, cleanup_lease_expires_at_ms = ?
+                    WHERE query_id = ? AND state = 'ACTIVE' RETURNING query_id
+                ), allocations AS (
+                    UPDATE shuffle_allocation a SET state = 'CLEANING'
+                    FROM sealed s WHERE a.query_id = s.query_id
+                )
+                INSERT INTO shuffle_cleanup_intent (query_id, revocation_generation)
+                SELECT query_id, ? FROM sealed ON CONFLICT (query_id) DO NOTHING
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, lease == null ? null : lease.owner());
+            statement.setObject(2, lease == null ? null : lease.expiresAtMs(), Types.BIGINT);
+            statement.setString(3, command.queryId());
+            statement.setLong(4, command.owner().getFencingToken());
+            statement.executeUpdate();
         }
     }
 
-    static void claimCleanup(
+    static void claimSealedCleanup(
             Connection connection,
             String queryId,
-            String state,
             Long currentLeaseExpiry,
-            CleanupLease lease,
-            boolean expiredRecovery) throws SQLException {
-        boolean active = "ACTIVE".equals(state) && !expiredRecovery;
-        boolean expired = "CLEANING".equals(state)
-                && (currentLeaseExpiry == null || currentLeaseExpiry <= lease.nowMs());
-        if (!active && !expired) {
+            CleanupLease lease) throws SQLException {
+        if (currentLeaseExpiry != null && currentLeaseExpiry > lease.nowMs()) {
             throw new IllegalStateException("shuffle cleanup already has an active lease");
         }
         try (PreparedStatement query = connection.prepareStatement(
-                "UPDATE shuffle_query_scope SET state = 'CLEANING', "
-                        + "cleanup_lease_owner = ?, cleanup_lease_expires_at_ms = ? "
+                "UPDATE shuffle_query_scope SET cleanup_lease_owner = ?, cleanup_lease_expires_at_ms = ? "
                         + "WHERE query_id = ?")) {
             query.setString(1, lease.owner());
             query.setLong(2, lease.expiresAtMs());
             query.setString(3, queryId);
             query.executeUpdate();
         }
-        markCleaningAllocations(connection, queryId);
     }
 
-    private static void markCleaningAllocations(Connection connection, String queryId) throws SQLException {
-        try (PreparedStatement allocations = connection.prepareStatement(
-                "UPDATE shuffle_allocation SET state = 'CLEANING' WHERE query_id = ?")) {
-            allocations.setString(1, queryId);
-            allocations.executeUpdate();
-        }
-    }
-
-    static CleanupPlan cleanupPlan(
-            Connection connection,
-            String queryId,
-            String leaseOwner) throws SQLException {
-        String sql = "SELECT COUNT(DISTINCT (b.shuffle_id, b.output_partition_id)), "
-                + "COALESCE(SUM(b.batch_size_bytes), 0) FROM shuffle_allocation a "
-                + "LEFT JOIN shuffle_batch b USING (shuffle_id) WHERE a.query_id = ?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, queryId);
-            try (ResultSet rows = statement.executeQuery()) {
-                rows.next();
-                return new CleanupPlan(queryId, leaseOwner, rows.getLong(1), rows.getLong(2));
-            }
-        }
-    }
-
-    static CleanupObjectPage cleanupObjects(
-            Connection connection,
-            CleanupPlan plan,
-            CleanupCursor after,
-            int limit) throws SQLException {
-        String sql = after == null ? CLEANUP_OBJECTS_FIRST_SQL : CLEANUP_OBJECTS_AFTER_SQL;
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            int parameter = 1;
-            statement.setString(parameter++, plan.queryId());
-            if (after != null) {
-                statement.setString(parameter++, after.shuffleId());
-                statement.setInt(parameter++, after.producerPartitionId());
-                statement.setInt(parameter++, after.producerAttemptId());
-                statement.setInt(parameter++, after.outputPartitionId());
-                statement.setLong(parameter++, after.batchSequence());
-            }
-            statement.setInt(parameter, limit);
-            return readCleanupObjects(statement);
-        }
-    }
-
-    private static CleanupObjectPage readCleanupObjects(PreparedStatement statement)
+    static CleanupReceipt recordEmptyScopeConvergence(Connection connection, CleanupCommand command)
             throws SQLException {
-        List<String> keys = new ArrayList<>();
-        CleanupCursor cursor = null;
-        try (ResultSet rows = statement.executeQuery()) {
-            while (rows.next()) {
-                keys.add(rows.getString(1));
-                cursor = new CleanupCursor(rows.getString(2), rows.getInt(3), rows.getInt(4),
-                        rows.getInt(5), rows.getLong(6));
+        String sql = """
+                WITH target(query_id, revocation_generation) AS (VALUES (CAST(? AS text), CAST(? AS bigint))),
+                recorded AS (
+                    INSERT INTO shuffle_cleanup_intent (query_id, revocation_generation, converged_at)
+                    SELECT query_id, revocation_generation, clock_timestamp() FROM target
+                    ON CONFLICT (query_id) DO UPDATE SET converged_at = EXCLUDED.converged_at
+                    WHERE shuffle_cleanup_intent.converged_at IS NULL
+                    RETURNING revocation_generation, converged_at, uncertain_write_handoff
+                )
+                SELECT revocation_generation, converged_at, uncertain_write_handoff FROM recorded
+                UNION ALL
+                SELECT i.revocation_generation, i.converged_at, i.uncertain_write_handoff
+                FROM shuffle_cleanup_intent i JOIN target t USING (query_id)
+                WHERE i.converged_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM recorded)
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, command.queryId());
+            statement.setLong(2, command.owner().getFencingToken());
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) throw new SQLException("empty Shuffle scope returned no convergence receipt");
+                return readCleanupReceipt(command.queryId(), rows);
             }
         }
-        return new CleanupObjectPage(keys, cursor);
     }
 
-    static CleanupShufflePage cleanupShuffles(
-            Connection connection,
-            CleanupPlan plan,
-            String after,
-            int limit) throws SQLException {
-        String sql = "SELECT shuffle_id FROM shuffle_allocation WHERE query_id = ? "
-                + "AND shuffle_id > ? ORDER BY shuffle_id LIMIT ?";
+    private static CleanupReceipt readCleanupReceipt(String queryId, ResultSet row) throws SQLException {
+        return new CleanupReceipt(queryId, row.getLong("revocation_generation"),
+                row.getObject("converged_at", OffsetDateTime.class).toInstant().toEpochMilli(),
+                row.getBoolean("uncertain_write_handoff"));
+    }
+
+    static List<String> cleanupShuffles(
+            Connection connection, CleanupPlan plan, String after, int limit, CleanupLease lease) throws SQLException {
+        String sql = """
+                WITH renewed AS (
+                    UPDATE shuffle_query_scope SET cleanup_lease_expires_at_ms = ?
+                    WHERE query_id = ? AND state = 'CLEANING' AND cleanup_lease_owner = ?
+                    RETURNING query_id
+                )
+                SELECT page.shuffle_id FROM renewed r LEFT JOIN LATERAL (
+                    SELECT a.shuffle_id FROM shuffle_allocation a
+                    WHERE a.query_id = r.query_id AND a.shuffle_id > ? ORDER BY a.shuffle_id LIMIT ?
+                ) page ON TRUE ORDER BY page.shuffle_id
+                """;
         List<String> shuffleIds = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, plan.queryId());
-            statement.setString(2, after == null ? "" : after);
-            statement.setInt(3, limit);
+            statement.setLong(1, lease.expiresAtMs());
+            statement.setString(2, plan.queryId());
+            statement.setString(3, plan.leaseOwner());
+            statement.setString(4, after == null ? "" : after);
+            statement.setInt(5, limit);
             try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    shuffleIds.add(rows.getString(1));
+                if (!rows.next()) {
+                    throw new IllegalStateException("shuffle cleanup lease has been lost");
                 }
+                do {
+                    String shuffleId = rows.getString(1);
+                    if (shuffleId != null) shuffleIds.add(shuffleId);
+                } while (rows.next());
             }
         }
-        String cursor = shuffleIds.isEmpty() ? null : shuffleIds.get(shuffleIds.size() - 1);
-        return new CleanupShufflePage(shuffleIds, cursor);
+        return List.copyOf(shuffleIds);
     }
 
     static void renewCleanup(
@@ -401,22 +387,45 @@ final class PostgresShuffleRecords {
         }
     }
 
-    static void completeCleanup(Connection connection, CleanupPlan plan)
-            throws SQLException {
-        renewCleanup(connection, plan,
-                new CleanupLease(plan.leaseOwner(), 1, Long.MAX_VALUE));
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM shuffle_allocation WHERE query_id = ?")) {
-            statement.setString(1, plan.queryId());
-            statement.executeUpdate();
-        }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM shuffle_query_scope WHERE query_id = ? AND state = 'CLEANING' "
-                        + "AND cleanup_lease_owner = ?")) {
+    static CleanupReceipt completeCleanup(Connection connection, CleanupPlan plan) throws SQLException {
+        String removeAllocations = """
+                WITH locked AS MATERIALIZED (
+                    SELECT query_id FROM shuffle_query_scope
+                    WHERE query_id = ? AND state = 'CLEANING' AND cleanup_lease_owner = ? FOR UPDATE
+                ), removed AS (
+                    DELETE FROM shuffle_allocation a USING locked l WHERE a.query_id = l.query_id RETURNING a.shuffle_id
+                )
+                SELECT EXISTS (SELECT 1 FROM removed JOIN shuffle_uncertain_write_tombstone USING (shuffle_id))
+                """;
+        boolean uncertainWriteHandoff;
+        try (PreparedStatement statement = connection.prepareStatement(removeAllocations)) {
             statement.setString(1, plan.queryId());
             statement.setString(2, plan.leaseOwner());
-            if (statement.executeUpdate() != 1) {
-                throw new IllegalStateException("shuffle cleanup lease has been lost");
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) throw new SQLException("Shuffle cleanup returned no handoff status");
+                uncertainWriteHandoff = rows.getBoolean(1);
+            }
+        }
+        String converge = """
+                WITH retired AS (
+                    DELETE FROM shuffle_query_scope
+                    WHERE query_id = ? AND state = 'CLEANING' AND cleanup_lease_owner = ?
+                    RETURNING query_id
+                )
+                UPDATE shuffle_cleanup_intent i
+                SET converged_at = clock_timestamp(), uncertain_write_handoff = ?
+                FROM retired r WHERE i.query_id = r.query_id AND i.converged_at IS NULL
+                RETURNING i.revocation_generation, i.converged_at, i.uncertain_write_handoff
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(converge)) {
+            statement.setString(1, plan.queryId());
+            statement.setString(2, plan.leaseOwner());
+            statement.setBoolean(3, uncertainWriteHandoff);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new IllegalStateException("shuffle cleanup lease or terminal seal has been lost");
+                }
+                return readCleanupReceipt(plan.queryId(), rows);
             }
         }
     }

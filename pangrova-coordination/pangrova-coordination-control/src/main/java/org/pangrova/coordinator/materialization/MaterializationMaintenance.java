@@ -290,16 +290,14 @@ public final class MaterializationMaintenance implements AutoCloseable {
                     "materialization refresh could not acquire query ownership for "
                             + object.canonicalName());
         }
-        QueryStateMachine state = new QueryStateMachine();
-        boolean registered = false;
+        QueryStateMachine state = null;
         try {
-            queryManager.registerStateMachine(queryId, state);
-            registered = true;
             QuerySession session = new QuerySession(
                     queryId, definition.sessionProperties(),
                     new UserIdentity(header.definer().name(), definition.definerGroups(),
                             Map.of(), Instant.now()),
                     object.tenant().value(), java.util.Optional.empty(), traceContexts.capture());
+            state = queryManager.registerInternalExecution(session, definition.sql());
             StatementExecutionContext context = new StatementExecutionContext(
                     state, queryId, session);
             kernels.service(context).refresh(new RefreshMaterialization(
@@ -309,13 +307,13 @@ public final class MaterializationMaintenance implements AutoCloseable {
             // after publication and hands the query to terminal cleanup.
             finish(state, queryId);
         } catch (RuntimeException failure) {
-            fail(state, registered, queryId, failure);
+            fail(state, queryId, failure);
             throw failure;
         } finally {
-            if (!registered) {
+            if (state == null) {
                 coordination.releaseQueryOwnership(queryId, coordinatorId);
             } else if (!state.isTerminal()) {
-                fail(state, true, queryId, new IllegalStateException(
+                fail(state, queryId, new IllegalStateException(
                         "materialization refresh returned without a terminal query state"));
             }
         }
@@ -330,9 +328,8 @@ public final class MaterializationMaintenance implements AutoCloseable {
         queryManager.onAllTasksFinished(queryId);
     }
 
-    private void fail(QueryStateMachine state, boolean registered, String queryId,
-            RuntimeException failure) {
-        if (!registered || state.isTerminal()) {
+    private void fail(QueryStateMachine state, String queryId, RuntimeException failure) {
+        if (state == null || state.isTerminal()) {
             return;
         }
         try {

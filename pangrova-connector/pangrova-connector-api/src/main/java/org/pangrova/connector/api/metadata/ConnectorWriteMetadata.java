@@ -10,7 +10,6 @@ import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 /**
  * Write-specific metadata operations for a connector.
@@ -161,25 +160,8 @@ public interface ConnectorWriteMetadata {
                 "Replay-safe distributed write commit is not implemented by this connector");
     }
 
-    /**
-     * A-EOS-02 (2PC abort/discard leg): discards data STAGED by a distributed write but not yet
-     * published — i.e. fragments whose {@link #finishDistributedWrite} has not been, and will not
-     * be, called. Deletes the staged data files so a prepared-but-aborted streaming batch leaves no
-     * orphans, making {@code abort} a real compensation rather than a no-op.
-     *
-     * <p>Best-effort default is a no-op; connectors that write staged files before the catalog
-     * publish override this to delete them. Must be safe to call on fragments that were never
-     * published.
-     *
-     * @param session      the current session context
-     * @param outputHandle handle from beginInsert/beginOverwrite/beginDelete
-     * @param fragments    commit metadata whose staged (unpublished) files must be discarded
-     */
-    default void abortDistributedWrite(ConnectorSession session,
-                                       ConnectorOutputTableHandle outputHandle,
-                                       java.util.List<byte[]> fragments) {
-        // Default: no-op. Connectors with pre-publish staging override to delete staged files.
-    }
+    /** Whether this connector opens the journal gate before its first external publication. */
+    default boolean requiresPublicationClaim() { return false; }
 
     /**
      * Installs a durable abort barrier for the exact journaled intent. Returning proves
@@ -189,39 +171,5 @@ public interface ConnectorWriteMetadata {
             ConnectorOutputTableHandle outputHandle, java.util.List<byte[]> fragments,
             DistributedWriteCommitContext context) {
         throw new UnsupportedOperationException("Durable distributed write abort is not implemented");
-    }
-
-    /**
-     * A-COMMIT-01: reconstructs a distributed-write output handle for {@code tableName} from the
-     * live table metadata, so a coordinator recovering a {@code PENDING} write intent can re-drive
-     * {@link #finishDistributedWrite} without the original in-memory handle (which died with the
-     * crashed coordinator). The rebuilt handle mirrors what {@code beginInsert/beginDelete/
-     * beginOverwrite} would produce for the current table, selected by {@code writeMode}.
-     *
-     * <p>Default throws {@link UnsupportedOperationException} — recovery then quarantines the intent
-     * for manual handling. Connectors that support crash-recovery of distributed writes override.
-     *
-     * @param session   a recovery session for the target catalog
-     * @param tableName  the target table (from the durable intent)
-     * @param writeMode  the distributed write mode token (from the durable intent)
-     * @return a handle accepted by {@link #finishDistributedWrite}
-     */
-    default ConnectorOutputTableHandle reconstructOutputHandle(ConnectorSession session,
-                                                               SchemaTableName tableName,
-                                                               String writeMode) {
-        throw new UnsupportedOperationException("reconstructOutputHandle not supported");
-    }
-
-    /**
-     * Reconstructs a recovery handle while preserving the snapshot captured by the original write.
-     * Default is fail-closed because substituting the current snapshot changes conflict semantics.
-     */
-    default ConnectorOutputTableHandle reconstructOutputHandle(
-            ConnectorSession session,
-            SchemaTableName tableName,
-            String writeMode,
-            long baseSnapshotId) {
-        throw new UnsupportedOperationException(
-                "snapshot-preserving reconstructOutputHandle not supported");
     }
 }

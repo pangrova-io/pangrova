@@ -26,6 +26,7 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.api.Test;
+import org.pangrova.planner.type.PlannerTypeFactory;
 import org.pangrova.planner.cost.CboConfig;
 import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.cost.join.BroadcastJoinRule;

@@ -27,7 +27,7 @@ import org.pangrova.connector.api.metadata.table.TypePromotion;
  * @param filePath             data file path
  * @param fileOffset           byte offset within the file
  * @param fileLength           byte length of the split
- * @param dataFileSizeBytes    total data file size in bytes for scheduling cost estimation
+ * @param dataFileSizeBytes    whole data object length from the selected snapshot
  * @param fileFormat           file format (e.g. "PARQUET", "ORC")
  * @param partitionValues      partition column name-value pairs
  * @param snapshotId           snapshot id this split belongs to
@@ -41,6 +41,8 @@ import org.pangrova.connector.api.metadata.table.TypePromotion;
  * @param columnMappings       schema evolution column mappings (source → target by field ID)
  * @param typePromotions       schema evolution type promotions (e.g., int → long)
  * @param residualPredicate    serialized Substrait expression from FileScanTask.residual for native row-group skip
+ * @param estimatedScanBytes   planned data range and auxiliary delete bytes for Coordinator placement
+ * @param estimatedScanRows    planned data rows for Coordinator placement
  */
 public record IcebergSplit(
         String tableName,
@@ -60,17 +62,19 @@ public record IcebergSplit(
         List<IcebergDeleteFile> deleteFiles,
         List<ColumnMapping> columnMappings,
         List<TypePromotion> typePromotions,
-        byte[] residualPredicate) implements CanonicalConnectorSplit {
-
-    @Override
-    public long estimatedScanBytes() {
-        return Math.max(0L, fileLength);
-    }
+        byte[] residualPredicate,
+        long estimatedScanBytes,
+        long estimatedScanRows) implements CanonicalConnectorSplit {
 
     public IcebergSplit {
         if (fileFormat != null && "LANCE".equalsIgnoreCase(fileFormat)) {
             throw new IllegalArgumentException(
                     "Iceberg does not expose Lance as a supported data-file format");
+        }
+        if (dataFileSizeBytes < 0 || (dataFileSizeBytes > 0
+                && (fileOffset < 0 || fileLength <= 0 || fileOffset > dataFileSizeBytes
+                        || fileLength > dataFileSizeBytes - fileOffset))) {
+            throw new IllegalArgumentException("Iceberg split range exceeds its snapshot data object");
         }
         tableName = tableName == null ? "" : tableName;
         partitionValues = partitionValues == null ? Map.of() : Map.copyOf(partitionValues);
@@ -80,6 +84,21 @@ public record IcebergSplit(
         residualPredicate = residualPredicate == null
                 ? new byte[0]
                 : Arrays.copyOf(residualPredicate, residualPredicate.length);
+        estimatedScanBytes = Math.max(Math.max(0L, fileLength), estimatedScanBytes);
+        estimatedScanRows = Math.max(0L, estimatedScanRows);
+    }
+
+    /** Creates a physical subrange of the same immutable Parquet object. */
+    public IcebergSplit withRange(long offset, long length) {
+        if (offset < fileOffset || length <= 0 || offset - fileOffset > fileLength - length) {
+            throw new IllegalArgumentException("Parquet range falls outside the planned file interval");
+        }
+        long auxiliaryBytes = estimatedScanBytes - fileLength;
+        long rows = Math.round(estimatedScanRows * ((double) length / fileLength));
+        return new IcebergSplit(tableName, filePath, offset, length, dataFileSizeBytes, fileFormat,
+                partitionValues, snapshotId, dataSequenceNumber, specId, content, readMode,
+                fromSnapshotId, toSnapshotId, deleteFiles, columnMappings, typePromotions, residualPredicate,
+                Math.addExact(length, auxiliaryBytes), rows);
     }
 
     @Override
@@ -118,6 +137,8 @@ public record IcebergSplit(
         private List<ColumnMapping> columnMappings = List.of();
         private List<TypePromotion> typePromotions = List.of();
         private byte[] residualPredicate = new byte[0];
+        private long estimatedScanBytes;
+        private long estimatedScanRows;
 
         private Builder(String filePath, long fileOffset, long fileLength, String fileFormat) {
             this.filePath = filePath;
@@ -183,6 +204,12 @@ public record IcebergSplit(
             return this;
         }
 
+        public Builder scanEstimate(long bytes, long rows) {
+            this.estimatedScanBytes = bytes;
+            this.estimatedScanRows = rows;
+            return this;
+        }
+
         /**
          * Builds an immutable {@link IcebergSplit} from the current builder state.
          */
@@ -191,7 +218,8 @@ public record IcebergSplit(
                     tableName, filePath, fileOffset, fileLength, dataFileSizeBytes,
                     fileFormat, partitionValues, snapshotId, dataSequenceNumber,
                     specId, content, readMode, fromSnapshotId, toSnapshotId,
-                    deleteFiles, columnMappings, typePromotions, residualPredicate);
+                    deleteFiles, columnMappings, typePromotions, residualPredicate,
+                    estimatedScanBytes, estimatedScanRows);
         }
     }
 
@@ -243,6 +271,7 @@ public record IcebergSplit(
                 .setDataSequenceNumber(dataSequenceNumber)
                 .setSpecId(specId)
                 .setContent(resolveContent())
+                .setDataFileSizeBytes(dataFileSizeBytes)
                 .setFromSnapshotId(fromSnapshotId)
                 .setToSnapshotId(toSnapshotId);
 

@@ -124,8 +124,8 @@ public final class WorkerHealthScheduler {
         // and draining — give it more time.
         if (heartbeatAge > workerManager.deadThresholdMs()
                 && heartbeatAge > DECOMMISSION_TIMEOUT_MS) {
-            LOG.warn("event=decommission_timeout workerId={} heartbeatAgeMs={} runningTasks={}",
-                    worker.workerId(), heartbeatAge, worker.runningTaskCount());
+            LOG.warn("event=decommission_timeout workerId={} heartbeatAgeMs={} inFlightTasks={}",
+                    worker.workerId(), heartbeatAge, worker.inFlightTaskCount());
             try {
                 deadWorkerCallback.accept(worker.workerId());
             } catch (Exception e) {

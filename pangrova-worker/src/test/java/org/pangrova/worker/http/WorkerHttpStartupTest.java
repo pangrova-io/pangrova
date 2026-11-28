@@ -92,6 +92,18 @@ class WorkerHttpStartupTest {
     }
 
     @Test
+    void retiredUpstreamNotificationCannotBePosted() throws Exception {
+        var response = http.httpClient().send(HttpRequest.newBuilder(URI.create(taskUri() + "/upstream-commit"))
+                .timeout(Duration.ofSeconds(5)).header("X-Internal-Auth", SECRET)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"queryId\":\"query\",\"upstreamStageId\":0}")).build(),
+                HttpResponse.BodyHandlers.discarding());
+        assertThat(response.statusCode()).isEqualTo(405);
+        assertThat(response.headers().firstValue("Allow"))
+                .hasValueSatisfying(value -> assertThat(value).contains("DELETE").doesNotContain("POST"));
+    }
+
+    @Test
     void oversizedContentLengthIsRejectedBeforeReadingTheBody() throws Exception {
         try (var socket = new Socket(taskUri().getHost(), taskUri().getPort())) {
             socket.setSoTimeout(5_000);

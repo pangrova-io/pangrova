@@ -1,6 +1,7 @@
 package org.pangrova.planner.analysis;
 
 import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.rewrite.DynamicTableAstRewriter;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
@@ -39,6 +40,13 @@ final class DynamicTablePlanningSupport {
         return dynamicTableSqlRewriter.rewriteWithAuthority(sql);
     }
 
+    DynamicTableAstRewriter.RewriteWithAuthority rewriteIfWired(Analysis input) {
+        if (dynamicTableSqlRewriter == null) {
+            return new DynamicTableAstRewriter.RewriteWithAuthority(input.statement(), java.util.Map.of());
+        }
+        return dynamicTableSqlRewriter.rewriteWithAuthority(input);
+    }
+
     /** AST rewrite for statements dispatched without a SQL text round-trip. */
     DynamicTableAstRewriter.RewriteWithAuthority rewriteAstIfWired(Statement statement) {
         if (dynamicTableAstRewriter == null) {
@@ -54,11 +62,14 @@ final class DynamicTablePlanningSupport {
      * message for observability and future optimization.
      */
     void logCteMaterializationHints(String sql) {
+        logCteMaterializationHints(parserFactory.parseToAst(sql));
+    }
+
+    void logCteMaterializationHints(Statement statement) {
+        if (!(statement instanceof org.pangrova.parser.api.ast.CteQuery cteQuery)) {
+            return;
+        }
         try {
-            org.pangrova.parser.api.ast.Statement ast = parserFactory.parseToAst(sql);
-            if (!(ast instanceof org.pangrova.parser.api.ast.CteQuery cteQuery)) {
-                return;
-            }
             List<org.pangrova.planner.rule.CTEReference> refs =
                     org.pangrova.planner.rule.CteReferenceCounter.count(cteQuery);
             for (var ref : refs) {

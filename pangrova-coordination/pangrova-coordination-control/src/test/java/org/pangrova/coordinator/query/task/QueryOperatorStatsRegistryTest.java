@@ -62,6 +62,49 @@ class QueryOperatorStatsRegistryTest {
     }
 
     @Test
+    void failedAttemptCanReportObjectReadsBeforeVeloxProducesOperatorStats() {
+        var registry = new QueryOperatorStatsRegistry();
+        var issued = attempt(1, 2, 0, "failed-open");
+        var evidence = org.pangrova.protocol.v2.TaskReport.newBuilder()
+                .setAttempt(issued).setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED)
+                .setNativeObjectReads(org.pangrova.protocol.v2.NativeObjectReadStats.newBuilder()
+                        .setMetadataCalls(1).setFailedCalls(1))
+                .build();
+        registry.record(issued, report(issued, 2, "FAILED", null), evidence);
+        registry.record(issued, report(issued, 1, "RUNNING", stats(22)), null);
+
+        assertThat(registry.attemptStats("query")).singleElement().satisfies(sample -> {
+            assertThat(sample.reportSequence()).isEqualTo(2L);
+            assertThat(sample.operators()).isEmpty();
+            assertThat(sample.nativeObjectReads().metadataCalls()).isOne();
+            assertThat(sample.nativeObjectReads().failedCalls()).isOne();
+        });
+    }
+
+    @Test
+    void nativeFlightPhasesSurviveTheBinaryReportWithNoOperatorCounters() throws Exception {
+        var registry = new QueryOperatorStatsRegistry();
+        var issued = attempt(1, 0, 0, "output");
+        var report = org.pangrova.protocol.v2.TaskReport.newBuilder().setAttempt(issued)
+                .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED)
+                .setNativeResultDelivery(org.pangrova.protocol.v2.NativeResultDeliveryStats.newBuilder()
+                        .setPayloadBatches(2).setFirstPayloadNanos(10).setProducerEofNanos(30)
+                        .setTransportCompleteNanos(40)).build();
+        var original = TaskStatusReport.fromEvidence(issued, "OUTPUT", "worker", "FINISHED",
+                null, null, null, 2, 1000, org.pangrova.protocol.rest.task.TaskReportEvidence.encode(report));
+        var decoded = org.pangrova.protocol.rest.task.TaskStatusWire.decode(
+                org.pangrova.protocol.rest.task.TaskStatusWire.encode(original));
+
+        registry.record(issued, decoded, decoded.canonicalStatus());
+
+        assertThat(registry.attemptStats("query")).singleElement().satisfies(sample -> {
+            assertThat(sample.taskId()).isEqualTo("output");
+            assertThat(sample.nativeResultDelivery()).isEqualTo(
+                    new org.pangrova.query.profiling.OperatorStatsSource.ResultDelivery(2, 10L, 30, 40));
+        });
+    }
+
+    @Test
     void acceptedCanonicalStatisticsProjectToTheSameAttemptProfile() throws Exception {
         var registry = new QueryOperatorStatsRegistry();
         var issued = attempt(1, 2, 0, "native");

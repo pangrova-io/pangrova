@@ -5,6 +5,7 @@ import org.pangrova.common.util.DigestUtils;
 import org.pangrova.common.util.OrderedMaps;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
+import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.PartitionValue;
 import org.pangrova.protocol.v2.TypedValue;
@@ -61,8 +62,8 @@ public final class DataSplitProtoCodec {
      * @param sourceSnapshot exact source snapshot
      * @param dataObjectId stable source object identifier
      * @param opaqueLocation connector-readable location
-     * @param startOffset non-negative byte or row offset
-     * @param length non-negative split length
+     * @param startOffset non-negative byte offset, zero for other read units
+     * @param length non-negative byte length, positive for Parquet
      * @param partitionValues string partition values
      * @param detail typed canonical file detail
      */
@@ -81,11 +82,11 @@ public final class DataSplitProtoCodec {
             requireText(connectorId, "connectorId");
             requireText(sourceId, "sourceId");
             requireText(opaqueLocation, "opaqueLocation");
-            validateRange(startOffset, length);
+            Objects.requireNonNull(detail, "detail must not be null");
+            validateRange(startOffset, length, detail.getFileFormat());
             partitionValues = partitionValues == null
                     ? Map.of()
                     : OrderedMaps.immutableCopy(partitionValues);
-            Objects.requireNonNull(detail, "detail must not be null");
         }
     }
 
@@ -112,9 +113,16 @@ public final class DataSplitProtoCodec {
         return builder.build();
     }
 
-    private static void validateRange(long startOffset, long length) {
+    private static void validateRange(long startOffset, long length, FileFormat format) {
         if (startOffset < 0 || length < 0) {
             throw new IllegalArgumentException("split range must be non-negative");
+        }
+        if (format == FileFormat.FILE_FORMAT_PARQUET) {
+            if (length == 0 || startOffset > Long.MAX_VALUE - length) {
+                throw new IllegalArgumentException("Parquet split requires a positive, bounded byte range");
+            }
+        } else if (startOffset != 0) {
+            throw new IllegalArgumentException("A nonzero byte offset is supported only for Parquet");
         }
     }
 

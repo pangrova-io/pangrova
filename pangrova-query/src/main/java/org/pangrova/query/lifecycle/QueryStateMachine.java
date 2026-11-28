@@ -2,6 +2,8 @@ package org.pangrova.query.lifecycle;
 
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.governance.api.enums.LineageEventType;
+import org.pangrova.query.api.audit.QueryAuditRecord;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.enums.StageState;
 
@@ -25,7 +27,6 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.error.QueryFailure;
-import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.journal.QueryStateEvent;
@@ -59,12 +60,16 @@ public class QueryStateMachine {
     );
 
     private volatile Status status =
-            new Status(0, QueryState.QUEUED, null, ResultDisposition.PENDING, null, false);
+            new Status(0, QueryState.QUEUED, null, ResultDisposition.PENDING, null, false, null);
     private Map<QueryWaitTarget, Set<CompletableFuture<Status>>> statusWaiters;
     private final Instant createdAt = Instant.now();
-    private volatile String tenantId;
+    @GuardedBy("this")
+    private String tenantId;
+    @GuardedBy("this")
+    private QueryRegistry tenantUsageRegistry;
     private final String auditPrincipal;
     private volatile String sql;
+    private volatile QueryAuditRecord terminalAudit;
     private volatile org.pangrova.query.api.session.BranchSelection branchSelection;
 
     public void selectBranch(org.pangrova.query.api.session.BranchSelection selection) {
@@ -82,6 +87,8 @@ public class QueryStateMachine {
     private volatile boolean controlPlaneWriteFinalization;
     private volatile boolean readOnlyTaskExecution;
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
+    private final AtomicBoolean retirementCheckInProgress = new AtomicBoolean();
+    private volatile boolean physicalCleanupApplied;
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
     private volatile Runnable admissionRelease;
     @GuardedBy("this")
@@ -143,30 +150,78 @@ public class QueryStateMachine {
         }
     }
 
-    /** Claims bookkeeping once, only after the cleanup owner has completed physical release. */
-    public boolean claimPhysicalCleanup() {
-        StatusChange change;
+    synchronized void bindTenantUsage(QueryRegistry registry) {
+        if (physicalCleanupApplied) return;
+        if (tenantUsageRegistry != null) {
+            throw new IllegalStateException("Tenant usage is already registered");
+        }
+        if (tenantId != null) {
+            registry.updateTenantUsage(tenantId, 1, status.state() == QueryState.QUEUED ? 1 : 0);
+        }
+        tenantUsageRegistry = registry;
+    }
+
+    /** Completes local cleanup once and publishes drain immediately when retirement also committed. */
+    public boolean claimPhysicalCleanup(boolean retired) {
+        StatusChange change = StatusChange.UNOBSERVED;
         synchronized (this) {
-            Status previous = status;
-            if (previous.drained()) return false;
-            change = publishStatus(previous.state(), previous.error(), previous.disposition(),
-                    previous.endpoint(), true);
+            if (physicalCleanupApplied) return false;
+            if (retired) change = publishPhysicalRetirement();
+            if (tenantUsageRegistry != null && tenantId != null) {
+                tenantUsageRegistry.updateTenantUsage(tenantId, -1, status.state() == QueryState.QUEUED ? -1 : 0);
+            }
+            tenantUsageRegistry = null;
+            physicalCleanupApplied = true;
         }
         change.notifyWaiters();
         return true;
     }
 
-    /** Logical termination alone never sets this physical completion evidence. */
-    public boolean physicalCleanupApplied() { return status.drained(); }
+    /** Marks global drain after the recovery transaction returned the execution reservation. */
+    public void confirmPhysicalRetirement() {
+        StatusChange change;
+        synchronized (this) {
+            if (!physicalCleanupApplied || status.drained()) return;
+            change = publishPhysicalRetirement();
+        }
+        change.notifyWaiters();
+    }
+
+    /** Coalesces concurrent demand checks after local cleanup has handed off retirement. */
+    public void refreshPhysicalRetirement(java.util.function.BooleanSupplier retired) {
+        if (!physicalCleanupApplied || status.drained() || !retirementCheckInProgress.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            if (!status.drained() && retired.getAsBoolean()) confirmPhysicalRetirement();
+        } finally {
+            retirementCheckInProgress.set(false);
+        }
+    }
+
+    private StatusChange publishPhysicalRetirement() {
+        var previous = status;
+        return publishStatus(previous.state(), previous.error(), previous.disposition(), previous.endpoint(), true);
+    }
+
+    /** Local ownership has drained, irrespective of a pending durable recovery. */
+    public boolean physicalCleanupApplied() { return physicalCleanupApplied; }
     /** Journal owner records an accepted admission, including an outcome requiring confirmation. */
     public void retainJournalOwnership() { journalOwnership.set(true); }
     /** Whether this query retains responsibility for a potentially accepted journal admission. */
     public boolean hasJournalOwnership() { return journalOwnership.get(); }
+    private volatile ExecutionAnchor journalGrant;
+
+    /** Retains the immutable original grant for subsequent lifecycle recording and journal retirement. */
+    public void bindJournalGrant(ExecutionAnchor grant) { journalGrant = grant; }
+
+    public ExecutionAnchor journalGrant() { return journalGrant; }
+
     private final List<QueryStateChangeListener> listeners = new CopyOnWriteArrayList<>();
     private volatile Runnable beforeTerminalTransition = () -> { };
-    private volatile java.util.function.BiConsumer<QueryState, QueryState> transitionRecorder;
     private volatile java.util.function.Supplier<QueryOperation> transitionOperations;
-    private final ConcurrentHashMap<QueryState, QueryStateEvent> journalFacts = new ConcurrentHashMap<>();
+    private volatile QueryStateEvent admissionJournalFact;
+    private volatile QueryStateEvent terminalJournalFact;
     private final CompletableFuture<Boolean> ownershipReady;
     private final boolean locallySubmitted;
     /** A reserved terminal transition; waiters join only after leaving this monitor. */
@@ -258,6 +313,25 @@ public class QueryStateMachine {
         return sql;
     }
 
+    /** Freezes the same audit record for local observation and durable persistence. */
+    public synchronized QueryAuditRecord freezeTerminalAudit(String queryId) {
+        if (!isTerminal()) {
+            throw new IllegalStateException("Query audit requires a terminal state");
+        }
+        if (terminalAudit == null) {
+            Instant completedAt = Instant.now();
+            terminalAudit = QueryAuditRecord.wallTimeOnly(queryId, auditPrincipal, sql, tenantId,
+                    java.time.Duration.between(createdAt, completedAt).toMillis(), completedAt,
+                    status.state() == QueryState.FINISHED);
+        }
+        return terminalAudit;
+    }
+
+    /** The retained terminal audit record, if its query has published it. */
+    public Optional<QueryAuditRecord> terminalAudit() {
+        return Optional.ofNullable(terminalAudit);
+    }
+
     /** Stage state aggregation: stageId → current StageState. */
     private final ConcurrentHashMap<String, StageState> stageStates =
             new ConcurrentHashMap<>();
@@ -333,8 +407,6 @@ public class QueryStateMachine {
             if (executionOwned && TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) {
                 beforeTerminalTransition.run();
             }
-            java.util.function.BiConsumer<QueryState, QueryState> recorder = transitionRecorder;
-            if (recorder != null) recorder.accept(decision.previous(), target);
         } catch (RuntimeException | Error failure) {
             synchronized (this) {
                 terminalTransitionPending = null;
@@ -350,6 +422,9 @@ public class QueryStateMachine {
             if (target == QueryState.FAILED && failure == null) failure = failureError;
             change = publishStatus(target, failure, previous.disposition(),
                     previous.endpoint(), previous.drained());
+            if (previous.state() == QueryState.QUEUED && tenantUsageRegistry != null && tenantId != null) {
+                tenantUsageRegistry.updateTenantUsage(tenantId, 0, -1);
+            }
             terminalTransitionPending = null;
             pendingTransitionTarget = null;
         }
@@ -363,24 +438,28 @@ public class QueryStateMachine {
 
     private record Transition(QueryState previous, CompletableFuture<Void> pending) { }
 
-    /** Journal owner installs recording before publication; recording failure prevents the transition. */
-    public void setTransitionRecorder(java.util.function.BiConsumer<QueryState, QueryState> recorder) {
-        transitionRecorder = java.util.Objects.requireNonNull(recorder);
-    }
-
     /** Execution owner installs the permit supplier before publication; each transition closes its permit. */
     public void setTransitionOperations(java.util.function.Supplier<QueryOperation> operations) {
         transitionOperations = java.util.Objects.requireNonNull(operations);
     }
 
-    /** Retains one immutable event per target state for exact journal retries. */
-    public org.pangrova.query.api.journal.QueryStateEvent journalEvent(QueryState target,
-            java.util.function.Supplier<org.pangrova.query.api.journal.QueryStateEvent> create) {
-        var existing = journalFacts.get(target);
+    /** Retains only the immutable admission and terminal facts for exact journal retries. */
+    public QueryStateEvent journalEvent(QueryState target, java.util.function.Supplier<QueryStateEvent> create) {
+        boolean admission = target == QueryState.QUEUED;
+        if (!admission && !TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) {
+            throw new IllegalArgumentException("Query progress belongs to the live projection");
+        }
+        var existing = admission ? admissionJournalFact : terminalJournalFact;
         if (existing != null) return existing;
         var candidate = create.get();
-        var retained = journalFacts.putIfAbsent(target, candidate);
-        return retained != null ? retained : candidate;
+        synchronized (this) {
+            if (admission) {
+                if (admissionJournalFact == null) admissionJournalFact = candidate;
+                return admissionJournalFact;
+            }
+            if (terminalJournalFact == null) terminalJournalFact = candidate;
+            return terminalJournalFact;
+        }
     }
 
     /** Persists terminal cleanup responsibility before a terminal state becomes visible. */
@@ -431,7 +510,7 @@ public class QueryStateMachine {
     }
 
     /** Returns the tenant identifier associated with this query, or null if unset. */
-    public String getTenantId() {
+    public synchronized String getTenantId() {
         return tenantId;
     }
 
@@ -445,8 +524,11 @@ public class QueryStateMachine {
         return principal != null && !principal.isBlank() && principal.equals(auditPrincipal);
     }
 
-    /** Sets the tenant identifier for per-tenant quota filtering. */
-    public void setTenantId(String tenantId) {
+    /** Assigns the tenant before registering the query for local quota accounting. */
+    public synchronized void setTenantId(String tenantId) {
+        if (tenantUsageRegistry != null && !java.util.Objects.equals(this.tenantId, tenantId)) {
+            throw new IllegalStateException("Tenant cannot change after query registration");
+        }
         this.tenantId = tenantId;
     }
 
@@ -524,10 +606,11 @@ public class QueryStateMachine {
 
     /** Coherent state, result disposition, authority and physical-release evidence for one query owner. */
     public record Status(long version, QueryState state, QueryFailure error,
-                         ResultDisposition disposition, ResultEndpoint endpoint, boolean drained) {
+                         ResultDisposition disposition, ResultEndpoint endpoint, boolean drained,
+                         org.pangrova.query.api.session.BranchSelection branchSelection) {
         public Status {
-            if (disposition == null) {
-                throw new IllegalArgumentException("disposition must not be null");
+            if (disposition == null || disposition == ResultDisposition.UNAVAILABLE) {
+                throw new IllegalArgumentException("Live status requires a live result disposition");
             }
             disposition.validateEndpoint(endpoint);
             if (disposition == ResultDisposition.PENDING && TRANSITIONS.get(state).isEmpty()) {
@@ -581,7 +664,7 @@ public class QueryStateMachine {
                         ? ResultDisposition.NONE
                         : disposition;
         var next = new Status(Math.incrementExact(previousVersion), state, error,
-                publishedDisposition, endpoint, drained);
+                publishedDisposition, endpoint, drained, state == QueryState.FINISHED ? branchSelection : null);
         status = next;
         if (statusWaiters == null) return StatusChange.UNOBSERVED;
         List<Set<CompletableFuture<Status>>> released = null;
@@ -641,11 +724,9 @@ public class QueryStateMachine {
         return readOnlyTaskExecution;
     }
 
-    /** Acquires a health probe before dispatch can outlive this local admission. */
+    /** Acquires a health probe while this submission is still eligible for dispatch. */
     public synchronized void acquireAdmissionHealthProbe(java.util.function.BooleanSupplier acquire) {
-        if (isTerminal()) {
-            throw new QueryRejectedException("Query ended before admission");
-        }
+        if (isTerminal()) return;
         if (admissionHealthProbe) {
             throw new IllegalStateException("Query already owns an admission health probe");
         }

@@ -28,6 +28,7 @@ require `result_disposition`.
 | `GET` | `/v1/server/info` | Discover current and minimum supported API versions |
 | `POST` | `/v1/query/submit` | Submit a SQL query |
 | `GET` | `/v1/query/{queryId}/state` | Get query execution state |
+| `GET` | `/v1/query/{queryId}/receipt-recovery` | Recover the terminal outcome for a signed, keyed receipt |
 | `POST` | `/v1/query/{queryId}/cancel` | Cancel a running query |
 | `GET` | `/v1/query/profile/{queryId}` | Get query flame graph (SVG) |
 | `GET` | `/v1/query/profile/{queryId}/json` | Get audit totals and retained Native task-attempt counters |
@@ -41,12 +42,38 @@ require `result_disposition`.
 
 Query profiles are scoped to the authenticated submitting principal. The Web UI lists
 that principal’s active queries. An available SVG profile requires a live local query.
+The JSON profile uses the owning Coordinator's retained terminal audit record.
+It returns HTTP 404 until that record is available or after it leaves local retention.
+Use `?history=true` on either JSON profile endpoint to read durable audit history.
+The history lookup still requires the submitting principal.
+
 The JSON profile returns query audit timing and memory totals. Each element of `attempts`
 identifies an issued stage, partition, plan epoch, task attempt, and Worker. `reportState`
 and `reportSequence` identify the measured snapshot. The attempt includes measured output
 backpressure and per-operator counters in nanoseconds, bytes, and rows. Attempts for a
 retry and its predecessor appear separately. If the Coordinator retains no attempt
 counters, `attempts` is empty and `telemetryAvailable` is false.
+
+An attempt with a Native read owner reports `nativeObjectReads`. This includes
+`requestedBytes` reserved for Native file reads and `returnedBytes` reported by
+the file adapter, together with `payloadCalls`, `metadataCalls` and
+`failedCalls`. Reported lengths can include logical gaps in vector reads.
+Metadata calls include adapter opens and size lookups. Call counts and
+returned lengths are recorded when the scoped operation exits. A failed multi-range read
+can retain bytes from earlier successful ranges. Configured Native S3 reads
+also report `s3SdkAttempts`, `s3SdkRetries` and `s3ResponseBodyBytes`. The SDK
+reports attempts and retries for HEAD and ranged GET operations. The byte
+counter measures HTTP response bodies received by the SDK, including failed
+attempts, and excludes headers and transport framing. These observations
+are independent of the adapter's admitted byte grant.
+
+A successfully delivered Native `OUTPUT` attempt reports `nativeResultDelivery`.
+It includes `payloadBatches`, `firstPayloadNanos`, `producerEofNanos`, and
+`transportCompleteNanos`. The three times are measured from opening the
+Worker Flight reader. An empty result has no first-payload time. Transport
+completion is recorded when the server commits the stream after writing EOF.
+Client receive time and physical query release use their own observations.
+
 
 Each operator reports `blockedNanos` and the selected reasons
 `waitForProducerNanos`, `waitForConsumerNanos`, `waitForSplitNanos`, and
@@ -68,13 +95,14 @@ and stage generation. A speculative copy can settle its original logical slot.
 The record carries both task IDs and the physical attempt’s plan epoch. It can
 include earlier stage generations from a retried query.
 
-`runtimeFilterWait` records the single cross-stage build decision before the probe
-begins enumerating splits. It identifies the build and probe stages, the probe
-generation, and the range count. The wait runs from `startedNanos` to
-`finishedNanos` on the graph's Coordinator clock. Outcomes are `APPLIED`,
-`EMPTY_BUILD`, `MISSING_SUMMARY`, `TIMED_OUT`, and `QUERY_TERMINATED`. An absent
-entry means the graph recorded no completed build wait. The interval can overlap
-Native execution and the acknowledgement of already-issued tasks.
+`runtimeFilterWaits` lists the recorded cross-stage decisions in probe stage order.
+Each entry identifies the build and probe stages, the probe generation, and the
+range count. Independent probes share the query's 200 ms wait window and may
+release at different times. Each interval runs from `startedNanos` to
+`finishedNanos` on the graph's Coordinator clock and can overlap Native execution
+and the acknowledgement of already-issued tasks. Outcomes are `APPLIED`,
+`EMPTY_BUILD`, `MISSING_SUMMARY`, `TIMED_OUT`, and `QUERY_TERMINATED`. An empty
+list means the graph recorded no completed build wait.
 
 `downstreamPreparations` describes work submitted to the live read preparation
 executor. Each entry covers one executor submission, which can handle multiple
@@ -88,10 +116,15 @@ minus start. Parallel work can overlap these intervals.
 `stageDispatchWork` contains measured intervals for each live stage and
 generation. The phases are `SERIALIZE_PLAN`, `ENUMERATE_SPLITS`,
 `VALIDATE_AND_BIND_PLAN`, `SUBMIT_TASKS`, and `OBSERVE_COHORT_ACK`.
-The item count identifies enumerated splits or submitted task partitions as
-applicable. The ACK interval starts after submission and measures how long the
-Coordinator still waits for the cohort; it uses the same clock as the stage
-transitions. The interval reports whether the cohort acknowledged successfully.
+Every started synchronous phase records its completed interval, including
+failures such as connector enumeration timeout or Worker admission rejection.
+The `successful` field is false for failed operations; no interval is invented
+for later phases that never started. The item count identifies completed split
+enumeration or task partition submission as applicable and is absent for a
+failed synchronous phase whose complete count is not known. The ACK interval
+starts after submission and measures how long the Coordinator still waits for
+the cohort; it uses the same clock as the stage transitions and reports whether
+the cohort acknowledged successfully.
 
 ### Submit a Query
 
@@ -137,17 +170,34 @@ The initial receipt can have no column names while planning is pending. Poll the
 state endpoint until the disposition is `STREAM` or the query reaches a terminal
 state. The endpoint identifies the host serving Arrow Flight results (`ticket`
 is opaque and `protocol` identifies the transport); this can be a Worker or the
-Coordinator for bounded control-plane rows. The protocol is canonical and must be
+Coordinator for bounded control-plane rows. A control-plane ticket admits one
+Flight read. An unopened result expires after five minutes. Reading, expiry, or
+revocation retires the ticket, and a later read returns Flight `NOT_FOUND`.
+The protocol is canonical and must be
 `grpc` or `grpc+tls`. Consume a readable `RUNNING`
 or `FINISHING` stream before waiting for `FINISHED`; bounded output can require an
 active reader to finish. The `session_properties` field is optional and defaults
-to an empty map. When an authenticated principal submits an `Idempotency-Key`, the
-Coordinator atomically records the principal, key digest, canonical request
+to an empty map. For each authenticated submission, the
+Coordinator atomically records the principal, journal key digest, canonical request
 fingerprint, lineage, and a deterministic `QUEUED`/`PENDING` acceptance receipt in
 the initial journal row. A normal new acceptance performs one journal INSERT and no
-readback. During the acceptance window, a matching retry returns the same query ID
+readback. A request without `Idempotency-Key` creates a fresh query identity.
+During the acceptance window, a matching retry with an explicit key returns the same query ID
 and acceptance receipt without executing the SQL again; changing SQL or session
 properties returns HTTP 409. Each principal has an independent key space.
+Once the acceptance receipt is returned, the query continues under its
+execution deadline. Poll its status for the transition to a readable result or
+terminal outcome. If dispatch rejects already accepted work, status reports a
+terminal failure. Its error type is `ASYNC_SUBMIT_QUEUE_FULL` for dispatch
+saturation or `ASYNC_SUBMIT_STOPPING` when the executor is observed shutting
+down. SQL authorization failures discovered after acceptance also appear in
+terminal status as `FAILED` with their original security error code. Requests
+rejected before acceptance receive the HTTP error directly.
+
+Successful `USE BRANCH` includes `branch_selection` in terminal status and receipt
+recovery. Use its table and branch to set the corresponding
+`branch.routing.<catalog>.<schema>.<table>` session property on later requests.
+A null branch clears the property.
 
 Acceptance facts remain until ten minutes after the later of acceptance or terminal
 completion. Once that window elapses, a new candidate may reuse the key with either
@@ -277,8 +327,19 @@ For queries returning large result sets, the REST API returns a `result_endpoint
 ```
 
 The Java SDK uses `beginQuery(sql, sessionProperties)` for a query execution
-handle. Its status and cancellation requests stay on the endpoint that accepted
-the submission. `awaitStatus(target, deadlineEpochMs)` takes a
+handle. The submit receipt contains `owner_endpoint` with `coordinator_id`,
+`incarnation`, `host`, and the bound HTTP `port`. An idempotent replay returns
+the original receipt and owner. The SDK sends status and cancellation to that
+origin when it matches an endpoint configured for the client. It uses the
+configured HTTP scheme for the match. When the Coordinator cluster enables
+query peer routing, the receipt also contains `owner_endpoint.route_ticket`.
+For a shared ingress, pass it as `X-Pangrova-Query-Route` on status, cancellation,
+and profile requests. The Java SDK carries the ticket on waits and cancellation
+when it addresses the ingress. Use the submitting principal's credentials on
+each request.
+To reconnect from a fresh Java REST client, pass the saved receipt to
+`resumeQuery(receipt)` using the original submitting principal's credentials.
+`awaitStatus(target, deadlineEpochMs)` takes a
 `org.pangrova.common.enums.QueryWaitTarget` and requests that owner event. Live
 status responses include `version` and `drained`. The `drained` flag becomes
 true after the Coordinator records physical resource release.
@@ -292,14 +353,35 @@ terminal state, the logical terminal state, or physical release, respectively.
 Use `afterVersion=0` when starting a targeted wait without a prior status read.
 Timeout returns the current snapshot. The Coordinator
 allows one pending wait per observer, principal and query, with additional
-principal, tenant and process limits. A request on a different Coordinator
-receives `QUERY_OWNER_UNAVAILABLE`. Use the plain `GET /v1/query/{queryId}/state`
-for diagnostic reads. State, wait, and cancellation requests are scoped to the
-submitting principal. Historical diagnostics verify the original journal admission
-and return only `query_id` and the recorded `state`. The journal does not retain
-result disposition or endpoint authority, so historical responses omit
-`result_disposition`, `result_endpoint`, `version`, and `drained` and must not be
-used to open a result stream.
+principal, tenant and process limits. Duplicate observers receive HTTP 409.
+Exhausted wait capacity returns HTTP 429. If the HTTP executor stops while
+resuming a wait, the request returns HTTP 503 with `QUERY_STATUS_WAIT_UNAVAILABLE`.
+Coordinator metrics record active waiters, completion counts, and capacity
+hold time. Completion counts and hold time use only the wait target and
+outcome as labels, including separate `TERMINAL` and `DRAINED` outcomes.
+A configured ingress routes a ticketed
+live request to the Coordinator incarnation that issued the receipt.
+Live waits return `QUERY_OWNER_UNAVAILABLE` when the owner cannot serve the
+request. Ordinary state reads use the live owner projection. State, wait, and
+cancellation requests are scoped to the submitting principal.
+`GET /v1/query/{queryId}/state?history=true` reads diagnostic history and returns
+only `query_id` and the recorded `state`.
+
+#### Recover a signed receipt
+
+After `QUERY_OWNER_UNAVAILABLE`, call
+`GET /v1/query/{queryId}/receipt-recovery` using the original
+`X-Pangrova-Query-Route` value and the submitting principal. A known receipt whose
+physical release is still pending returns HTTP 503 with `QUERY_RECOVERY_PENDING`.
+A missing, expired or nonmatching receipt returns HTTP 404. A recovered terminal
+outcome returns HTTP 200 with `drained: true` and omits `version` and
+`result_endpoint`. For a successful terminal outcome, `NONE` means the query
+was resultless and `UNAVAILABLE` means the original stream cannot be recovered.
+Once an outcome is recovered, clients can keep it for the lifetime of the query
+handle. An unavailable stream has no Flight ticket to open or resume.
+If a cancellation response cannot be established with the original owner, the
+SDK can check for physical retirement with a read. It does not replay the
+cancellation request.
 
 Java SDK applications use `client.openResult(endpoint, deadlineEpochMs)` in
 try-with-resources. Read the schema with `columns()`, advance with `next()`,

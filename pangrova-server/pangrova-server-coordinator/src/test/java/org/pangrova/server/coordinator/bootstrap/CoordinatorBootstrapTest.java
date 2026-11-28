@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.pangrova.server.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -275,8 +276,7 @@ class CoordinatorBootstrapTest extends org.pangrova.server.coordinator.testinfra
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
             // NOOP admits the request; constant SELECT still needs a Native Worker.
-            assertThat(resp.statusCode()).isEqualTo(503);
-            assertThat(resp.body()).contains("COORDINATOR-0001");
+            assertAdmissionThenWorkerFailure(bootstrap.getQueryManager(), resp);
             // Terminal state publication can precede asynchronous admission cleanup.
             org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5))
                     .untilAsserted(() -> assertThat(bootstrap.getQueryManager().getActiveQueryCount()).isZero());

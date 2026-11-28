@@ -36,6 +36,8 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
@@ -53,6 +55,7 @@ import org.pangrova.protocol.v2.RelationDetailEnvelope;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -181,16 +184,111 @@ class PlanFragmenterTest {
                 });
     }
 
-    @Test
-    void matchingHashExchangesKeepJoinParallel() {
-        var fragmented = PlanFragmenter.fragment(hashJoin(
-                hashExchange(), hashExchange(), JoinRelType.INNER), 8);
+    @ParameterizedTest
+    @EnumSource(value = JoinRelType.class, names = {"INNER", "LEFT", "RIGHT", "FULL", "SEMI"})
+    void matchingHashExchangesKeepJoinParallelAndAllowAlignedRanges(JoinRelType type) {
+        var fragmented = PlanFragmenter.fragment(hashJoin(hashExchange(), hashExchange(), type), 8);
 
-        assertThat(fragmented.stages().stream()
-                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class))
-                .map(PlanStage::parallelism)).containsExactly(8);
-        assertThat(fragmented.transfers()).filteredOn(transfer ->
-                transfer.shuffleType() == ShuffleType.HASH).hasSize(2);
+        var consumer = fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class)).findFirst().orElseThrow();
+        assertThat(consumer.parallelism()).isEqualTo(8);
+        var inputs = fragmented.transfers().stream()
+                .filter(transfer -> transfer.downstreamStageId() == consumer.stageId()).toList();
+        assertThat(inputs).hasSize(2).allSatisfy(input -> assertThat(input.shuffleType()).isEqualTo(ShuffleType.HASH));
+        var keys = new java.util.HashMap<String, List<Integer>>();
+        inputs.forEach(input -> keys.put(input.exchangeId(), input.distributionKeys()));
+        assertThat(consumer.fragment().supportsCoalescedHashJoin(keys, 8)).isTrue();
+        assertThat(consumer.fragment().supportsCoalescedHashJoin(keys, 4)).isFalse();
+        keys.put(inputs.get(1).exchangeId(), List.of(1));
+        assertThat(consumer.fragment().supportsCoalescedHashJoin(keys, 8)).isFalse();
+        keys.remove(inputs.get(1).exchangeId());
+        assertThat(consumer.fragment().supportsCoalescedHashJoin(keys, 8)).isFalse();
+    }
+
+    @Test
+    void liveLogicalJoinUsesBothHashExchangesWhenItsSourcesRunInParallel() {
+        var schema = org.apache.calcite.tools.Frameworks.createRootSchema(true);
+        for (String name : List.of("LHS", "RHS")) {
+            schema.add(name, new org.apache.calcite.schema.impl.AbstractTable() {
+                @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                    return factory.builder().add("id", SqlTypeName.BIGINT).build();
+                }
+            });
+        }
+        var builder = org.apache.calcite.tools.RelBuilder.create(
+                org.apache.calcite.tools.Frameworks.newConfigBuilder().defaultSchema(schema).build());
+        builder.scan("LHS").scan("RHS");
+        var join = builder.join(JoinRelType.FULL, builder.equals(builder.field(2, 0, 0), builder.field(2, 1, 0)))
+                .build();
+        assertThat(PlanFragmenter.fragment(join, 4).transfers())
+                .filteredOn(transfer -> transfer.shuffleType() == ShuffleType.HASH).hasSize(2)
+                .allSatisfy(transfer -> assertThat(transfer.partitionCount()).isEqualTo(4));
+        assertThat(PlanFragmenter.fragment(join, 1).transfers())
+                .noneMatch(transfer -> transfer.shuffleType() == ShuffleType.HASH);
+    }
+
+    @Test
+    void alignedJoinRequiresOrderedCompositeKeysAndMatchingHashTypes() {
+        var keys = List.of(0, 1);
+        var originalType = values().getRowType();
+        var left = joinExchange("left", 1, originalType, keys);
+        var right = joinExchange("right", 2, originalType, keys);
+        var proof = new PlanFragment(hashJoin(left, right, JoinRelType.INNER, keys), 0, 0);
+        assertThat(proof.supportsCoalescedHashJoin(Map.of("left", keys, "right", keys), 8)).isTrue();
+        assertThat(proof.supportsCoalescedHashJoin(Map.of("left", keys, "right", List.of(1, 0)), 8)).isFalse();
+
+        var differentType = typeFactory.builder()
+                .add("id", SqlTypeName.BIGINT).add("text", SqlTypeName.VARCHAR, 32).build();
+        var differentRight = joinExchange("right", 2, differentType, keys);
+        var mismatched = new PlanFragment(hashJoin(left, differentRight, JoinRelType.INNER, keys), 0, 0);
+        assertThat(mismatched.supportsCoalescedHashJoin(Map.of("left", keys, "right", keys), 8)).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinRelType.class, names = {"INNER", "LEFT", "RIGHT", "FULL", "SEMI"})
+    void skewSplittingOnlyReplicatesSidesThatCannotProduceDuplicateUnmatchedRows(JoinRelType type) {
+        var keys = List.of(0);
+        var rowType = values().getRowType();
+        var left = joinExchange("left", 1, rowType, keys);
+        var right = joinExchange("right", 2, rowType, keys);
+        var fragment = new PlanFragment(hashJoin(left, right, type, keys), 0, 0);
+
+        assertThat(fragment.alignedHashJoin(Map.of("right", keys, "left", keys), 8)).hasValue(
+                new PlanFragment.AlignedHashJoin("left", "right",
+                        type == JoinRelType.INNER || type == JoinRelType.LEFT || type == JoinRelType.SEMI,
+                        type == JoinRelType.INNER || type == JoinRelType.RIGHT));
+    }
+
+    @Test
+    void authorizedLeftJoinFreezesOnlyItsPreservedInputForReplay() {
+        var fragmented = PlanFragmenter.fragment(hashJoin(hashExchange(), hashExchange(), JoinRelType.LEFT), 8);
+        var consumer = fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class)).findFirst().orElseThrow();
+        var incoming = fragmented.transfers().stream().filter(edge -> edge.downstreamStageId() == consumer.stageId())
+                .collect(java.util.stream.Collectors.toMap(StageTransfer::exchangeId, StageTransfer::distributionKeys));
+        var split = consumer.fragment().alignedHashJoin(incoming, consumer.parallelism()).orElseThrow();
+        var output = fragmented.stages().stream().filter(stage -> "OUTPUT".equals(stage.taskType()))
+                .findFirst().orElseThrow();
+        var planner = new PangrovaPlanner(org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false));
+        var compiler = new SqlCompiler(planner, new SubstraitConverter(), new SubstraitPlanSerializer());
+        var graph = AuthorizedStageGraph.compile(fragmented, compiler,
+                output.fragment().fieldNames(), StageTerminalPurpose.QUERY_RESULT);
+        assertThat(graph.stages()).filteredOn(stage -> stage.stageId() == consumer.stageId())
+                .singleElement().satisfies(stage ->
+                        assertThat(stage.splittableHashInputs()).containsExactly(split.leftExchangeId()));
+        var serialized = graph.stages().stream().collect(java.util.stream.Collectors.toMap(
+                AuthorizedStageGraph.SerializedStage::stageId, AuthorizedStageGraph.SerializedStage::serializedPlan));
+        AuthorizedStageGraph.validateExchangeContracts(serialized, graph.transfers(), Map.of(consumer.stageId(),
+                List.of(split.leftExchangeId())));
+        assertThatThrownBy(() -> AuthorizedStageGraph.validateExchangeContracts(serialized, graph.transfers(),
+                Map.of(consumer.stageId(), List.of(split.rightExchangeId())))).hasMessageContaining("frozen join");
+    }
+
+    private PangrovaExchangeInput joinExchange(String id, int source, RelDataType type, List<Integer> keys) {
+        var distribution = PangrovaDistribution.hash(keys);
+        return new PangrovaExchangeInput(cluster, cluster.traitSet().replace(distribution), type,
+                new PangrovaExchangeInput.Specification("input-" + id, id, source, 0, distribution, 8,
+                        BatchSerde.BATCH_SERDE_ARROW_BATCH, true));
     }
 
     @Test
@@ -490,6 +588,15 @@ class PlanFragmenterTest {
         assertThat(producer.fragment().relNode()).isInstanceOf(PangrovaExchange.class);
         assertThat(serialize(producer.fragment().relNode()).getExchange().getPartitionCount())
                 .isEqualTo(consumer.parallelism());
+
+        FragmentedPlan remote = PlanFragmenter.fragment(join, -1, StageTerminalPurpose.QUERY_RESULT, 8,
+                false, List::of, ignored -> 0, false);
+        assertThat(remote.transfers()).filteredOn(candidate -> candidate.shuffleType() == ShuffleType.HASH)
+                .hasSize(2).allSatisfy(edge -> assertThat(edge.distributionKeys()).containsExactly(0));
+        assertThat(remote.transfers()).noneMatch(candidate -> candidate.shuffleType() == ShuffleType.BROADCAST);
+        assertThat(remote.stages()).anySatisfy(stage ->
+                assertThat(stage.fragment().relNode()).isInstanceOf(PangrovaHashJoin.class));
+
     }
 
     @Test
@@ -726,11 +833,16 @@ class PlanFragmenterTest {
 
     private PangrovaHashJoin hashJoin(
             RelNode left, RelNode right, JoinRelType type) {
-        var condition = cluster.getRexBuilder().makeCall(SqlStdOperatorTable.EQUALS,
-                cluster.getRexBuilder().makeInputRef(left, 0),
-                cluster.getRexBuilder().makeInputRef(
-                        right.getRowType().getFieldList().get(0).getType(),
-                        left.getRowType().getFieldCount()));
+        return hashJoin(left, right, type, List.of(0));
+    }
+
+    private PangrovaHashJoin hashJoin(RelNode left, RelNode right, JoinRelType type, List<Integer> keys) {
+        var rex = cluster.getRexBuilder();
+        var predicates = keys.stream().map(key -> rex.makeCall(SqlStdOperatorTable.EQUALS,
+                rex.makeInputRef(left, key),
+                rex.makeInputRef(right.getRowType().getFieldList().get(key).getType(),
+                        left.getRowType().getFieldCount() + key))).toList();
+        var condition = RexUtil.composeConjunction(rex, predicates);
         return new PangrovaHashJoin(new HashJoinConfig(cluster,
                 left.getTraitSet(), left, right, condition, Set.of(), type));
     }

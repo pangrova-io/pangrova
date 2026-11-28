@@ -68,7 +68,24 @@ class CdcWriteCommitCoordinatorTest {
         assertThat(acks[0]).isEqualTo(2);
     }
 
+    @Test
+    void conflictingReplayCannotAcknowledgeADifferentSourceInterval() {
+        var journal = new InMemoryWriteCommitJournal();
+        int[] acks = {0};
+        var coordinator = new CdcWriteCommitCoordinator(journal, ignored -> {}, (source, fingerprint) -> acks[0]++);
+        coordinator.commit(intent());
+        var next = new CdcSourceIdentity("stream-1", "epoch-1",
+                List.of(new CdcSourceIdentity.OffsetRange("orders", 0, 20, 30)));
+        assertThatThrownBy(() -> coordinator.commit(intent(next)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Conflicting write commit intent");
+        assertThat(acks[0]).isOne();
+    }
+
     private static WriteCommitEntry intent() {
+        return intent(SOURCE);
+    }
+
+    private static WriteCommitEntry intent(CdcSourceIdentity source) {
         var receipt = new WriteAuthorizationReceipt(new byte[]{1},
                 new WriteDeclarationSnapshot(
                         new QualifiedTableName("catalog", "schema", "target"),
@@ -76,11 +93,11 @@ class CdcWriteCommitCoordinatorTest {
         String fingerprint = WriteCommitFingerprint.compute(
                 new WriteCommitFingerprint.Intent("q-cdc", "tenant-a", "catalog",
                         "schema.target", "INSERT", 42L, new byte[]{2}, "alice",
-                        receipt, null, SOURCE),
+                        receipt, null, source),
                 List.of(new byte[]{3}));
         return new WriteCommitEntry("q-cdc", "catalog", "schema.target",
                 WriteCommitState.PENDING, 1_000L, List.of(new byte[]{3}), "INSERT",
                 fingerprint, "tenant-a", "alice", receipt, 42L, new byte[]{2},
-                fingerprint, null, null, 0L, null, null, SOURCE);
+                fingerprint, null, null, 0L, null, null, source);
     }
 }

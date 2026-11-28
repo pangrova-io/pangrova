@@ -144,9 +144,18 @@ final class ShuffleServiceModel {
             long totalBytes,
             long totalRows,
             long committedLastSequence,
-            byte[] checksum) {
+            byte[] checksum,
+            List<org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange> readRanges) {
+        FinalizedPartition(int partitionId, long totalBytes, long totalRows, long committedLastSequence,
+                byte[] checksum) {
+            this(partitionId, totalBytes, totalRows, committedLastSequence, checksum, List.of());
+        }
+
         FinalizedPartition {
             checksum = checksum.clone();
+            readRanges = List.copyOf(readRanges);
+            org.pangrova.shuffle.api.ShuffleCommitReceipt.requireRangeCoverage(
+                    committedLastSequence, totalBytes, totalRows, readRanges);
         }
 
         @Override
@@ -231,41 +240,21 @@ final class ShuffleServiceModel {
         }
     }
 
-    record CleanupPlan(
-            String queryId,
-            String leaseOwner,
-            long partitionCount,
-            long bytes) {
+    sealed interface CleanupStart permits CleanupPlan, CleanupReceipt {}
+
+    record CleanupPlan(String queryId, String leaseOwner, boolean recoverWrites) implements CleanupStart {
         CleanupPlan {
-            if (queryId == null || queryId.isBlank()
-                    || leaseOwner == null || leaseOwner.isBlank()
-                    || partitionCount < 0 || bytes < 0) {
+            if (queryId == null || queryId.isBlank() || leaseOwner == null || leaseOwner.isBlank()) {
                 throw new IllegalArgumentException("cleanup plan is invalid");
             }
         }
     }
 
-    record CleanupCursor(
-            String shuffleId,
-            int producerPartitionId,
-            int producerAttemptId,
-            int outputPartitionId,
-            long batchSequence) {}
-
-    record CleanupObjectPage(List<String> objectKeys, CleanupCursor nextCursor) {
-        CleanupObjectPage {
-            objectKeys = List.copyOf(objectKeys);
-            if (objectKeys.isEmpty() != (nextCursor == null)) {
-                throw new IllegalArgumentException("cleanup object page cursor is inconsistent");
-            }
-        }
-    }
-
-    record CleanupShufflePage(List<String> shuffleIds, String nextShuffleId) {
-        CleanupShufflePage {
-            shuffleIds = List.copyOf(shuffleIds);
-            if (shuffleIds.isEmpty() != (nextShuffleId == null)) {
-                throw new IllegalArgumentException("cleanup shuffle page cursor is inconsistent");
+    record CleanupReceipt(String queryId, long revocationGeneration, long convergedAtMs,
+                          boolean uncertainWriteHandoff) implements CleanupStart {
+        CleanupReceipt {
+            if (queryId == null || queryId.isBlank() || revocationGeneration <= 0 || convergedAtMs <= 0) {
+                throw new IllegalArgumentException("cleanup receipt is invalid");
             }
         }
     }

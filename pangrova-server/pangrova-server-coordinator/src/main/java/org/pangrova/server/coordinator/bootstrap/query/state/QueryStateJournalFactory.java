@@ -2,6 +2,7 @@ package org.pangrova.server.coordinator.bootstrap.query.state;
 
 import javax.sql.DataSource;
 
+import org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
@@ -33,6 +34,11 @@ public final class QueryStateJournalFactory {
      * @throws IllegalArgumentException if the type is unknown or JDBC is requested without a data source
      */
     public static QueryStateJournal create(StateJournalConfig config, DataSource dataSource) {
+        return create(config, dataSource, null);
+    }
+
+    /** Creates a journal with the local ownership identity for Coordinator-hosted work. */
+    public static QueryStateJournal create(StateJournalConfig config, DataSource dataSource, Identity processIdentity) {
         checkNotNull(config, "config must not be null");
         return switch (config.type()) {
             case "NONE" -> new InMemoryQueryStateJournal(config.maxResidentEvents());
@@ -41,7 +47,7 @@ public final class QueryStateJournalFactory {
                     throw new IllegalArgumentException(
                             "DataSource is required for JDBC state journal");
                 }
-                yield new JdbcQueryStateJournal(dataSource, config);
+                yield new JdbcQueryStateJournal(dataSource, config, processIdentity);
             }
             default -> throw new IllegalArgumentException(
                     "Unknown state journal type: " + config.type());

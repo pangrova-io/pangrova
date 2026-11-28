@@ -139,6 +139,8 @@ final class QueryCompletionWaiter {
             case NONE -> STATE_FINISHED.equals(state)
                     ? new ReadyResult(ResultDisposition.NONE, null, true, Optional.of(status))
                     : null;
+            case UNAVAILABLE -> throw new SQLException(
+                    "Query result is no longer available, queryId=" + queryId, "HY000");
             case PENDING -> null;
         };
     }

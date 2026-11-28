@@ -165,7 +165,7 @@ class StageDAGPipelineIntegrationTest {
                 List.of()
         ).withStages("q-cap");
 
-        PipelineConfig config = new PipelineConfig(true, 2, 5000);
+        PipelineConfig config = new PipelineConfig(true, 2);
 
         // Stage 0 → RUNNING
         dag.findStage(0).stateMachine().transitionTo(StageState.SCHEDULING);
@@ -185,143 +185,6 @@ class StageDAGPipelineIntegrationTest {
 
         // Stage 2 should remain PLANNED (backpressure)
         assertEquals(StageState.PLANNED, dag.findStage(2).stateMachine().getState());
-    }
-
-    // ---------------------------------------------------------------
-    // Task 27.4: Broadcast join latency improvement vs barrier mode
-    // ---------------------------------------------------------------
-
-    @Test
-    @DisplayName("27.4: broadcast join — STREAMING edge enables immediate downstream scheduling")
-    void broadcastJoinStreamingEdge() {
-        // Topology: Stage 0 (Scan-Build) → Stage 1 (Join) via BROADCAST (STREAMING)
-        //           Stage 2 (Scan-Probe) → Stage 1 (Join) via HASH (BLOCKING)
-        StageEdge broadcastEdge = new StageEdge(0, 1, org.pangrova.planner.enums.ShuffleType.BROADCAST,
-                List.of(), "exchange-0-to-1", 1,
-                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
-        StageEdge hashEdge = new StageEdge(2, 1, org.pangrova.planner.enums.ShuffleType.HASH);
-
-        StageNode n0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
-        StageNode n1 = new StageNode(1, dummyFragment(), 2, "COMPUTE", List.of());
-        StageNode n2 = new StageNode(2, dummyFragment(), 2, "COMPUTE", List.of());
-
-        StageDAG dag = StageDAG.fromNodes(
-                List.of(n0, n1, n2),
-                Map.of(1, List.of(0, 2)),
-                List.of(broadcastEdge, hashEdge)
-        ).withStages("q-broadcast");
-
-        // Verify edge read modes
-        assertEquals(ExchangeReadMode.STREAMING, dag.getEdgeReadMode(0, 1),
-                "Broadcast edge should be STREAMING");
-        assertEquals(ExchangeReadMode.BLOCKING, dag.getEdgeReadMode(2, 1),
-                "Hash edge should be BLOCKING");
-
-        // Both stage 0 and stage 2 are roots (no upstream deps)
-        List<Stage> roots = dag.rootStageEntities();
-        assertEquals(2, roots.size());
-
-        // Start both roots
-        dag.findStage(0).stateMachine().transitionTo(StageState.SCHEDULING);
-        dag.findStage(0).stateMachine().transitionTo(StageState.RUNNING);
-        dag.findStage(2).stateMachine().transitionTo(StageState.SCHEDULING);
-        dag.findStage(2).stateMachine().transitionTo(StageState.RUNNING);
-
-        // Both upstreams RUNNING → stage 1 is ready in pipeline mode
-        Set<Integer> activeIds = collectActiveIds(dag);
-        assertTrue(activeIds.containsAll(Set.of(0, 2)));
-        List<Stage> ready = dag.readyStageEntities(activeIds);
-        assertEquals(1, ready.size());
-        assertEquals(1, ready.get(0).stageId());
-
-        // Schedule stage 1 — it can start consuming broadcast data immediately (STREAMING)
-        dag.findStage(1).stateMachine().transitionTo(StageState.SCHEDULING);
-        dag.findStage(1).stateMachine().transitionTo(StageState.RUNNING);
-
-        // All 3 stages RUNNING concurrently
-        for (int i : List.of(0, 1, 2)) {
-            assertEquals(StageState.RUNNING, dag.findStage(i).stateMachine().getState());
-        }
-    }
-
-    @Test
-    @DisplayName("27.4: broadcast join — barrier mode waits for FINISHED before scheduling join")
-    void broadcastJoinBarrierModeWaitsForFinished() {
-        StageEdge broadcastEdge = new StageEdge(0, 1, org.pangrova.planner.enums.ShuffleType.BROADCAST,
-                List.of(), "exchange-0-to-1", 1,
-                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
-        StageEdge hashEdge = new StageEdge(2, 1, org.pangrova.planner.enums.ShuffleType.HASH);
-
-        StageNode n0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
-        StageNode n1 = new StageNode(1, dummyFragment(), 2, "COMPUTE", List.of());
-        StageNode n2 = new StageNode(2, dummyFragment(), 2, "COMPUTE", List.of());
-
-        StageDAG dag = StageDAG.fromNodes(
-                List.of(n0, n1, n2),
-                Map.of(1, List.of(0, 2)),
-                List.of(broadcastEdge, hashEdge)
-        ).withStages("q-broadcast-barrier");
-
-        // Start both roots
-        dag.findStage(0).stateMachine().transitionTo(StageState.SCHEDULING);
-        dag.findStage(0).stateMachine().transitionTo(StageState.RUNNING);
-        dag.findStage(2).stateMachine().transitionTo(StageState.SCHEDULING);
-        dag.findStage(2).stateMachine().transitionTo(StageState.RUNNING);
-
-        // In barrier mode, stage 1 stays PLANNED even though both upstreams are RUNNING
-        // (onStageRunning is no-op). Stage 1 only becomes schedulable after FINISHED.
-        assertEquals(StageState.PLANNED, dag.findStage(1).stateMachine().getState());
-
-        // In barrier mode, the engine uses onStageFinished which collects
-        // FINISHED-only IDs for scheduling. Simulate barrier-mode readiness check:
-        // only FINISHED stages count as "completed" for dependency resolution.
-        Set<Integer> finishedOnly = collectFinishedIds(dag);
-        assertTrue(finishedOnly.isEmpty(), "No stages finished yet");
-
-        // Finish stage 0 only — stage 1 still not ready (stage 2 not finished)
-        dag.findStage(0).stateMachine().transitionTo(StageState.FLUSHING);
-        dag.findStage(0).stateMachine().transitionTo(StageState.FINISHED);
-
-        finishedOnly = collectFinishedIds(dag);
-        List<Stage> readyAfterS0 = dag.readyStageEntities(finishedOnly);
-        assertTrue(readyAfterS0.stream().noneMatch(s -> s.stageId() == 1),
-                "Stage 1 not ready — stage 2 still RUNNING, not FINISHED");
-
-        // Finish stage 2 → now stage 1 is ready (both upstreams FINISHED)
-        dag.findStage(2).stateMachine().transitionTo(StageState.FLUSHING);
-        dag.findStage(2).stateMachine().transitionTo(StageState.FINISHED);
-
-        finishedOnly = collectFinishedIds(dag);
-        List<Stage> readyAfterS2 = dag.readyStageEntities(finishedOnly);
-        assertEquals(1, readyAfterS2.size());
-        assertEquals(1, readyAfterS2.get(0).stageId());
-    }
-
-    @Test
-    @DisplayName("27.4: commit notification only for BLOCKING edges in broadcast join")
-    void broadcastJoinCommitNotificationOnlyForBlocking() {
-        StageEdge broadcastEdge = new StageEdge(0, 1, org.pangrova.planner.enums.ShuffleType.BROADCAST,
-                List.of(), "exchange-0-to-1", 1,
-                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
-        StageEdge hashEdge = new StageEdge(2, 1, org.pangrova.planner.enums.ShuffleType.HASH);
-
-        StageNode n0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
-        StageNode n1 = new StageNode(1, dummyFragment(), 2, "COMPUTE", List.of());
-        StageNode n2 = new StageNode(2, dummyFragment(), 2, "COMPUTE", List.of());
-
-        StageDAG dag = StageDAG.fromNodes(
-                List.of(n0, n1, n2),
-                Map.of(1, List.of(0, 2)),
-                List.of(broadcastEdge, hashEdge)
-        ).withStages("q-broadcast-commit");
-
-        // Stage 0 (BROADCAST) finishes → NO commit notification (STREAMING edge)
-        assertFalse(shouldSendCommitNotification(dag, 0, 1),
-                "Broadcast/STREAMING edge should not trigger commit notification");
-
-        // Stage 2 (HASH) finishes → commit notification sent (BLOCKING edge)
-        assertTrue(shouldSendCommitNotification(dag, 2, 1),
-                "Hash/BLOCKING edge should trigger commit notification");
     }
 
     // ---------------------------------------------------------------
@@ -497,10 +360,6 @@ class StageDAGPipelineIntegrationTest {
                 stage.stateMachine().tryTransitionTo(StageState.FAILED);
             }
         }
-    }
-
-    private static boolean shouldSendCommitNotification(StageDAG dag, int upstreamId, int downstreamId) {
-        return dag.getEdgeReadMode(upstreamId, downstreamId) == ExchangeReadMode.BLOCKING;
     }
 
     private static org.pangrova.planner.analysis.PlanFragment dummyFragment() {

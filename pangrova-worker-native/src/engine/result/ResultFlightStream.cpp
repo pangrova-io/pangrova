@@ -79,7 +79,15 @@ class ResultFlightStream final : public arrow::flight::FlightDataStream {
       auto result = info_.queue->next(deadline, [this] { return !live(); });
       if (!result.ok()) return fail(result.status());
       if (!live()) return fail(arrow::Status::Cancelled("Result authority was revoked or expired"));
-      if (!*result) eof_ = true;
+      if (!*result) {
+        eof_ = true;
+        delivery_.set_producer_eof_nanos(elapsedNanos());
+      } else {
+        if (!delivery_.has_first_payload_nanos()) {
+          delivery_.set_first_payload_nanos(elapsedNanos());
+        }
+        delivery_.set_payload_batches(delivery_.payload_batches() + 1);
+      }
       return result->flightPayload();
     } catch (const std::exception& error) {
       return fail(arrow::Status::IOError("Result Flight output failed: ", error.what()));
@@ -102,7 +110,8 @@ class ResultFlightStream final : public arrow::flight::FlightDataStream {
         (void)fail(arrow::Status::IOError("Result reader closed before committed EOF"));
       } else if (info_.report_stream_finished) {
         try {
-          info_.report_stream_finished();
+          delivery_.set_transport_complete_nanos(elapsedNanos());
+          info_.report_stream_finished(delivery_);
         } catch (const std::exception& error) {
           (void)fail(arrow::Status::IOError("Cannot commit result delivery: ", error.what()));
         }
@@ -114,11 +123,16 @@ class ResultFlightStream final : public arrow::flight::FlightDataStream {
     return failure_;
   }
 
+  uint64_t elapsedNanos() const {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - opened_at_).count();
+  }
+
   const std::string& taskId() const { return info_.authority.attempt().task_id(); }
 
   bool live() const {
     return !(context_ && context_->is_cancelled()) &&
-        !info_.ownership->evidence().authority_revoked &&
+        !info_.ownership->authorityRevoked() &&
         info_.authority.deadline_epoch_ms() > static_cast<uint64_t>(epochMillis());
   }
 
@@ -143,6 +157,8 @@ class ResultFlightStream final : public arrow::flight::FlightDataStream {
   const std::shared_ptr<arrow::Schema> display_;
   const int64_t timeout_seconds_;
   const arrow::flight::ServerCallContext* context_;
+  const std::chrono::steady_clock::time_point opened_at_ = std::chrono::steady_clock::now();
+  protocol::v2::NativeResultDeliveryStats delivery_;
   bool eof_ = false;
   bool closed_ = false;
   arrow::Status failure_;
@@ -179,7 +195,7 @@ arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> resultFlightStre
     return std::make_unique<ResultFlightStream>(
         std::move(info), std::move(display), timeoutSeconds, context);
   } catch (const std::runtime_error& error) {
-    if (ownership->evidence().authority_revoked) {
+    if (ownership->authorityRevoked()) {
       return arrow::Status::Cancelled("Result reader admission failed: ", error.what());
     }
     return arrow::Status::Invalid("Result reader admission failed: ", error.what());

@@ -222,11 +222,6 @@ public final class LanceMetadata implements ConnectorMetadata {
         return receipt;
     }
 
-    @Override public void abortDistributedWrite(ConnectorSession session, ConnectorOutputTableHandle output,
-            List<byte[]> fragments) {
-        throw new UnsupportedOperationException("Lance abort requires its exact durable journal context");
-    }
-
     private void cleanupAfterBarrier(
             ConnectorSession session, LanceOutputHandle output,
             DistributedWriteCommitContext context) {

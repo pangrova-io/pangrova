@@ -3,6 +3,8 @@ package org.pangrova.testing.integration.e2e.speculation;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
@@ -15,10 +17,13 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Runs a public SQL aggregate through exact committed REMOTE partitions. */
+/** Runs public SQL through exact committed REMOTE shuffle ranges. */
 @E2ETest
 @ResourceLock("pangrova-shuffle-acceptance-aws-properties")
 class RemoteShuffleSqlCoalescingE2ETest extends ContainerTestBase {
@@ -35,23 +40,148 @@ class RemoteShuffleSqlCoalescingE2ETest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void fullHashJoinCoalescesBothInputsWithoutLosingDuplicatesOrUnmatchedRows() throws Exception {
+        try (var processes = IndependentLocalProcesses.remoteShuffle()) {
+            try {
+                verifyFullJoin(processes);
+            } catch (Exception | Error failure) {
+                failure.addSuppressed(new IllegalStateException(
+                        "Local process diagnostics retained at " + processes.retainDiagnostics()));
+                throw failure;
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"BIGINT", "INTEGER"})
+    void selectiveBuildUsesHashExchangeWithRemoteShuffle(String keyType) throws Exception {
+        try (var processes = IndependentLocalProcesses.remoteShuffle()) {
+            try {
+                verifySelectiveBuild(processes, keyType);
+            } catch (Exception | Error failure) {
+                failure.addSuppressed(new IllegalStateException(
+                        "Local process diagnostics retained at " + processes.retainDiagnostics()));
+                throw failure;
+            }
+        }
+    }
+
+    private static void verifySelectiveBuild(IndependentLocalProcesses processes, String keyType) throws Exception {
+        processes.startCoordinatorAndFirstWorker();
+        processes.createSourceCatalog();
+        String probe = "spec_catalog.default.remote_selective_probe";
+        String build = "spec_catalog.default.remote_selective_build";
+        var protocol = ResultProtocol.GRPC_TLS;
+        processes.command("CREATE TABLE " + probe + " (id " + keyType + ", payload BIGINT) PARTITIONED BY (id)", protocol);
+        processes.command("CREATE TABLE " + build + " (id " + keyType + ")", protocol);
+        var rows = IntStream.range(-20, 20).mapToObj(id -> "(" + id + "," + (100 + id) + ")")
+                .collect(Collectors.joining(","));
+        processes.command("INSERT INTO " + probe + " VALUES " + rows, protocol);
+        processes.command("INSERT INTO " + build + " VALUES (-19),(-19),(15),(NULL)", protocol);
+        processes.startSecondWorker();
+
+        var result = processes.query("SELECT p.id, p.payload FROM " + probe + " p JOIN " + build
+                + " b ON p.id = b.id ORDER BY p.id", protocol);
+        assertThat(resultRows(result.output())).containsExactly(List.of("-19", "81"), List.of("-19", "81"),
+                List.of("15", "115"));
+        Awaitility.await("remote selective join fully drains").atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            assertThat(processes.status(result.queryId()).drained()).isTrue();
+            assertThat(releasedWorkers(processes, result.queryId())).isNotEmpty();
+            assertThat(processes.activeTenantReservations()).isZero();
+            assertThat(processes.remoteShuffleObjectsReleased()).isTrue();
+        });
+        var ranges = processes.reports().deliveries().stream()
+                .filter(delivery -> result.queryId().equals(delivery.report().queryId()))
+                .map(delivery -> delivery.report().terminalEvidence())
+                .filter(java.util.Objects::nonNull)
+                .flatMap(evidence -> evidence.report().getNativeTaskStats().getBuildKeySummariesList().stream())
+                .flatMap(summary -> summary.getRangesList().stream())
+                .distinct().toList();
+        assertThat(ranges).hasSize(2).allMatch(range -> range.getMinimum() == range.getMaximum());
+        assertThat(ranges).extracting(range -> range.getMinimum()).containsExactlyInAnyOrder(-19L, 15L);
+        assertThat(processes.reports().forwardingFailures()).isEmpty();
+    }
+
+    private static void verifyFullJoin(IndependentLocalProcesses processes) throws Exception {
+        processes.startCoordinatorAndFirstWorker();
+        processes.createSourceCatalog();
+        String left = "spec_catalog.default.coalesced_join_left";
+        String right = "spec_catalog.default.coalesced_join_right";
+        seedJoinInput(processes, left, 100, 2);
+        seedJoinInput(processes, right, 200, 3);
+        processes.startSecondWorker();
+
+        var result = processes.query("SELECT COALESCE(l.payload, 0) AS lp, COALESCE(r.payload, 0) AS rp "
+                + "FROM " + left + " l FULL OUTER JOIN " + right + " r ON l.id = r.id ORDER BY lp, rp",
+                ResultProtocol.GRPC_TLS);
+        assertThat(resultRows(result.output())).containsExactly(
+                List.of("0", "203"), List.of("0", "204"), List.of("101", "201"), List.of("101", "202"),
+                List.of("102", "201"), List.of("102", "202"), List.of("103", "0"), List.of("104", "0"));
+
+        var decision = Pattern.compile("event=shuffle_input_coalesced queryId=" + Pattern.quote(result.queryId())
+                + " stageId=(\\d+) sourcePartitions=4 consumers=1 inputs=2");
+        Awaitility.await("one aligned join consumer and full drain").atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            var matcher = decision.matcher(processes.coordinatorLog());
+            assertThat(matcher.find()).isTrue();
+            int joinStage = Integer.parseInt(matcher.group(1));
+            assertThat(releasedStagePartitions(processes, result.queryId(), joinStage)).containsExactly(0);
+            assertThat(releasedWorkers(processes, result.queryId())).contains("local-worker-1", "local-worker-2");
+            assertThat(processes.status(result.queryId()).drained()).isTrue();
+            assertThat(processes.activeTenantReservations()).isZero();
+            assertThat(processes.remoteShuffleObjectsReleased()).isTrue();
+        });
+        assertThat(processes.reports().forwardingFailures()).isEmpty();
+    }
+
+    private static void seedJoinInput(IndependentLocalProcesses processes, String table, int base, int unmatched)
+            throws Exception {
+        processes.command("CREATE TABLE " + table + " (id BIGINT, payload BIGINT)", ResultProtocol.GRPC_TLS);
+        var keys = List.of("1", "1", Integer.toString(unmatched), "NULL");
+        for (int row = 0; row < keys.size(); row++) {
+            processes.command("INSERT INTO " + table + " VALUES (" + keys.get(row) + "," + (base + row + 1) + ")",
+                    ResultProtocol.GRPC_TLS);
+        }
+    }
+
+    private static List<List<String>> resultRows(String output) {
+        return output.lines().filter(line -> line.startsWith("|")).skip(1)
+                .map(line -> Arrays.stream(line.split("\\|", -1)).skip(1).limit(2).map(String::trim).toList())
+                .toList();
+    }
+
+    private static Set<Integer> releasedStagePartitions(IndependentLocalProcesses processes, String queryId, int stageId)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+        var partitions = new HashSet<Integer>();
+        for (var delivery : processes.reports().deliveries()) {
+            var report = delivery.report();
+            var response = delivery.response().get();
+            if (!queryId.equals(report.queryId()) || report.canonicalTaskReport() == null
+                    || response == null || response.statusCode() != 200) continue;
+            var canonical = TaskReport.parseFrom(report.canonicalTaskReport());
+            if (canonical.getAttempt().getStageId() == stageId && canonical.getState() == TaskState.TASK_STATE_FINISHED
+                    && canonical.getExecutionDrainState() == ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
+                partitions.add(canonical.getAttempt().getPartitionId());
+            }
+        }
+        return partitions;
+    }
+
     private static void runQuery(IndependentLocalProcesses processes) throws Exception {
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();
         String table = "spec_catalog.default.remote_coalescing";
-        processes.executeWithoutRows("CREATE TABLE " + table + " (grp BIGINT, id BIGINT)", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE TABLE " + table + " (grp BIGINT, id BIGINT)", ResultProtocol.GRPC_TLS);
         for (int partition = 0; partition < 4; partition++) {
             int key = partition * 10;
-            processes.executeWithoutRows("INSERT INTO " + table + " VALUES (0," + key + "),(1," + (key + 1)
+            processes.command("INSERT INTO " + table + " VALUES (0," + key + "),(1," + (key + 1)
                     + "),(1," + (key + 2) + "),(2," + (key + 3) + "),(3," + (key + 4) + ")",
                     ResultProtocol.GRPC_TLS);
         }
         processes.startSecondWorker();
         var result = processes.query("SELECT grp, COUNT(*) AS n FROM " + table + " GROUP BY grp ORDER BY grp",
                 ResultProtocol.GRPC_TLS);
-        assertThat(result.output().lines().filter(line -> line.startsWith("|")).skip(1)
-                .map(line -> Arrays.stream(line.split("\\|", -1)).skip(1).limit(2).map(String::trim).toList())
-                .toList()).containsExactly(List.of("0", "4"), List.of("1", "8"), List.of("2", "4"), List.of("3", "4"));
+        assertThat(resultRows(result.output())).containsExactly(List.of("0", "4"), List.of("1", "8"), List.of("2", "4"), List.of("3", "4"));
 
         Awaitility.await("committed ranges and real query drain").atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
             assertThat(processes.coordinatorLog().lines()

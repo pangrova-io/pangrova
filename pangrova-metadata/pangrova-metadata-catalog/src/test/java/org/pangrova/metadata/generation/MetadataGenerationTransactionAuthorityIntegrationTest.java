@@ -110,10 +110,10 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
             GenerationTransactionInputs inputs = (GenerationTransactionInputs) java.lang.reflect.Proxy.newProxyInstance(
                     getClass().getClassLoader(), new Class<?>[]{GenerationTransactionInputs.class},
                     (proxy, method, arguments) -> {
-                        assertThat(method.getName()).isEqualTo("findDispatchSpec");
+                        assertThat(method.getName()).isEqualTo("findStoredDispatch");
                         assertThat(arguments[0]).isSameAs(caller);
                         calls.incrementAndGet();
-                        return realInputs.findDispatchSpec(caller, (String) arguments[1], (String) arguments[2]);
+                        return realInputs.findStoredDispatch(caller, (String) arguments[1], (String) arguments[2]);
                     });
             var authority = new PostgresGenerationTransactionAuthority(
                     inputs, GenerationAuthorityFixtures.modelAuthority(),
@@ -124,7 +124,12 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
             assertThat(calls).hasValue(1);
             assertThat(caller.getAutoCommit()).isFalse();
             caller.rollback();
-            assertThat(authority.requireCurrent(caller, TENANT, claim.jobId()).jobId()).isEqualTo(claim.jobId());
+            var authorized = authority.authorize(caller, TENANT, claim.jobId());
+            var spec = authorized.dispatchSpec();
+            assertThat(spec.jobId()).isEqualTo(claim.jobId());
+            assertThat(authorized.stored().graphSha256())
+                    .isEqualTo(org.pangrova.generation.codec.execution.GenerationStageGraphCodec.sha256(
+                            spec.stageGraph()));
             assertThat(calls).hasValue(2);
             caller.rollback();
         }

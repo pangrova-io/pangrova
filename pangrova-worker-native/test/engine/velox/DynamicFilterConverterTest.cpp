@@ -192,7 +192,7 @@ TEST(DynamicFilterConverterTest, BloomRequiresKnownAlgorithmAndEncoding) {
 }
 
 TEST(DynamicFilterConverterTest, BatchSkipsDppAndRejectsInvalidNativeFilter) {
-  proto::InjectRuntimeFilterRequest payload;
+  proto::RuntimeFilterBinding payload;
   payload.set_plan_node_id("node_0");
   auto* dpp = payload.add_filters();
   dpp->set_column_name("partition_key");
@@ -213,7 +213,7 @@ TEST(DynamicFilterConverterTest, BatchSkipsDppAndRejectsInvalidNativeFilter) {
 }
 
 TEST(DynamicFilterConverterTest, EmptyFilterListReturnsEmpty) {
-  proto::InjectRuntimeFilterRequest payload;
+  proto::RuntimeFilterBinding payload;
   EXPECT_TRUE(convertDynamicFilters(payload.filters()).empty());
 }
 

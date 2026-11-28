@@ -153,10 +153,34 @@ public class OpenTelemetryConfig {
 | `pangrova.coordinator.queries.completed` | Counter | Total queries completed successfully |
 | `pangrova.coordinator.queries.failed` | Counter | Total queries failed |
 | `pangrova.coordinator.queries.running` | UpDownCounter | Currently running queries |
+| `pangrova.coordinator.queries.admission.rejections` | Counter | Rejections by admission or by the dispatch executor, grouped by `reason` |
+| `pangrova.coordinator.queries.dispatch.queue_ms` | Histogram | Time from dispatch enqueue attempt until its executor callback starts |
+| `pangrova.coordinator.stage.dispatch.latency_ms` | Histogram | Actual dispatch phase duration, by phase and success or failure |
+| `pangrova.coordinator.stage.preparation.queue_ms` | Histogram | Downstream preparation submission to start, by final outcome |
+| `pangrova.coordinator.stage.preparation.run_ms` | Histogram | Downstream preparation start to finish, by final outcome |
+| `pangrova.coordinator.stage.preparation.outcomes` | Counter | Completed, skipped, failed or rejected preparations |
 | `pangrova.coordinator.query.latency` | Histogram | Query execution latency |
 | `pangrova.coordinator.tasks.scheduled` | Counter | Total tasks scheduled |
 | `pangrova.coordinator.scheduling.latency` | Histogram | Task scheduling latency |
 | `pangrova.coordinator.workers.active` | UpDownCounter | Active Worker count |
+| `pangrova.coordinator.queries.timed_out` | Counter | Queries for which timeout won the terminal transition |
+| `pangrova.coordinator.queries.terminal_cleanup.local_release_ms` | Histogram | Terminal cleanup entry to local ownership release, including retry and wait time |
+| `pangrova.coordinator.queries.terminal_cleanup.durable_retirements` | Counter | Acknowledged durable query retirements by `path` (`local` or `recovery`) |
+
+Admission rejection reasons are `ADMISSION_CLOSED`, `TENANT_LIMIT`, `THROTTLED`,
+`HEALTH_PROBE`, `EXECUTION_OWNERSHIP_UNAVAILABLE`, `QUEUE_FULL`, and
+`EXECUTOR_STOPPING`. A query that reaches terminal state before acquiring its
+health probe contributes no health rejection. Dispatch rejection uses the executor shutdown state observed
+when handling the rejection. The dispatch histogram samples callbacks that start,
+including a cancelled query whose queued callback later starts. Rejected
+enqueue attempts contribute only to the counter.
+
+Local ownership release can precede recovery confirmation of global drain.
+The durable retirement counter increments after the store acknowledges removal of
+the exact execution grant and release of any bound tenant reservation. A
+pending recovery, stale grant, or later observation generates no sample. The
+counter adds no database calls. A lost commit acknowledgement or a process exit
+before recording can leave a committed retirement uncounted.
 
 ### 3.2 Worker Metrics
 
@@ -177,6 +201,10 @@ public class OpenTelemetryConfig {
 ## 4. Distributed Tracing
 
 ### 4.1 Query Tracing
+
+`query.submit` ends when the Coordinator returns the durable HTTP acceptance
+receipt. The captured span context remains the parent of asynchronous query
+execution spans, including work that starts after the receipt is returned.
 
 ```java
 public class QueryTracer {
@@ -511,8 +539,25 @@ directly. Build-key evidence belongs to the authoritative Native terminal
 report. The Coordinator exposes the accepted counters through one Profile
 projection.
 
+Native file I/O publishes a coherent snapshot of the existing task read grant.
+Reservation bytes enforce admission. The same owner records file-adapter
+payload calls, metadata calls, failed calls and returned bytes. A multi-range
+reservation can issue several reads. Operations publish their counts as the
+owner exits its drain fence and retain successful prior ranges when a later
+SDK call fails. File-adapter work can be observed before a Velox operator
+snapshot exists, and the Worker carries validated counters into reconciled
+failure reports for the exact issued attempt. Velox can consume cached data
+without issuing file-adapter payload reads, so an attempt can have operator
+input bytes and metadata calls with zero payload calls and returned bytes.
+Query Profile reads the Coordinator's retained attempt sample.
+
 The Coordinator currently configures `UnavailableProfiler` for SVG flame
 graphs. The SVG endpoint responds with HTTP 501 and `UNSUPPORTED_CAPABILITY`.
+
+The query state machine retains the terminal audit record used by the audit sink.
+Both JSON profile routes combine that record with locally retained attempt statistics.
+The record expires with the query projection. An explicit history request reads
+the durable audit row scoped to the authenticated submitting principal.
 
 ### 4.5 Query Resource Audit
 

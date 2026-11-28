@@ -177,6 +177,46 @@ class PangrovaShuffleCoordinatorTest {
     }
 
     @Test
+    void trackedCleanupUsesItsCachedCapabilityAndDoesNotRepeatTheRpc() throws Exception {
+        RecordingShuffleService service = new RecordingShuffleService();
+        try (RunningService running = RunningService.start(service);
+                PangrovaShuffleCoordinator coordinator = manager(running.port())) {
+            var owner = new ShuffleExecutionOwner("owner", "incarnation", 9L);
+            String queryId = "tracked-cleanup";
+            coordinator.registerShuffle(registration(queryId, 1, 2, 2, 1L));
+            assertThat(coordinator.cleanupTrackedShuffle(queryId, owner)).isTrue();
+            assertThat(coordinator.cleanupTrackedShuffle(queryId, owner)).isFalse();
+            assertThat(service.renewals).isEmpty();
+            assertThat(service.cleanups).hasSize(1);
+        }
+    }
+
+    @Test
+    void provenRecoveryUsesTheSuccessorEvenWithTheOldScopeStillCached() throws Exception {
+        RecordingShuffleService service = new RecordingShuffleService();
+        try (RunningService running = RunningService.start(service)) {
+            var previous = new ShuffleExecutionOwner("owner", "initial-boot", 9L);
+            var successor = new ShuffleExecutionOwner("owner", "initial-boot", 10L);
+            var current = new java.util.concurrent.atomic.AtomicReference<>(previous);
+            try (var coordinator = new PangrovaShuffleCoordinator(
+                    List.of(new org.pangrova.shuffle.api.ShuffleServiceAddress("127.0.0.1", running.port(), "")),
+                    ignored -> current.get(), null)) {
+                String queryId = "same-process-takeover";
+                coordinator.registerShuffle(registration(queryId, 1, 2, 2, 1L));
+                current.set(successor);
+                assertThatThrownBy(() -> coordinator.recoverCleanupShuffle(queryId, previous))
+                        .isInstanceOf(SecurityException.class);
+                coordinator.recoverCleanupShuffle(queryId, successor);
+                assertThat(service.renewals).singleElement().satisfies(request ->
+                        assertThat(request.getExecutionOwner().getFencingToken()).isEqualTo(10L));
+                assertThat(service.cleanups).singleElement().satisfies(request ->
+                        assertThat(request.getExecutionOwner().getFencingToken()).isEqualTo(10L));
+                assertThat(coordinator.cleanupTrackedShuffle(queryId, successor)).isFalse();
+            }
+        }
+    }
+
+    @Test
     void recoversCleanupAfterCoordinatorStateIsLost() throws Exception {
         RecordingShuffleService service = new RecordingShuffleService();
         try (RunningService running = RunningService.start(service);
@@ -185,7 +225,7 @@ class PangrovaShuffleCoordinatorTest {
         }
         try (RunningService running = RunningService.start(service);
                 PangrovaShuffleCoordinator recovered = manager(running.port())) {
-            recovered.recoverCleanupShuffle("query-recovered-cleanup");
+            recovered.recoverCleanupShuffle("query-recovered-cleanup", new ShuffleExecutionOwner("owner", "incarnation", 9L));
 
             assertThat(service.renewals).singleElement().satisfies(request -> {
                 assertThat(request.getOperation()).isEqualTo(
@@ -195,6 +235,25 @@ class PangrovaShuffleCoordinatorTest {
             assertThat(service.cleanups).singleElement().satisfies(request ->
                     assertThat(request.getAccessCapability().getToken().toStringUtf8())
                             .isEqualTo("renewed"));
+        }
+    }
+
+    @Test
+    void rejectsMismatchedCleanupReceiptBeforeDiscardingTrackedState() throws Exception {
+        RecordingShuffleService service = new RecordingShuffleService();
+        try (RunningService running = RunningService.start(service);
+                PangrovaShuffleCoordinator manager = manager(running.port())) {
+            String queryId = "query-cleanup-receipt";
+            manager.registerShuffle(registration(queryId, 1, 3, 2, 1L));
+            service.mismatchCleanupReceipt = true;
+
+            assertThatThrownBy(() -> manager.cleanupShuffle(queryId))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("cleanup receipt");
+
+            service.mismatchCleanupReceipt = false;
+            manager.cleanupShuffle(queryId);
+            manager.cleanupShuffle(queryId);
+            assertThat(service.cleanups).hasSize(2);
         }
     }
 
@@ -670,6 +729,7 @@ class PangrovaShuffleCoordinatorTest {
         private volatile boolean denyRecovery;
         private volatile boolean loseRegistrationResponse;
         private volatile boolean renewCleanupCapability;
+        private volatile boolean mismatchCleanupReceipt;
         private volatile boolean rotateCleanupTokenWithoutRenewal;
         private volatile ShuffleAccessCapability latestCleanupCapability;
         private volatile CountDownLatch concurrentRegistrationArrivals;
@@ -783,8 +843,10 @@ class PangrovaShuffleCoordinatorTest {
                 StreamObserver<CleanupResponse> observer) {
             cleanups.add(request);
             observer.onNext(CleanupResponse.newBuilder()
-                    .setPartitionsCleaned(registrationsById.size())
-                    .setBytesFreed(10L * registrationsById.size())
+                    .setQueryId(mismatchCleanupReceipt ? "another-query" : request.getQueryId())
+                    .setExecutionOwner(request.getExecutionOwner())
+                    .setRevocationGeneration(request.getExecutionOwner().getFencingToken())
+                    .setScopeConvergedAtEpochMillis(System.currentTimeMillis())
                     .build());
             observer.onCompleted();
         }

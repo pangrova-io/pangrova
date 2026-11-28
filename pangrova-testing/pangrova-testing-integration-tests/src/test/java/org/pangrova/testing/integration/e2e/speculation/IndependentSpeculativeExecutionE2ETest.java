@@ -7,10 +7,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.extension.TestWatcher;
+import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -110,8 +111,8 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
     void failedOriginalCanBeReplacedBySuccessfulCopy() throws Exception {
         String table = createOutputTable();
         try (var scenario = new SpeculativeProcessScenario(
-                processes, SpeculativeProcessScenario.Fault.ORIGINAL_READ, false, insertSql(table),
-                ResultDisposition.NONE)) {
+                processes, SpeculativeProcessScenario.Fault.ORIGINAL_READ, false,
+                insertSql(table), ResultDisposition.NONE)) {
             var original = scenario.original();
             var copy = scenario.copy();
             var failedOriginal = scenario.report(id(original), "FAILED");
@@ -134,8 +135,8 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
     void bothFailedAttemptsFailTheirLogicalTaskOnce() throws Exception {
         String table = createOutputTable();
         try (var scenario = new SpeculativeProcessScenario(
-                processes, SpeculativeProcessScenario.Fault.BOTH_READ, true, insertSql(table),
-                ResultDisposition.NONE)) {
+                processes, SpeculativeProcessScenario.Fault.BOTH_READ, true,
+                insertSql(table), ResultDisposition.NONE)) {
             var original = scenario.original();
             var copy = scenario.copy();
             var first = scenario.report(id(original), "FAILED");
@@ -226,8 +227,8 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
 
     private static String createOutputTable() throws Exception {
         String table = "spec_output_" + java.util.UUID.randomUUID().toString().replace("-", "");
-        var create = processes.query("CREATE TABLE spec_catalog.default." + table + " (id BIGINT, payload VARCHAR)",
-                        ResultDisposition.NONE)
+        var create = processes.execute("CREATE TABLE spec_catalog.default." + table + " (id BIGINT, payload VARCHAR)",
+                ResultDisposition.NONE)
                 .get(5, TimeUnit.MINUTES);
         assertThat(create.succeeded()).as(create.output() + create.errors()).isTrue();
         return table;

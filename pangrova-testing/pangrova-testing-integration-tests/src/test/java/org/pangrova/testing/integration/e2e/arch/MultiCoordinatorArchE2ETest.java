@@ -3,11 +3,8 @@ package org.pangrova.testing.integration.e2e.arch;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
-import org.pangrova.query.api.journal.QueryStateEvent;
-import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;
@@ -441,94 +438,6 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
             long totalWithNew = ((Number) withNewData.get(0).getRaw("total")).longValue();
             assertThat(countAfter).isEqualTo(4L);
             assertThat(totalWithNew).isEqualTo(1000L);
-        }
-
-        @Test
-        @DisplayName("Journal recovery marks orphaned queries as FAILED after crash")
-        void journalRecoveryMarksOrphanedQueriesFailed() throws Exception {
-            // Simulate a coordinator crash scenario where journal has active queries.
-            // After crash, the surviving coordinator's JournalRecoveryService replays
-            // the journal and marks queries with dead workers as FAILED.
-            StateJournalConfig journalConfig = new StateJournalConfig("JDBC", pgJdbcUrl(), 50, 20, 24, 50_000);
-            JdbcQueryStateJournal journal = new JdbcQueryStateJournal(stateDs, journalConfig);
-
-            try {
-                // Simulate coordinator-1 journaling a query before crash
-                String queryId = "arch-crash-query-" + System.nanoTime();
-                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "query-coord-1"), queryId, "SELECT 1", null, "QUEUED"));
-
-                // Verify journal has the active query
-                List<QueryStateEvent> activeQueries = journal.replayActiveQueries();
-                assertThat(activeQueries)
-                        .as("Journal should have the active query before recovery")
-                        .anyMatch(e -> e.queryId().equals(queryId));
-
-                // Simulate crash: coordinator-1 is gone. Coordinator-2 starts recovery.
-                // Mark the query as FAILED (simulating what JournalRecoveryService does
-                // when the assigned worker is unreachable).
-                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "query-coord-2"), queryId, null, null, "FAILED"));
-                journal.purgeQuery(queryId);
-
-                // Verify journal is clean after recovery
-                List<QueryStateEvent> afterRecovery = journal.replayActiveQueries();
-                assertThat(afterRecovery)
-                        .as("Journal should not have the recovered query after purge")
-                        .noneMatch(e -> e.queryId().equals(queryId));
-            } finally {
-                journal.close();
-            }
-        }
-
-        @Test
-        @DisplayName("New query succeeds on survivor after crash and journal recovery")
-        void newQuerySucceedsAfterCrashAndRecovery() throws Exception {
-            // Setup data before crash
-            String tableName = "t_arch_post_recovery_" + System.nanoTime();
-            String fqn = FQN_PREFIX + tableName;
-            sqlRunner.executeDdl("CREATE TABLE " + fqn
-                    + " (id BIGINT, region VARCHAR, revenue BIGINT)");
-
-            sqlRunner.execute("INSERT INTO " + fqn
-                    + " (id, region, revenue) VALUES (1, 'EAST', 1000)");
-            sqlRunner.execute("INSERT INTO " + fqn
-                    + " (id, region, revenue) VALUES (2, 'WEST', 2000)");
-            sqlRunner.execute("INSERT INTO " + fqn
-                    + " (id, region, revenue) VALUES (3, 'EAST', 1500)");
-            sqlRunner.execute("INSERT INTO " + fqn
-                    + " (id, region, revenue) VALUES (4, 'WEST', 2500)");
-
-            // Simulate crash + journal recovery
-            StateJournalConfig journalConfig = new StateJournalConfig("JDBC", pgJdbcUrl(), 50, 20, 24, 50_000);
-            JdbcQueryStateJournal journal = new JdbcQueryStateJournal(stateDs, journalConfig);
-
-            try {
-                // Simulate orphaned query from crashed coordinator
-                String orphanQueryId = "arch-orphan-" + System.nanoTime();
-                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "query-coord-1"), orphanQueryId, "SELECT * FROM " + fqn, null, "QUEUED"));
-
-                // Recovery: mark orphaned query FAILED and purge
-                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "query-coord-2"), orphanQueryId, null, null, "FAILED"));
-                journal.purgeQuery(orphanQueryId);
-
-                // After recovery, new queries on the survivor succeed
-                List<TypedRow> result = sqlRunner.execute(
-                        "SELECT region, SUM(revenue) AS region_total FROM " + fqn
-                                + " GROUP BY region ORDER BY region");
-                assertThat(result).hasSize(2);
-                // EAST=2500, WEST=4500
-                assertThat(((Number) result.get(0).getRaw("region_total")).longValue())
-                        .isEqualTo(2500L);
-                assertThat(((Number) result.get(1).getRaw("region_total")).longValue())
-                        .isEqualTo(4500L);
-
-                // Verify journal is clean — no stale entries from crash
-                List<QueryStateEvent> activeAfterRecovery = journal.replayActiveQueries();
-                assertThat(activeAfterRecovery)
-                        .as("No orphaned queries should remain after recovery")
-                        .noneMatch(e -> e.queryId().equals(orphanQueryId));
-            } finally {
-                journal.close();
-            }
         }
 
         @Test

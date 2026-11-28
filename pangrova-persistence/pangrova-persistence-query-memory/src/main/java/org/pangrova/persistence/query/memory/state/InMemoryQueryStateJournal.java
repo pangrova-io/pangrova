@@ -1,5 +1,6 @@
 package org.pangrova.persistence.query.memory.state;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 
 import java.util.LinkedHashMap;
@@ -76,6 +77,35 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         return new QueryAcceptanceAdmission(true, event.acceptance());
     }
 
+    @Override public void appendOwnedTerminalSync(QueryStateEvent event, ExecutionAnchor anchor) {
+        QueryStateJournal.requireOwnedTerminal(event, anchor);
+        appendQueryEvent(event);
+    }
+
+    @Override public void appendFencedAdmissionSync(QueryStateEvent event, ExecutionAnchor anchor) {
+        appendQueryEventSync(event);
+    }
+
+    @Override public QueryAcceptanceAdmission acceptFencedQuerySync(QueryStateEvent event, ExecutionAnchor anchor) {
+        return acceptQuerySync(event);
+    }
+
+    @Override public synchronized void appendTaskIssuancesSync(List<TaskStateEvent> events) {
+        var cohort = QueryStateJournal.requireTaskIssuanceCohort(events);
+        requireOpen();
+        int newEvents = 0;
+        for (var event : cohort) {
+            var prior = tasks.get(event.context().eventId());
+            if (prior == null) newEvents++;
+            else requireExact(prior.equals(event));
+        }
+        if (newEvents > capacity - queries.size() - tasks.size()) {
+            throw new JournalWriteException("Journal resident-event capacity exceeded", null,
+                    JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
+        }
+        for (var event : cohort) tasks.putIfAbsent(event.context().eventId(), event);
+    }
+
     @Override public synchronized Optional<QueryAcceptance> findAcceptance(String principal,
             String idempotencyKeyDigest) {
         requireOpen();
@@ -99,17 +129,6 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
     }
     @Override public void appendTaskEventSync(TaskStateEvent event) { appendTaskEvent(event); }
 
-    @Override public synchronized List<QueryStateEvent> replayActiveQueries() {
-        requireOpen();
-        Set<String> terminal = terminalQueries();
-        return queries.values().stream().filter(event -> !terminal.contains(event.queryId())).toList();
-    }
-    @Override public synchronized List<TaskStateEvent> replayActiveTasks() {
-        requireOpen();
-        Set<String> active = replayActiveQueries().stream().map(QueryStateEvent::queryId)
-                .collect(java.util.stream.Collectors.toSet());
-        return tasks.values().stream().filter(event -> active.contains(event.queryId())).toList();
-    }
     @Override public synchronized Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         requireOpen();
         Objects.requireNonNull(queryId, "queryId");
@@ -194,10 +213,6 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
                 conflict, JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
     }
 
-    private Set<String> terminalQueries() {
-        return queries.values().stream().filter(event -> TERMINAL.contains(event.state()))
-                .map(QueryStateEvent::queryId).collect(java.util.stream.Collectors.toSet());
-    }
     private void requireOpen() {
         if (closed) throw failure("Process-local journal is closed");
     }

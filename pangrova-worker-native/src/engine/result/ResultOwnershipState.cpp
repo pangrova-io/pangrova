@@ -12,65 +12,70 @@ void ResultOwnershipState::stopProducer() {
   std::function<void()> notify;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    evidence_.producer_stopped = true;
+    producer_stopped_ = true;
     notify = takeDrainedListenerLocked();
   }
   if (notify) notify();
 }
 bool ResultOwnershipState::revokeAuthority() {
   std::lock_guard<std::mutex> lock(mutex_);
-  return !std::exchange(evidence_.authority_revoked, true);
+  return !authority_revoked_.exchange(true, std::memory_order_acq_rel);
 }
 void ResultOwnershipState::revokeAndClearQueue() {
-  revokeAuthority();
   std::function<void()> notify;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    evidence_.queue_cleared = true;
+    authority_revoked_.store(true, std::memory_order_release);
+    queue_cleared_ = true;
     notify = takeDrainedListenerLocked();
   }
   if (notify) notify();
 }
 void ResultOwnershipState::acquireReader() {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (evidence_.authority_revoked) throw std::runtime_error("Result authority was revoked");
+  if (authorityRevoked()) throw std::runtime_error("Result authority was revoked");
   // One authorized Flight stream owns the attempt.
-  if (evidence_.active_readers != 0) throw std::runtime_error("Result stream already has a reader");
-  ++evidence_.active_readers;
+  if (active_readers_ != 0) throw std::runtime_error("Result stream already has a reader");
+  ++active_readers_;
 }
 void ResultOwnershipState::releaseReader() noexcept {
   std::function<void()> notify;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (evidence_.active_readers == 0) std::terminate();
-    --evidence_.active_readers;
+    if (active_readers_ == 0) std::terminate();
+    --active_readers_;
     notify = takeDrainedListenerLocked();
   }
   if (notify) notify();
 }
 bool ResultOwnershipState::tryAcquireBatch() {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (evidence_.authority_revoked) return false;
-  ++evidence_.retained_batch_owners;
+  if (authorityRevoked()) return false;
+  ++retained_batch_owners_;
   return true;
 }
 void ResultOwnershipState::acquireBatch() {
   std::lock_guard<std::mutex> lock(mutex_);
-  ++evidence_.retained_batch_owners;
+  ++retained_batch_owners_;
 }
 void ResultOwnershipState::releaseBatch() noexcept {
   std::function<void()> notify;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (evidence_.retained_batch_owners == 0) std::terminate();
-    --evidence_.retained_batch_owners;
+    if (retained_batch_owners_ == 0) std::terminate();
+    --retained_batch_owners_;
     notify = takeDrainedListenerLocked();
   }
   if (notify) notify();
 }
 ResultOwnershipState::Evidence ResultOwnershipState::evidence() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return evidence_;
+  return evidenceLocked();
+}
+
+ResultOwnershipState::Evidence ResultOwnershipState::evidenceLocked() const {
+  return {producer_stopped_, authorityRevoked(), queue_cleared_,
+      active_readers_, retained_batch_owners_};
 }
 
 void ResultOwnershipState::watchDrain(std::function<void()> listener) {
@@ -87,7 +92,7 @@ void ResultOwnershipState::watchDrain(std::function<void()> listener) {
 }
 
 std::function<void()> ResultOwnershipState::takeDrainedListenerLocked() {
-  if (drained_listener_ && evidence_.drained()) return std::exchange(drained_listener_, {});
+  if (drained_listener_ && evidenceLocked().drained()) return std::exchange(drained_listener_, {});
   return {};
 }
 

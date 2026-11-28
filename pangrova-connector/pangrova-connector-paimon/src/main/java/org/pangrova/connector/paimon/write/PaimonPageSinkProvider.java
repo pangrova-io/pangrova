@@ -9,9 +9,13 @@ import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.data.ConnectorPageSink;
 import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+
+import java.util.Map;
 
 /**
  * Creates PaimonPageSink instances for writing data to Paimon tables.
@@ -41,9 +45,8 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle);
-        return new PaimonPageSink(freshTable, handle.schemaName(),
-                handle.tableName(), tempDir);
+        FileStoreTable freshTable = loadFreshTable(handle);
+        return new PaimonPageSink(freshTable, handle, tempDir);
     }
 
     @Override
@@ -52,8 +55,8 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle);
-        return new PaimonCdcPageSink(freshTable, handle.schemaName(), handle.tableName(), tempDir);
+        FileStoreTable freshTable = loadFreshTable(handle);
+        return new PaimonCdcPageSink(freshTable, handle, tempDir);
     }
 
     @Override
@@ -62,9 +65,8 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle);
-        return new PaimonOverwritePageSink(freshTable, handle.schemaName(),
-                handle.tableName(), tempDir, handle.overwritePartition());
+        FileStoreTable freshTable = loadFreshTable(handle);
+        return new PaimonOverwritePageSink(freshTable, handle, tempDir);
     }
 
     @Override
@@ -73,16 +75,15 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle);
-        return new PaimonDeletePageSink(freshTable, handle.schemaName(),
-                handle.tableName(), tempDir);
+        FileStoreTable freshTable = loadFreshTable(handle);
+        return new PaimonDeletePageSink(freshTable, handle, tempDir);
     }
 
     /**
      * Loads a fresh table from the catalog and fences a drop/recreate or schema change that
      * happened after the write was planned.
      */
-    private Table loadFreshTable(PaimonOutputTableHandle handle) {
+    private FileStoreTable loadFreshTable(PaimonOutputTableHandle handle) {
         Identifier id = Identifier.create(handle.schemaName(), handle.tableName());
         Table fresh;
         try {
@@ -91,7 +92,10 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found for write: " + id, e);
         }
-        return PaimonTableIdentity.requireSame(fresh, handle.tableUuid(), handle.tableLocation(),
+        var table = PaimonTableIdentity.requireSame(fresh, handle.tableUuid(), handle.tableLocation(),
                 handle.schemaFingerprint(), "Paimon write");
+        var staged = handle.stagedFileNames();
+        return table.copy(Map.of(CoreOptions.DATA_FILE_PREFIX.key(), staged.dataPrefix(),
+                CoreOptions.CHANGELOG_FILE_PREFIX.key(), staged.changelogPrefix()));
     }
 }

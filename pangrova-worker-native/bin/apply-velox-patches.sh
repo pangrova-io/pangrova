@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply/verify the sole pinned SDK ownership, selection and Arrow execution patch.
+# Apply/verify the pinned SDK execution and observability patch.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,6 +8,7 @@ pinned_commit=3da0390118fa4b0addbfbdeb03f438ec1b1237a6
 proof_version=pangrova-function-provenance-v2
 contract_tools="$script_dir/../../pangrova-protocol/tools/function-contracts"
 contract_declaration="$script_dir/../../pangrova-protocol/src/main/resources/function-contracts/execution-selection.json"
+s3_sources="velox/connectors/hive/storage_adapters/s3fs"
 source_files=(\
   velox/expression/SimpleFunctionRegistry.h
   velox/expression/SimpleFunctionRegistry.cpp
@@ -74,7 +75,10 @@ source_files=(\
   velox/exec/AggregateFunctionRegistry.cpp
   velox/exec/AggregateFunctionRegistry.h
   velox/functions/prestosql/types/UuidType.h
-  velox/functions/prestosql/types/UuidRegistration.cpp)
+  velox/functions/prestosql/types/UuidRegistration.cpp
+  "$s3_sources/S3ReadFile.cpp"
+  "$s3_sources/S3Config.h"
+  "$s3_sources/S3FileSystem.cpp")
 base_blobs=(\
   77a3acb529dda19faf155e3e277956b5ce52faa7
   2fa36c309dec1fd30ff18f5ec9df54bc1bc9b82d
@@ -141,7 +145,10 @@ base_blobs=(\
   1122218c3600f0976b6f0d82de7f693227ba53a9
   4adea534887b43e4a12f74b1f08647eba42d8e07
   c6bd305434a5dd78322fab7d646aea6c25f7f47b
-  39797eeef29429ab0976a8b35299822b497283f2)
+  39797eeef29429ab0976a8b35299822b497283f2
+  f19587114ebcb234542f308401cb60581d4aacda
+  cd094a59832294e5f96a8cc2c4642d01f7b1fd59
+  d96fd7707dc2383ade8941d990d21daa314fe9a4)
 prior_blobs=(\
   08c31f1bd17085dd98c8a986ff046a660b6893db
   650df1062c638a358291060fc634c2ace82af533
@@ -208,7 +215,10 @@ prior_blobs=(\
   a73329db62f250a96866865bce653bc8a373b8d7
   24150367534e6636e7cb56dcd23cca44b1188e21
   0d622555a73c5c587c6253e5714d592031780e50
-  820e77cbcc4abe8236ec0ba7e028a45880eece23)
+  820e77cbcc4abe8236ec0ba7e028a45880eece23
+  f19587114ebcb234542f308401cb60581d4aacda
+  cd094a59832294e5f96a8cc2c4642d01f7b1fd59
+  d96fd7707dc2383ade8941d990d21daa314fe9a4)
 patched_blobs=(\
   08c31f1bd17085dd98c8a986ff046a660b6893db
   650df1062c638a358291060fc634c2ace82af533
@@ -275,7 +285,10 @@ patched_blobs=(\
   a73329db62f250a96866865bce653bc8a373b8d7
   24150367534e6636e7cb56dcd23cca44b1188e21
   0d622555a73c5c587c6253e5714d592031780e50
-  820e77cbcc4abe8236ec0ba7e028a45880eece23)
+  820e77cbcc4abe8236ec0ba7e028a45880eece23
+  5be035f90260a4b2f4b99dc0a2b50cf363094db1
+  1016ab8f435d110dd1d9f5afceed20307fac84ad
+  2be39f7c4c558c7486ae38a72fbffb665c293485)
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 digest() { openssl dgst -sha256 "$1" | awk '{print $NF}'; }
@@ -319,9 +332,17 @@ has_blobs() {
         expected="${patched_blobs[$index]}"
         if [[ "${source_files[$index]}" == velox/vector/arrow/Bridge.cpp ]]; then
           expected=919d2c73025eb535124c1c9a4c7895ee9a151bcc
+        elif [[ "${source_files[$index]}" == "$s3_sources/"* ]]; then
+          expected="${base_blobs[$index]}"
         fi
         ;;
       patched) expected="${patched_blobs[$index]}" ;;
+      before_s3_stats)
+        expected="${patched_blobs[$index]}"
+        if [[ "${source_files[$index]}" == "$s3_sources/"* ]]; then
+          expected="${base_blobs[$index]}"
+        fi
+        ;;
       *) die "Unknown reviewed SDK source state: $state" ;;
     esac
     matches_blob "${source_files[$index]}" "$expected" || return 1
@@ -502,9 +523,13 @@ case "$action" in
     elif has_blobs prior; then
       prior_upgrade_patch | git -C "$source_dir" apply --unidiff-zero --check
       prior_upgrade_patch | git -C "$source_dir" apply --unidiff-zero
+      git -C "$source_dir" apply --unidiff-zero --include="$s3_sources/*" "$patch_file"
     elif has_blobs previous; then
       previous_upgrade_patch | git -C "$source_dir" apply --unidiff-zero --check
       previous_upgrade_patch | git -C "$source_dir" apply --unidiff-zero
+      git -C "$source_dir" apply --unidiff-zero --include="$s3_sources/*" "$patch_file"
+    elif has_blobs before_s3_stats; then
+      git -C "$source_dir" apply --unidiff-zero --include="$s3_sources/*" "$patch_file"
     elif ! has_blobs patched; then
       die "Unsupported partial SDK patch or unreviewed drift; use the exact pinned base or reviewed source checkpoint"
     fi

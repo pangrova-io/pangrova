@@ -49,12 +49,24 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
             SerializedPlanFragment serializedPlan, List<SplitSourceDescriptor> sources,
             List<String> outputNames, List<ResultColumnModel> resultColumnModels,
             List<ResultColumnLogicalType> resultColumnTypes,
-            long estimatedShuffleBytes, long estimatedShuffleRows) implements StagePlanAccess {
+            long estimatedShuffleBytes, long estimatedShuffleRows, boolean coalescibleHashInputs,
+            List<String> splittableHashInputs)
+            implements StagePlanAccess {
+        public SerializedStage(int stageId, int parallelism, String taskType, SerializedPlanFragment serializedPlan,
+                List<SplitSourceDescriptor> sources, List<String> outputNames,
+                List<ResultColumnModel> resultColumnModels,
+                List<ResultColumnLogicalType> resultColumnTypes,
+                long estimatedShuffleBytes, long estimatedShuffleRows) {
+            this(stageId, parallelism, taskType, serializedPlan, sources, outputNames, resultColumnModels,
+                    resultColumnTypes, estimatedShuffleBytes, estimatedShuffleRows, false, List.of());
+        }
+
         /** Copies metadata and requires explicit stage role, field names and canonical non-empty plan bytes. */
         public SerializedStage {
             Objects.requireNonNull(serializedPlan, "serializedPlan");
             sources = List.copyOf(sources);
             outputNames = List.copyOf(outputNames);
+            splittableHashInputs = List.copyOf(splittableHashInputs.stream().sorted().toList());
             resultColumnModels = List.copyOf(resultColumnModels);
             resultColumnTypes = List.copyOf(resultColumnTypes.stream()
                     .sorted(Comparator.comparingInt(ResultColumnLogicalType::getColumnIndex)).toList());
@@ -139,17 +151,8 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
             List<String> outputNames, StageTerminalPurpose terminalPurpose) {
         Objects.requireNonNull(graph, "graph");
         Objects.requireNonNull(compiler, "compiler");
-        List<SerializedStage> stages = new ArrayList<>();
-        for (var stage : graph.stages()) {
-            var fragment = stage.fragment();
-            List<String> names = "OUTPUT".equals(stage.taskType()) ? List.copyOf(outputNames) : fragment.fieldNames();
-            stages.add(new SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
-                    fragment.toSerializedPlan(compiler, names), fragment.splitSources(), names,
-                    fragment.resultColumnModels(), fragment.resultColumnTypes(),
-                    fragment.estimatedShuffleBytes(), fragment.estimatedShuffleRows()));
-        }
         return new AuthorizedStageGraph(terminalPurpose,
-                AuthorizedStageExchangeBindings.bind(stages, graph.transfers()), graph.transfers());
+                AuthorizedStageExchangeBindings.bind(graph, compiler, outputNames), graph.transfers());
     }
 
     /**
@@ -163,16 +166,17 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
         AuthorizedStageExchangeBindings.validate(Map.copyOf(plans), List.copyOf(transfers));
     }
 
+    /** Rechecks persisted skew eligibility in the same pass that verifies the canonical exchange contracts. */
+    public static void validateExchangeContracts(Map<Integer, SerializedPlanFragment> plans,
+            List<StageTransfer> transfers, Map<Integer, List<String>> splittableHashInputs) {
+        AuthorizedStageExchangeBindings.validate(
+                Map.copyOf(plans), List.copyOf(transfers), Map.copyOf(splittableHashInputs));
+    }
+
     /** Binds a live consumer to the canonical schemas of its dispatched producer plans. */
     public static CompiledStagePlan bindLiveExchangeInputs(int stageId, CompiledStagePlan consumer,
             List<StageTransfer> incoming, Map<Integer, List<ByteString>> producerPlans) {
         return AuthorizedStageExchangeBindings.bindLive(stageId, consumer, incoming, producerPlans);
-    }
-
-    /** Reads the verified wire schema of a dispatched producer across every partition. */
-    public static io.substrait.proto.NamedStruct requireLiveProducerSchema(
-            StageTransfer incoming, Map<Integer, List<ByteString>> producerPlans) {
-        return AuthorizedStageExchangeBindings.requireProducerSchema(incoming, producerPlans);
     }
 
     /** Returns a stable digest covering stage payloads, scheduling coordinates, exact sources and exchanges. */
@@ -196,6 +200,9 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
         output.writeInt(stage.stageId());
         output.writeInt(stage.parallelism());
         writeText(output, stage.taskType());
+        output.writeBoolean(stage.coalescibleHashInputs());
+        output.writeInt(stage.splittableHashInputs().size());
+        for (String exchange : stage.splittableHashInputs()) writeText(output, exchange);
         byte[] plan = stage.serializedPlan().planBytes();
         output.writeInt(plan.length);
         output.write(plan);

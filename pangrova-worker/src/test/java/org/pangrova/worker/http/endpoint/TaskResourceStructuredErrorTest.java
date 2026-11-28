@@ -11,7 +11,6 @@ import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.testing.testkit.TestExchangeTransport;
-import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -107,6 +106,6 @@ class TaskResourceStructuredErrorTest {
         ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport = TestExchangeTransport.INSTANCE;
         return new TaskResource(
                 taskManager, exchangeTransport,
-                new ExchangeSourceRegistry(), "localhost", 8816, null);
+                "localhost", 8816, null);
     }
 }

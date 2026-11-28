@@ -3,6 +3,7 @@ package org.pangrova.coordinator.streaming;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 
 import java.util.Objects;
 
@@ -44,13 +45,14 @@ public final class CdcWriteCommitCoordinator {
         Objects.requireNonNull(intent, "intent");
         CdcSourceIdentity source = Objects.requireNonNull(
                 intent.cdcSource(), "CDC commit requires its exact source identity");
-        if (journal.isCommitted(intent.queryId())) {
+        if (journal.recordIntent(intent) == WriteCommitState.COMMITTED) {
             offsetAcker.acknowledge(source, intent.commitFingerprint());
             return;
         }
-        journal.recordIntent(intent);
         publisher.publish(intent);
-        journal.markCommitted(intent.queryId());
+        if (!journal.recordTerminalOutcome(intent, intent.executionFencingToken(), WriteCommitState.COMMITTED)) {
+            throw new IllegalStateException("Lost execution anchor while publishing CDC intent: " + intent.queryId());
+        }
         offsetAcker.acknowledge(source, intent.commitFingerprint());
     }
 }

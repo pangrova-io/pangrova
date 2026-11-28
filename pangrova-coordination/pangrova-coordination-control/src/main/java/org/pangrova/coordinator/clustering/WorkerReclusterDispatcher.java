@@ -57,7 +57,7 @@ public final class WorkerReclusterDispatcher {
     private ClusteringMaintenance.StagedRewrite stage(String binding, QualifiedTableName table,
             String tenant, String principal, UUID runId, String revision, Runnable fence) {
         var exhausted = new IllegalStateException("No available Worker could stage RECLUSTER");
-        var candidates = workers.get().stream().sorted(Comparator.comparingInt(WorkerInfo::runningTaskCount)
+        var candidates = workers.get().stream().sorted(Comparator.comparingInt(WorkerInfo::inFlightTaskCount)
                 .thenComparing(WorkerInfo::workerId)).limit(MAX_ATTEMPTS).toList();
         for (var worker : candidates) {
             fence.run();

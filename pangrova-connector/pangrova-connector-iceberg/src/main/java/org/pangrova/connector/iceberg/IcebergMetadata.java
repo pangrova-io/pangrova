@@ -122,23 +122,6 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         return IcebergOutputHandles.forInsert(handle, writeTable(handle));
     }
 
-    /** Rebuilds a non-recovery handle from current table metadata. */
-    @Override
-    public ConnectorOutputTableHandle reconstructOutputHandle(ConnectorSession session,
-            SchemaTableName tableName, String writeMode) {
-        return IcebergOutputHandles.reconstruct(catalog, tableName, writeMode);
-    }
-
-    @Override
-    public ConnectorOutputTableHandle reconstructOutputHandle(
-            ConnectorSession session,
-            SchemaTableName tableName,
-            String writeMode,
-            long baseSnapshotId) {
-        return IcebergOutputHandles.reconstruct(
-                catalog, tableName, writeMode, baseSnapshotId);
-    }
-
     @Override
     public ConnectorOutputTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle table) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
@@ -200,7 +183,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     public void finishDistributedWrite(ConnectorSession session,
                                        ConnectorOutputTableHandle outputHandle,
                                        List<byte[]> fragments) {
-        finishIcebergDistributedWrite(session, outputHandle, fragments, null);
+        finishDistributedWrite(session, outputHandle, fragments, null);
     }
 
     @Override
@@ -209,16 +192,14 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
             ConnectorOutputTableHandle outputHandle,
             List<byte[]> fragments,
             DistributedWriteCommitContext context) {
-        finishIcebergDistributedWrite(session, outputHandle, fragments, context);
+        var handle = (IcebergOutputTableHandle) outputHandle;
+        String tenant = tenantId(session);
+        var table = requireDistributedWriteTarget(tenant, handle, fragments, context);
+        writeCommitter.finishDistributedWrite(table, handle, fragments, tenant, context);
     }
 
-    private boolean finishIcebergDistributedWrite(
-            ConnectorSession session,
-            ConnectorOutputTableHandle outputHandle,
-            List<byte[]> fragments,
-            DistributedWriteCommitContext context) {
-        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
-        String tenantId = tenantId(session);
+    private Table requireDistributedWriteTarget(String tenantId, IcebergOutputTableHandle handle,
+            List<byte[]> fragments, DistributedWriteCommitContext context) {
         if (context != null) {
             IcebergWriteBinding.requireMatches(handle, context);
             if (!tenantId.equals(context.tenantId())) {
@@ -268,8 +249,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
                 || !handle.tableUuid().equals(context.copyFile().tableUuid()))) {
             throw new IllegalArgumentException("COPY claim does not match the Iceberg INSERT target");
         }
-        return writeCommitter.finishDistributedWrite(
-                icebergTable, handle, fragments, tenantId, context);
+        return icebergTable;
     }
 
     @Override
@@ -277,15 +257,20 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
             ConnectorSession session, ConnectorOutputTableHandle outputHandle,
             List<byte[]> fragments, DistributedWriteCommitContext context) {
         java.util.Objects.requireNonNull(context, "Required publication needs its exact commit context");
-        boolean emptyInsert = finishIcebergDistributedWrite(session, outputHandle, fragments, context);
-        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
-        Table table = IcebergCatalogTables.resolveTable(
-                catalog, TableIdentifier.of(handle.schemaName(), handle.tableName()));
+        var handle = (IcebergOutputTableHandle) outputHandle;
+        String tenant = tenantId(session);
+        var table = requireDistributedWriteTarget(tenant, handle, fragments, context);
+        var completion = writeCommitter.finishDistributedWrite(table, handle, fragments, tenant, context);
+        if (completion.completion() == IcebergCommitExecutor.Completion.VERIFIED_AFTER_TIMEOUT) {
+            // The cancelled task may still use its SDK table after external verification.
+            table = IcebergCatalogTables.resolveTable(catalog,
+                    TableIdentifier.of(handle.schemaName(), handle.tableName()));
+        }
         if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(table))) {
             throw new IllegalStateException("Iceberg table UUID changed before required publication proof");
         }
         var snapshot = writeCommitter.publishedSnapshotOrCommitEmptyInsert(
-                table, handle, emptyInsert, tenantId(session), context);
+                table, handle, completion.emptyInsert(), tenant, context);
         if (snapshot == null || snapshot.manifestListLocation() == null) {
             throw new IllegalStateException("Required Iceberg publication marker or manifest is absent");
         }
@@ -322,25 +307,6 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         }
         return new CopyFilePublication(context.copyFile(), context.executionId(),
                 context.commitFingerprint(), snapshot.snapshotId());
-    }
-
-    /**
-     * A-EOS-02: discards worker-staged data files that were written but never published (the 2PC
-     * abort/discard leg), so an aborted streaming prepare leaves no orphans.
-     */
-    @Override
-    public void abortDistributedWrite(ConnectorSession session,
-                                      ConnectorOutputTableHandle outputHandle,
-                                      List<byte[]> fragments) {
-        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
-        TableIdentifier tableId = TableIdentifier.of(handle.schemaName(), handle.tableName());
-        Table icebergTable = catalog.loadTable(tableId);
-        icebergTable.refresh();
-        if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(icebergTable))) {
-            throw new IllegalStateException(
-                    "Iceberg table UUID changed since the distributed write was planned");
-        }
-        writeCommitter.abortDistributedWrite(icebergTable, handle, fragments);
     }
 
     @Override

@@ -312,6 +312,11 @@ WHERE rnk <= 5;
 
 ## Set Operations
 
+A trailing `ORDER BY`, `LIMIT`, or `OFFSET` applies to the combined result.
+`INTERSECT` binds before `UNION` and `EXCEPT`. Operators of the same precedence
+are evaluated from left to right. Use a derived table when an individual
+operand needs its own sorting or pagination.
+
 **UNION ALL:**
 
 ```sql
@@ -320,7 +325,10 @@ FROM prod.analytics.events
 WHERE event_type = 'login'
 UNION ALL
 SELECT user_id, 'order' AS activity, order_date AS activity_time
-FROM prod.analytics.orders;
+FROM prod.analytics.orders
+ORDER BY activity_time DESC
+LIMIT 20
+OFFSET 40;
 ```
 
 **UNION (distinct):**
@@ -611,5 +619,6 @@ SELECT * FROM org_tree ORDER BY level, name;
 
 **Notes:**
 - The recursive member must be combined with the anchor by `UNION ALL`
+- Apply `ORDER BY`, `LIMIT`, and `OFFSET` in the query that consumes the recursive CTE
 - The planner resolves the fixed point into up to 16 iterations (one anchor execution and 15 recursive steps) and executes each iteration through the native engine; rows from iterations beyond that bound are not returned
 - `UNION` (distinct), `SEARCH DEPTH FIRST/BREADTH FIRST`, and `CYCLE` clauses are rejected with an explicit planner error because the native execution layer has no operator for them

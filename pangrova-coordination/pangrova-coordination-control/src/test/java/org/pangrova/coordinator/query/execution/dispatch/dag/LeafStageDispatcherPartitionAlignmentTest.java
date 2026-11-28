@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.pangrova.coordinator.query.execution.split.QuerySplit;
+import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
 import org.pangrova.protocol.v2.DataSplit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,6 +15,11 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.planner.analysis.PlanFragment;
 import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.protocol.v2.BatchSerde;
+import org.pangrova.protocol.v2.FileSplitDetail;
+import org.pangrova.protocol.v2.LsmLevelDetail;
+import org.pangrova.protocol.v2.PaimonSplitDetail;
+import org.pangrova.protocol.v2.PhysicalFileReference;
+import org.pangrova.protocol.v2.PhysicalFileScanDetail;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
@@ -23,8 +29,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for {@link LeafStageDispatcher#buildPartitionFilePaths}, verifying
- * that cache-affinity paths follow the exact split partition assignment.
+ * Verifies exchange partition identity and alignment between scan allocations and cache-affinity paths.
  */
 class LeafStageDispatcherPartitionAlignmentTest {
 
@@ -180,6 +185,42 @@ class LeafStageDispatcherPartitionAlignmentTest {
     }
 
     @Test
+    void equalBytesWithUnevenFileCountsBalancePhysicalOpens() {
+        var splits = new java.util.ArrayList<QuerySplit>();
+        for (int index = 0; index < 32; index++) {
+            splits.add(paimonMergeSplit("group-" + index, 32));
+            splits.add(paimonMergeSplit("file-" + index, 1));
+        }
+
+        var partitions = StageSplitPartitions.partitionSplits(splits, 2, QuerySplit::estimatedPlacementWeight);
+        assertThat(partitions).allSatisfy(partition -> {
+            var files = partition.stream().flatMap(split -> split.data().getFileDetail().getPaimon()
+                    .getLsmLevelsList().stream()).flatMap(level -> level.getFilesList().stream()).toList();
+            assertThat(files).hasSize(528);
+            assertThat(files.stream().mapToLong(PhysicalFileReference::getFileSize).sum()).isEqualTo(512L << 20);
+        });
+    }
+
+    private static QuerySplit paimonMergeSplit(String id, int fileCount) {
+        long scanBytes = 16 * 1024 * 1024L;
+        var paths = java.util.stream.IntStream.range(0, fileCount)
+                .mapToObj(index -> "s3://bucket/" + id + "/" + index + ".parquet")
+                .toList();
+        var level = LsmLevelDetail.newBuilder();
+        for (String path : paths) {
+            level.addFiles(PhysicalFileReference.newBuilder().setOpaqueLocation(path)
+                    .setFileSize(scanBytes / fileCount)
+                    .setScan(PhysicalFileScanDetail.newBuilder()
+                            .setPhysicalRows(3200 / fileCount).setRowEnd(3200 / fileCount)));
+        }
+        var detail = FileSplitDetail.newBuilder().setPaimon(PaimonSplitDetail.newBuilder()
+                .setNeedsMerge(true).addLsmLevels(level));
+        var data = DataSplit.newBuilder().setSplitId(id).setOpaqueLocation(paths.get(0))
+                .setLength(scanBytes / fileCount).setFileDetail(detail).build();
+        return QuerySplit.fromScanMetadata(data, List.of(paths.get(0)), scanBytes, 0L);
+    }
+
+    @Test
     void largeCohortsAssignEverySplitInDeterministicPartitionOrder() {
         var splits = java.util.stream.IntStream.range(0, 256)
                 .mapToObj(index -> new QuerySplit(split("split-" + index), List.of("s3://" + index), 1))
@@ -224,8 +265,8 @@ class LeafStageDispatcherPartitionAlignmentTest {
 
     private static List<List<String>> pathsFor(
             List<QuerySplit> splits, int partitions) {
-        var assigned = org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions
-                .partitionSplits(splits, partitions, QuerySplit::estimatedScanBytes).stream()
+        var assigned = StageSplitPartitions
+                .partitionSplits(splits, partitions, QuerySplit::estimatedPlacementWeight).stream()
                 .map(partition -> partition.stream().flatMap(split -> split.filePaths().stream()).toList())
                 .toList();
         return assigned;

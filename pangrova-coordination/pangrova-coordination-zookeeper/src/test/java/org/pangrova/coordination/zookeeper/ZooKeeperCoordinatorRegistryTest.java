@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -71,7 +72,7 @@ class ZooKeeperCoordinatorRegistryTest {
     }
 
     private static CoordinatorSnapshot snap(String id, String role, long heartbeatMs) {
-        return new CoordinatorSnapshot(id, "host-" + id, 8080, role, 1L, heartbeatMs, heartbeatMs, 0L);
+        return new CoordinatorSnapshot(id, "host-" + id, 8080, role, 1L, heartbeatMs, heartbeatMs, 0L, "instance-" + id);
     }
 
     @Test
@@ -83,6 +84,26 @@ class ZooKeeperCoordinatorRegistryTest {
         var current = registry.getCoordinator("self").orElseThrow();
         assertThat(current.host()).isEqualTo("new-host");
         assertThat(current.lastProcessedInvalidationId()).isEqualTo(181);
+    }
+
+    @Test
+    void legacyRegistrationRemainsReadableAndCanBeRefreshed() throws Exception {
+        long now = System.currentTimeMillis();
+        String legacy = String.join("\n", "legacy", "legacy-host", "8080", "STANDBY", "1",
+                Long.toString(now), Long.toString(now), "181");
+        client.create().forPath("/pangrova/registry/legacy", legacy.getBytes(StandardCharsets.UTF_8));
+
+        var previous = registry.getCoordinator("legacy").orElseThrow();
+        assertThat(previous.incarnation()).isNull();
+        assertThat(previous.lastProcessedInvalidationId()).isEqualTo(181L);
+        assertThat(registry.getAllCoordinators(Duration.ofSeconds(30))).containsExactly(previous);
+        registry.heartbeat("legacy");
+        assertThat(registry.getCoordinator("legacy").orElseThrow().incarnation()).isNull();
+
+        registry.register(snap("legacy", "STANDBY", now));
+        var fresh = registry.getCoordinator("legacy").orElseThrow();
+        assertThat(fresh.incarnation()).isEqualTo("instance-legacy");
+        assertThat(fresh.lastProcessedInvalidationId()).isEqualTo(181L);
     }
 
     @Test
@@ -108,7 +129,10 @@ class ZooKeeperCoordinatorRegistryTest {
         assertThat(registry.getAllCoordinators(Duration.ofSeconds(5))).isEmpty();
         registry.heartbeat("A");
         assertThat(registry.getAllCoordinators(Duration.ofSeconds(5)))
-                .extracting(CoordinatorSnapshot::coordinatorId).containsExactly("A");
+                .singleElement().satisfies(snapshot -> {
+                    assertThat(snapshot.coordinatorId()).isEqualTo("A");
+                    assertThat(snapshot.incarnation()).isEqualTo("instance-A");
+                });
     }
 
     @Test
@@ -116,7 +140,9 @@ class ZooKeeperCoordinatorRegistryTest {
         registry.register(snap("A", "STANDBY", System.currentTimeMillis()));
         assertThat(registry.getLeader()).as("no leader while A is STANDBY").isEmpty();
         registry.updateRole("A", CoordinatorRole.LEADER);
-        assertThat(registry.getLeader().orElseThrow().coordinatorId()).isEqualTo("A");
+        CoordinatorSnapshot leader = registry.getLeader().orElseThrow();
+        assertThat(leader.coordinatorId()).isEqualTo("A");
+        assertThat(leader.incarnation()).isEqualTo("instance-A");
     }
 
     @Test

@@ -33,7 +33,7 @@ void FlightResultServer::registerTaskOutputType(const std::string& taskId, TaskO
   }
   std::lock_guard<std::mutex> lock(server->output_type_mutex_);
   if (!server->isRunning()) throw std::runtime_error("Result server is shutting down");
-  if (info.ownership->evidence().authority_revoked) {
+  if (info.ownership->authorityRevoked()) {
     throw std::invalid_argument("Revoked result authority cannot be registered");
   }
   if (!server->output_type_cache_.emplace(taskId, std::move(info)).second) {
@@ -92,7 +92,7 @@ arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> FlightResultServ
         "Result authority has no matching live registration");
   }
   auto& info = found->second;
-  if (info.claimed || info.ownership->evidence().authority_revoked) {
+  if (info.claimed || info.ownership->authorityRevoked()) {
     return arrow::Status::Invalid("Result authority is unavailable or already claimed");
   }
   info.claimed = true;

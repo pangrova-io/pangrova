@@ -227,7 +227,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         var sd = metadataBootstrap != null
                 ? SqlE2ETestBase.buildStatementDispatcher(
                         dmlDispatch, queryDispatcherRef, routingTaskTracker,
-                        coordinatorResultService, null, routingWorkerManager)
+                        buildCoordinatorResultService(routingTaskTracker), null, routingWorkerManager)
                 : null;
         var queryDispatcher = new QueryDispatcher(deps, sd);
         wireE2EOwnership(queryDispatcher);
@@ -338,7 +338,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
             throw new IllegalStateException("Routing query did not publish a result stream: " + queryId
                     + " disposition=" + response.resultDisposition());
         }
-        String canonicalTaskId = hasControlPlaneResult(queryId) ? null
+        String canonicalTaskId = isControlPlaneEndpoint(endpoint, queryId) ? null
                 : requireNativeResultTaskId(endpoint, queryId, routingTaskTracker);
         String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
         List<TypedRow> rows;
@@ -382,12 +382,8 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         if (endpoint == null) {
             throw new IllegalStateException("Missing routing result endpoint: queryId=" + queryId);
         }
-        // Direct buffer read — same as parent SqlE2ETestBase
-        if (coordinatorResultBuffer != null) {
-            byte[] buffered = coordinatorResultBuffer.get(queryId);
-            if (buffered != null && buffered.length > 0) {
-                return SqlE2ETestBase.decodeResultBytes(buffered);
-            }
+        if (isControlPlaneEndpoint(endpoint, queryId)) {
+            return fetchControlPlaneResult(endpoint, queryId);
         }
         // Native SELECT results are served via C++ FlightResultServer.
         // Use routingTaskTracker to resolve the native task ID for this

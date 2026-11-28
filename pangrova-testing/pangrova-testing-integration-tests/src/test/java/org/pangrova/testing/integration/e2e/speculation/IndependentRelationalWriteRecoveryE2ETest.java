@@ -9,6 +9,9 @@ import org.apache.paimon.table.FileStoreTable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.client.enums.ResultProtocol;
+import org.pangrova.common.enums.ResultDisposition;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
 import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandType;
@@ -62,11 +65,11 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
         if (target == Target.ICEBERG) {
             processes.createSourceCatalog();
         } else {
-            processes.executeWithoutRows(target.createCatalog(processes.warehouse()), ResultProtocol.GRPC_TLS);
+            processes.command(target.createCatalog(processes.warehouse()), ResultProtocol.GRPC_TLS);
         }
-        processes.executeWithoutRows("CREATE SCHEMA IF NOT EXISTS " + catalog + ".default", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE SCHEMA IF NOT EXISTS " + catalog + ".default", ResultProtocol.GRPC_TLS);
         String table = catalog + ".default.recovery_after_publication";
-        processes.executeWithoutRows("CREATE TABLE " + table + " (id BIGINT, payload VARCHAR)", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE TABLE " + table + " (id BIGINT, payload VARCHAR)", ResultProtocol.GRPC_TLS);
         rejectCompletion(processes);
         var attempt = processes.executeSql("INSERT INTO " + table + " VALUES (42, 'exact-publication')",
                 ResultProtocol.GRPC_TLS, Duration.ofSeconds(45));
@@ -86,13 +89,13 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
                 var statement = connection.createStatement()) {
             statement.execute("DROP TRIGGER reject_relational_completion ON write_commit_journal");
         }
+        var journal = new JdbcWriteCommitJournal(processes.metadataDataSource());
         await("restarted Coordinator confirms the exact " + target + " write").atMost(Duration.ofSeconds(60))
-                .untilAsserted(() -> {
-                    var recovered = storedIntent(processes);
-                    assertThat(recovered.state()).isEqualTo("COMMITTED");
-                    assertThat(recovered.queryId()).isEqualTo(pending.queryId());
-                    assertThat(recovered.fingerprint()).isEqualTo(pending.fingerprint());
-                });
+                .untilAsserted(() -> assertThat(journal.getReceipt(pending.queryId())).hasValueSatisfying(receipt -> {
+                    assertThat(receipt.state()).isEqualTo(WriteCommitState.COMMITTED);
+                    assertThat(receipt.queryId()).isEqualTo(pending.queryId());
+                    assertThat(receipt.commitFingerprint()).isEqualTo(pending.fingerprint());
+                }));
         requireRows(processes, table, true);
     }
 
@@ -210,7 +213,7 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
     }
 
     private static void execute(IndependentSpeculationProcesses processes, String sql) throws Exception {
-        var result = processes.query(sql, ResultDisposition.NONE).get(2, TimeUnit.MINUTES);
+        var result = processes.execute(sql, ResultDisposition.NONE).get(2, TimeUnit.MINUTES);
         assertThat(result.succeeded()).as(result.output() + result.errors()).isTrue();
     }
 

@@ -6,4 +6,6 @@ import org.pangrova.common.api.annotation.Experimental;
 @Experimental
 public final class SourceTableUnavailableException extends IllegalStateException {
     public SourceTableUnavailableException(String message) { super(message); }
+
+    public SourceTableUnavailableException(String message, Throwable cause) { super(message, cause); }
 }

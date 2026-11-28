@@ -65,7 +65,6 @@ public final class JdbcTabularExportPublicationStore implements GenerationPublic
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
     private final GenerationTransactionInputs inputs;
-    private final GenerationPublicationOutputValidator outputValidator;
 
     /** Composes tabular publication with current authority, execution fencing and same-connection input reads. */
     public JdbcTabularExportPublicationStore(
@@ -74,7 +73,6 @@ public final class JdbcTabularExportPublicationStore implements GenerationPublic
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
         this.inputs = Objects.requireNonNull(inputs, "inputs");
-        this.outputValidator = new GenerationPublicationOutputValidator(inputs);
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
     }
 
@@ -95,11 +93,11 @@ public final class JdbcTabularExportPublicationStore implements GenerationPublic
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                transactionAuthority.requireCurrent(connection, claimed.tenantId(), claimed.jobId());
+                var dispatch = transactionAuthority.requireCurrent(connection, claimed.tenantId(), claimed.jobId());
                 executionFence.requirePublication(connection, claimed.tenantId(), claimed.jobId());
                 JobRow job = lockClaim(connection, claimed, owner, ownerEpoch, now);
                 List<GenerationOutput> outputs =
-                        outputValidator.loadAndValidate(connection, job);
+                        GenerationPublicationOutputValidator.loadAndValidate(connection, job, dispatch.stageGraph());
                 Aggregate aggregate = aggregate(job, outputs);
                 long epoch = nextEpoch(connection, job.tenantId(), job.artifactId());
                 GenerationManifest manifest = manifest(job, aggregate, now);

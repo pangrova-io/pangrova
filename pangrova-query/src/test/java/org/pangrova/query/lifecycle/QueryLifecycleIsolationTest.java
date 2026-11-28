@@ -14,6 +14,7 @@ class QueryLifecycleIsolationTest {
     void lifecycleLinksOnContractClasspathAndOwnsItsState() throws Exception {
         URL[] urls = {
                 location(QueryStateMachine.class),
+                location(org.pangrova.execution.api.ownership.ExecutionAnchor.class),
                 location(org.pangrova.governance.api.enums.LineageEventType.class),
                 location(org.pangrova.connector.api.query.ConnectorQueryAuthority.class),
                 location(org.pangrova.common.api.annotation.Internal.class),

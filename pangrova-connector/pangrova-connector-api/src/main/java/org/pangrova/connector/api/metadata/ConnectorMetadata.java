@@ -47,7 +47,8 @@ public interface ConnectorMetadata
         var handle = getTableHandle(session, table);
         return handle == null ? null : new ConnectorReadDiscovery(this, handle,
                 (bindingSession, selector, check) -> check == null ? bindRead(bindingSession, selector)
-                        : bindReadWithIdentityCheck(bindingSession, handle, selector, check));
+                        : bindReadWithIdentityCheck(bindingSession, handle, selector, check),
+                (type, name) -> resolveRefSnapshotId(session, table, type, name));
     }
 
     /** Whether an ordinary named lookup can only return the exact catalog spelling. */

@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Guards the public query REST contract: field presence, symmetry, and drift.
+ * Guards the public query REST contract: exact response fields and shared types.
  */
 class ClientQueryProtocolContractTest {
 
@@ -74,48 +74,17 @@ class ClientQueryProtocolContractTest {
     }
 
     @Test
-    void queryResponseDtosShareCommonFieldConcepts() {
-        Set<String> sharedFields = Set.of("queryId", "state", "resultDisposition", "resultEndpoint");
-        Set<String> submitOnlyFields = Set.of("columnNames", "branchSelection");
-        Set<String> statusOnlyFields = Set.of("error", "stats", "version", "drained");
-
-        Set<String> submitFields = fieldNamesOf(SubmitQueryResponse.class);
-        Set<String> statusFields = fieldNamesOf(QueryStatusResponse.class);
-
-        for (String shared : sharedFields) {
-            assertThat(submitFields)
-                    .as("SubmitQueryResponse must contain shared field '%s'", shared)
-                    .contains(shared);
-            assertThat(statusFields)
-                    .as("QueryStatusResponse must contain shared field '%s'", shared)
-                    .contains(shared);
-        }
-
-        Set<String> unexpectedSubmitFields = submitFields.stream()
-                .filter(f -> !sharedFields.contains(f))
-                .filter(f -> !submitOnlyFields.contains(f))
-                .collect(Collectors.toSet());
-        assertThat(unexpectedSubmitFields)
-                .as("New SubmitQueryResponse fields not in shared or submitOnly sets. "
-                        + "Add to appropriate set or mirror in QueryStatusResponse.")
-                .isEmpty();
-
-        Set<String> unexpectedStatusFields = statusFields.stream()
-                .filter(f -> !sharedFields.contains(f))
-                .filter(f -> !statusOnlyFields.contains(f))
-                .collect(Collectors.toSet());
-        assertThat(unexpectedStatusFields)
-                .as("New QueryStatusResponse fields not in shared or statusOnly sets. "
-                        + "Add to appropriate set or mirror in SubmitQueryResponse.")
-                .isEmpty();
+    void submitResponseCarriesAdmissionReceiptFields() {
+        assertThat(fieldNamesOf(SubmitQueryResponse.class))
+                .containsExactlyInAnyOrder("queryId", "state", "resultDisposition", "resultEndpoint",
+                        "columnNames", "ownerEndpoint");
     }
 
     @Test
-    void queryDtoFieldCountsMatchExpected() {
-        assertFieldCount(SubmitQueryResponse.class, 6,
-                "SubmitQueryResponse field count changed — verify QueryStatusResponse symmetry");
-        assertFieldCount(QueryStatusResponse.class, 8,
-                "QueryStatusResponse field count changed — verify SubmitQueryResponse symmetry");
+    void statusResponseCarriesReadinessAndDrainFields() {
+        assertThat(fieldNamesOf(QueryStatusResponse.class))
+                .containsExactlyInAnyOrder("queryId", "state", "error", "stats", "resultDisposition",
+                        "resultEndpoint", "version", "drained", "branchSelection");
     }
 
     private static Set<String> fieldNamesOf(Class<? extends Record> recordClass) {
@@ -131,11 +100,5 @@ class ClientQueryProtocolContractTest {
                 .map(RecordComponent::getType)
                 .orElseThrow(() -> new AssertionError(
                         "Field '" + fieldName + "' not found in " + recordClass.getSimpleName()));
-    }
-
-    private static void assertFieldCount(
-            Class<? extends Record> recordClass, int expected, String message) {
-        int actual = recordClass.getRecordComponents().length;
-        assertThat(actual).as(message + " (was %d, now %d)", expected, actual).isEqualTo(expected);
     }
 }

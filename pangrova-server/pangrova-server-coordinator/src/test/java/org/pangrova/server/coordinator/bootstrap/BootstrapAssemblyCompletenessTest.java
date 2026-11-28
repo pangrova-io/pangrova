@@ -17,6 +17,7 @@ import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.pangrova.server.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -160,7 +161,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.server.coordinator.
                 coordinatorBootstrap.getHttpPort(), "SELECT 1");
         // No Worker is registered in this bootstrap-only fixture; SQL dispatch
         // must fail closed while still traversing the HTTP filter pipeline.
-        assertThat(resp.statusCode()).isEqualTo(503);
+        assertAdmissionThenWorkerFailure(coordinatorBootstrap.getQueryManager(), resp);
         // traceparent header propagation is verified in ObservabilityChainTest
     }
 
@@ -387,8 +388,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.server.coordinator.
 
         HttpResponse<String> resp = submitQuery(
                 coordinatorBootstrap.getHttpPort(), "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(coordinatorBootstrap.getQueryManager(), resp);
     }
 
     @Test

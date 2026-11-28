@@ -9,11 +9,13 @@ import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.enums.GenerationJobState;
 
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** Validates new durable build cohorts and compares immutable identities on replay. */
 final class PostgresGenerationAdmission {
@@ -64,18 +66,27 @@ final class PostgresGenerationAdmission {
 
     private static void validateStageCohorts(
             org.pangrova.generation.api.graph.GenerationStageGraph graph, List<GenerationPage> pages) {
+        var stages = graph.stages().stream().collect(Collectors.toMap(stage -> stage.stageId(), stage -> stage));
+        var consumers = graph.exchanges().stream().map(edge -> edge.downstreamStageId())
+                .collect(Collectors.toSet());
+        var counts = new HashMap<Integer, Integer>();
         for (GenerationPage page : pages) {
-            var stage = graph.requireStage(page.stageId());
-            if (stage.pageKind() != page.kind() || page.partitionId() >= stage.parallelism()) {
+            var stage = stages.get(page.stageId());
+            if (stage == null || stage.pageKind() != page.kind() || page.partitionId() >= stage.parallelism()) {
                 throw new IllegalArgumentException("artifact page changes its persisted stage contract");
             }
+            if (page.kind().isRelational() && consumers.contains(page.stageId()) && !page.splits().isEmpty()) {
+                throw new IllegalArgumentException("relational exchange consumers cannot enumerate source splits");
+            }
+            counts.merge(page.stageId(), 1, Integer::sum);
         }
         for (var stage : graph.stages()) {
-            Set<Integer> partitions = pages.stream().filter(page -> page.stageId() == stage.stageId())
-                    .map(GenerationPage::partitionId).collect(java.util.stream.Collectors.toSet());
-            if (partitions.size() != stage.parallelism()) {
+            if (counts.getOrDefault(stage.stageId(), 0) != stage.parallelism()) {
                 throw new IllegalArgumentException("artifact stage partition cohort is incomplete");
             }
+        }
+        if (graph.purpose() == GenerationGraphPurpose.RELATIONAL_EXPORT) {
+            return;
         }
         for (var edge : graph.exchanges()) {
             Set<String> producers = pages.stream().filter(page -> page.stageId() == edge.upstreamStageId())
@@ -146,8 +157,7 @@ final class PostgresGenerationAdmission {
                 && left.dependencySet().equals(right.dependencySet())
                 && left.emptyPartitionPolicy() == right.emptyPartitionPolicy()
                 && left.encryptionKeyRef().equals(right.encryptionKeyRef())
-                && left.idempotencyKey().equals(right.idempotencyKey())
-                && left.expectedPages() == right.expectedPages();
+                && left.idempotencyKey().equals(right.idempotencyKey());
     }
 
     private static boolean sameCoreIdentity(GenerationJob left, GenerationJob right) {

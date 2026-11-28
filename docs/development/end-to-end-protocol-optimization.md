@@ -10,7 +10,7 @@ unlisted: true
 
 优先改造两个会随数据量或流量放大的路径。**第一，远端 Shuffle 消费每个 batch 都同步查 PostgreSQL，连读请求也会拿 execution anchor 共享锁和 query scope 排他行锁。第二，任务控制面以 JSON 承载 Base64 Protobuf，在绑定、HTTP、Worker Java 与 JNI 之间重复编解码。** 紧随其后的是跨 Coordinator 状态轮询读 journal、Worker ACK 和报告线程耦合，以及大结果整段解码。真正的 AQE、扫描和分布式输出决定大查询的吞吐上限，先建立正确的分区覆盖和字节预算，再做结构性改造。
 
-代码证据来自 2026-11-21 的 Pangrova 工作树，属于历史调用链基线。同步往返、复制点和当时事务粒度可静态确认，但后续 lease/window、事件驱动 drain、owner fencing 和 Profile 实现已改变部分路径。当前未完成项以 [执行链路计划](./execution-clean-cut-plan.md#2026-11-25-代码审计与剩余工作) 的 A/B/C 审计为准；生产关键路径占比和收益仍须用同源部署归因。既有线性分片微测和 Worker 线程池隔离实验见 [全链路性能分析与修复方案](./performance-remediation-plan.md)。
+代码证据来自 2026-11-21 的 Pangrova 工作树，属于历史调用链基线。同步往返、复制点和当时事务粒度可静态确认，但后续 lease/window、事件驱动 drain、owner fencing 和 Profile 实现已改变部分路径。当前未完成项以 [执行链路计划](./execution-clean-cut-plan.md#remaining-work) 的 A/B/C 审计为准；生产关键路径占比和收益仍须用同源部署归因。既有线性分片微测和 Worker 线程池隔离实验见 [全链路性能分析与修复方案](./performance-remediation-plan.md)。
 
 ## 逐节点审查
 

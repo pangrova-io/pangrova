@@ -228,9 +228,9 @@ class RequiredE2EInfrastructureTest extends SqlE2ETestBase {
     }
 
     @Test
-    void rejectsCorruptResultBytes() {
-        assertThatThrownBy(() -> SqlE2ETestBase.decodeResultBytes(new byte[] {1, 2, 3}))
+    void rejectsMissingControlFlightEndpoint() {
+        assertThatThrownBy(() -> SqlE2ETestBase.fetchControlPlaneResult(null, "q-control"))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Failed to decode result bytes");
+                .hasMessageContaining("Control Flight result is not bound to queryId=q-control");
     }
 }

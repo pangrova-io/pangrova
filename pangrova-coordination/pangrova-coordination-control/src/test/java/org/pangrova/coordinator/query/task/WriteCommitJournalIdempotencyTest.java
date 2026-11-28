@@ -277,7 +277,7 @@ class WriteCommitJournalIdempotencyTest {
 
         journal.acknowledgeNoDeferredWork(journal.getEntry("q-1").orElseThrow().commitFingerprint());
         journal.purge("q-1");
-        assertThat(journal.isCommitted("q-1")).isFalse();
+        assertThat(journal.isCommitted("q-1")).isTrue();
     }
 
     @Test

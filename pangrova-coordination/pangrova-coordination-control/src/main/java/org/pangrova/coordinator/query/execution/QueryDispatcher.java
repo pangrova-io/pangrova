@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
+import java.util.Optional;
+import java.util.function.Predicate;
 import org.pangrova.query.api.write.WriteAuthorityResolver;
 
 import org.pangrova.planner.analysis.AuthorizedRelation;
@@ -233,13 +236,30 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return schedulingEngine.dagEngine();
     }
 
-    public boolean acquireQueryOwnership(String queryId) {
-        return ownershipTracker.acquireQueryOwnership(queryId);
+    public Ownership acquireQueryOwnership(String queryId, String tenantId) {
+        return ownershipTracker.acquireQueryOwnership(queryId, tenantId);
+    }
+
+    @Override
+    public Ownership acquireLimitedQueryOwnership(String queryId, String tenantId, int maxConcurrentQueries) {
+        return ownershipTracker.acquireQueryOwnership(queryId, tenantId,
+                java.util.OptionalInt.of(maxConcurrentQueries));
     }
 
     @Override
     public void releaseQueryOwnership(String queryId) {
         ownershipTracker.releaseQueryOwnership(queryId);
+    }
+
+    @Override
+    public boolean releaseIssuedQueryOwnership(org.pangrova.execution.api.ownership.ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
+        return ownershipTracker.releaseIssuedQueryOwnership(anchor, durableRetirement);
+    }
+
+    @Override
+    public boolean isQueryRetired(String queryId) {
+        return ownershipTracker.isQueryRetired(queryId);
     }
 
     public org.pangrova.connector.api.query.ConnectorQueryAuthority openQueryIssuance(String queryId) {
@@ -254,10 +274,6 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return taskTracker.enterQueryMetadataOperation(queryId);
     }
 
-    public void markRecoveredIssuanceUnresolved(String queryId) {
-        taskTracker.markRecoveredIssuanceUnresolved(queryId);
-    }
-
     public void retireQueryIssuance(String queryId) { taskTracker.retireQueryIssuance(queryId); }
 
     public void addQueryDrainProgressListener(java.util.function.Consumer<String> listener) {
@@ -265,8 +281,9 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     }
 
     @Override
-    public boolean tryCleanupQuery(String queryId) {
-        if (!ownershipTracker.tryCleanupQuery(queryId)) return false;
+    public boolean tryCleanupQuery(String queryId,
+            org.pangrova.execution.api.ownership.ExecutionAnchor originalGrant) {
+        if (!ownershipTracker.tryCleanupQuery(queryId, originalGrant)) return false;
         schedulingEngine.dagEngine().clearQuery(queryId);
         return true;
     }
@@ -285,8 +302,8 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     }
 
     /** Retries a persisted terminal Shuffle cleanup after Coordinator restart. */
-    public void retryPendingShuffleCleanup(String queryId) {
-        requireShuffleCleanupRecovery().recoverCleanupShuffle(queryId);
+    public void recoverShuffleCleanup(String queryId, org.pangrova.shuffle.api.ShuffleExecutionOwner owner) {
+        requireShuffleCleanupRecovery().recoverCleanupShuffle(queryId, owner);
     }
 
     private ShuffleCleanupRecovery requireShuffleCleanupRecovery() {
@@ -300,6 +317,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     public void cancelDispatchedTasks(String queryId) {
         org.pangrova.common.lifecycle.ResourceCloser.closeAll(null,
                 () -> ownershipTracker.cancelDispatchedTasks(queryId),
+                () -> pipelineExecutor.discardControlResult(queryId),
                 () -> schedulingEngine.dagEngine().cancelLiveDispatch(queryId));
     }
 
@@ -329,25 +347,6 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return ownershipTracker.cancelRetrier();
     }
 
-    /** Initiates dynamic filter injection for a running query. */
-    public void injectDynamicFilter(String queryId, String taskId,
-                                    String planNodeId, byte[] filterProto) {
-        checkNotNull(queryId, "queryId must not be null");
-        checkNotNull(taskId, "taskId must not be null");
-        checkNotNull(planNodeId, "planNodeId must not be null");
-        checkNotNull(filterProto, "filterProto must not be null");
-        String workerId = taskTracker.getWorkerForTask(taskId);
-        if (workerId == null) {
-            LOG.warn("event=dynamic_filter_skip queryId={} taskId={} "
-                    + "reason=worker_not_found", queryId, taskId);
-            return;
-        }
-        LOG.info("event=dynamic_filter_inject queryId={} taskId={} "
-                + "planNodeId={}", queryId, taskId, planNodeId);
-        dispatcher.injectDynamicFilter(
-                taskId, planNodeId, filterProto, workerId);
-    }
-
     // ── Construction factory methods ──
 
     private static SecurityPolicyApplier createSecurityApplier(
@@ -372,7 +371,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
                 deps.workerManager(), deps.taskScheduler(), deps.cacheAffinityAssigner(),
                 deps.spillBudget() != null
                         ? deps.spillBudget() : new SpillBudget(0),
-                deps.embeddingModelRegistry());
+                deps.embeddingModelRegistry(), deps.taskTracker()::placementLoad);
     }
 
     private static DAGDispatchEngine createDagEngine(
@@ -380,7 +379,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return new DAGDispatchEngine(new DAGDispatchContext(
                 deps.dispatcher(), deps.taskTracker(),
                 deps.lineageEmitter(), deps.catalogRegistry(),
-                deps.taskTimeoutSeconds(), deps.adaptiveQueryExecutor(),
+                deps.taskTimeoutSeconds(),
                 deps.adaptiveQueryConfig(),
                 deps.speculativeStageHandler(),
                 deps.workerManager().requiresLocalShuffle() ? PipelineConfig.LOCAL : PipelineConfig.ENABLED,
@@ -399,15 +398,6 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
             handlers.add(new org.pangrova.coordinator.query.execution
                     .dispatch.dag.handler.ShuffleStageHandler(
                     deps.shuffleLifecycleManager()));
-        }
-        if (deps.adaptiveQueryConfig() != null
-                && deps.adaptiveQueryExecutor() != null) {
-            handlers.add(new org.pangrova.coordinator.query.execution
-                    .dispatch.dag.handler.AdaptiveQueryStageHandler(
-                    new org.pangrova.coordinator.query.execution
-                            .dispatch.adaptive.AdaptiveQueryEvaluator(
-                            deps.skewDetector(), deps.adaptiveQueryConfig(),
-                            deps.adaptiveQueryExecutor())));
         }
         if (deps.resilienceRegistry() != null && !deps.workerManager().requiresLocalShuffle()) {
             handlers.add(new org.pangrova.coordinator.query.execution

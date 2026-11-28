@@ -270,29 +270,15 @@ public class SpeculativeTaskLauncher {
     private void registerAndDispatchCopy(
             String queryId, String originalId, SubmitTaskRequest request, PlacementWorker worker) {
         var pair = speculativePairs.get(originalId);
+        taskRegistry.prepareDispatch(request, worker);
         synchronized (pair) {
             if (pair.cleanupRequested) throw new IllegalStateException("Speculative dispatch admission is sealed");
+            taskRegistry.enterTaskDispatch(request);
             pair.copyIssued = true;
         }
-        registerDispatch(queryId, request, worker);
         dispatchRegistered(queryId, request, worker);
         LOG.info("event=speculative_dispatch_success originalTaskId={} speculativeId={} targetWorker={} queryId={}",
                 originalId, request.taskRequest().getAttempt().getTaskId(), worker.workerId(), queryId);
-    }
-
-    /**
-     * Transfers the exact request to the issuance owner before any network call.
-     */
-    private void registerDispatch(
-            String queryId, SubmitTaskRequest request, PlacementWorker worker) {
-        String taskId = request.taskRequest().getAttempt().getTaskId();
-        taskRegistry.registerTask(queryId, taskId);
-        taskRegistry.registerTaskRequest(taskId, request);
-        taskRegistry.bindDispatchTarget(request, worker);
-        taskRegistry.markScheduled(queryId, taskId);
-        taskRegistry.assignWorker(taskId, worker.workerId());
-        taskRegistry.setDeadline(taskId, java.time.Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
-        taskRegistry.enterTaskDispatch(request);
     }
 
     private void dispatchRegistered(String queryId, SubmitTaskRequest request, PlacementWorker worker) {
@@ -351,7 +337,8 @@ public class SpeculativeTaskLauncher {
         }
         boolean entered = false;
         try {
-            registerDispatch(queryId, retried, target);
+            taskRegistry.prepareDispatch(retried, target);
+            taskRegistry.enterTaskDispatch(retried);
             entered = true;
             dispatchRegistered(queryId, retried, target);
         } catch (RuntimeException | Error failure) {
@@ -378,7 +365,7 @@ public class SpeculativeTaskLauncher {
         return active.stream()
                 .filter(w -> w.healthState() == HealthState.ACTIVE)
                 .filter(w -> !w.workerId().equals(excludeWorkerId))
-                .min(java.util.Comparator.comparingInt(PlacementWorker::runningTaskCount))
+                .min(java.util.Comparator.comparingInt(PlacementWorker::inFlightTaskCount))
                 .orElse(null);
     }
 

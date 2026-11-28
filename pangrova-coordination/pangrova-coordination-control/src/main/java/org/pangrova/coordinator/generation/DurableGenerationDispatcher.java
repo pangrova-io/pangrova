@@ -135,7 +135,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
         var runtime = new org.pangrova.coordinator.query.execution.dispatch.dag.control
                 .DurableStageRuntime.Dependencies(
                 dependencies.stages(), workerManager, scheduler, epochSupplier, leaseDuration,
-                this::registerGraphAttempt, dependencies.exchanges(), traceContexts);
+                this::registerGraphAttempt, dependencies.exchanges(), traceContexts, taskTracker::placementLoad);
         this.graphs = new org.pangrova.coordinator.generation.runtime.DurableGenerationGraphs(
                 new org.pangrova.coordinator.generation.runtime.DurableGenerationGraphs.Dependencies(
                         store, runtime, dependencies.dagEngine(), retryBackoff), clock);

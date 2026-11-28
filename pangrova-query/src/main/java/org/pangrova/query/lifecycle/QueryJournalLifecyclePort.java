@@ -1,5 +1,7 @@
 package org.pangrova.query.lifecycle;
 
+import java.util.function.Predicate;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
@@ -11,10 +13,10 @@ import java.util.Optional;
 /** Query lifecycle facts recorded into the sole configured state journal. */
 public interface QueryJournalLifecyclePort extends QueryStateJournalPort {
 
-    void queued(String queryId, String sql, QuerySession session, QueryStateMachine state);
+    void queued(String queryId, String sql, QuerySession session, QueryStateMachine state, ExecutionAnchor anchor);
 
     QueryAcceptanceAdmission accept(String queryId, String sql, QuerySession session,
-            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs);
+            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs, ExecutionAnchor anchor);
 
     Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest);
 
@@ -22,15 +24,15 @@ public interface QueryJournalLifecyclePort extends QueryStateJournalPort {
 
     void terminal(QueryTerminalCleanup.Context context);
 
-    void registerListener(String queryId, QueryStateMachine state);
-
     Optional<QueryState> lookup(String queryId);
 
     Optional<QueryState> lookupForPrincipal(String queryId, String principal);
 
     void setOwner(String owner);
 
-    void purge(String queryId, QueryStateMachine state);
+    Optional<Predicate<ExecutionAnchor>> durableRetirement();
+
+    void purgeLocal(String queryId, QueryStateMachine state);
 
     boolean hasLatestEvent(String queryId);
 }

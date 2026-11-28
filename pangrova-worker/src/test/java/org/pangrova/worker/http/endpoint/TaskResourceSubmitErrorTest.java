@@ -14,7 +14,6 @@ import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.testing.testkit.TestExchangeTransport;
-import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,10 +36,9 @@ class TaskResourceSubmitErrorTest {
     void setUp() {
         taskManager = TaskManager.forHttpWiringOnly();
         ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport = TestExchangeTransport.INSTANCE;
-        ExchangeSourceRegistry sourceRegistry = new ExchangeSourceRegistry();
 
         resource = new TaskResource(
-                taskManager, exchangeTransport, sourceRegistry,
+                taskManager, exchangeTransport,
                 "test-host", 9090, null);
     }
 

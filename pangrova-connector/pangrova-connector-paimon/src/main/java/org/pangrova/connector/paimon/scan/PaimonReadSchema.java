@@ -2,14 +2,18 @@ package org.pangrova.connector.paimon.scan;
 
 import org.pangrova.common.api.annotation.Internal;
 
+import org.apache.paimon.Snapshot;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.SnapshotManager;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.api.exception.ConnectorException;
 
+import java.io.FileNotFoundException;
 import java.util.Map;
 
 /** Reads schema evidence from the exact Paimon snapshot, never from current columns for an old pin. */
@@ -36,6 +40,11 @@ public record PaimonReadSchema(RowType rowType, Map<String, String> options, Str
 
     /** Resolves the schema and options belonging to the exact SDK snapshot. */
     public static PaimonReadSchema resolve(PaimonTableHandle handle, Table current) {
+        return resolve(handle, current, null);
+    }
+
+    /** Reuses the binding's already observed snapshot when resolving historical schema evidence. */
+    public static PaimonReadSchema resolve(PaimonTableHandle handle, Table current, Snapshot selected) {
         if ("true".equals(handle.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY))) {
             if (!(current instanceof FileStoreTable table)
                     || !table.location().toString().equals(handle.tableLocation())) {
@@ -56,13 +65,27 @@ public record PaimonReadSchema(RowType rowType, Map<String, String> options, Str
         }
         long version = handle.snapshotId().orElseThrow();
         var table = requirePinnedTable(handle, current, version);
-        var snapshot = table.snapshotManager().snapshot(version);
-        if (!table.schemaManager().schemaExists(snapshot.schemaId())) {
-            throw missingSnapshot(table, version, "exact schema-id=" + snapshot.schemaId() + " is absent");
+        Snapshot snapshot = selected;
+        if (snapshot == null) {
+            try {
+                snapshot = readSnapshot(table, version);
+            } catch (FileNotFoundException missing) {
+                throw missingSnapshot(table, version, "does not exist", missing);
+            }
         }
-        var schema = table.schemaManager().schema(snapshot.schemaId());
-        if (schema == null || schema.id() != snapshot.schemaId()) {
-            throw missingSnapshot(table, version, "exact schema-id=" + snapshot.schemaId() + " is unavailable");
+        if (snapshot.id() != version) {
+            throw new IllegalStateException("Selected snapshot no longer matches the historical schema request");
+        }
+        long schemaId = snapshot.schemaId();
+        var schemaPath = table.schemaManager().toSchemaPath(schemaId);
+        org.apache.paimon.schema.TableSchema schema;
+        try {
+            schema = SchemaManager.tryFromPath(table.fileIO(), schemaPath);
+        } catch (FileNotFoundException missing) {
+            throw missingSnapshot(table, version, "exact schema-id=" + schemaId + " is absent", missing);
+        }
+        if (schema.id() != schemaId) {
+            throw missingSnapshot(table, version, "exact schema-id=" + schemaId + " is unavailable", null);
         }
         return new PaimonReadSchema(schema.logicalRowType(), schema.options(),
                 org.pangrova.connector.paimon.handle.PaimonTableIdentity.schemaFingerprint(schema));
@@ -74,14 +97,23 @@ public record PaimonReadSchema(RowType rowType, Map<String, String> options, Str
             throw new IllegalArgumentException(
                     "Pinned Paimon metadata belongs to a different table or invalid snapshot");
         }
-        if (!table.snapshotManager().snapshotExists(version)) {
-            throw missingSnapshot(table, version, "does not exist");
-        }
         return table;
     }
 
-    private static ConnectorException missingSnapshot(FileStoreTable table, long version, String reason) {
+    /** Reads the current object for an exact snapshot ID in one storage operation. */
+    public static Snapshot readSnapshot(FileStoreTable table, long version) throws FileNotFoundException {
+        var path = table.snapshotManager().snapshotPath(version);
+        var snapshot = SnapshotManager.tryFromPath(table.fileIO(), path);
+        if (snapshot.id() != version) {
+            throw new IllegalStateException("Snapshot object does not match requested ID " + version);
+        }
+        return snapshot;
+    }
+
+    private static ConnectorException missingSnapshot(FileStoreTable table, long version, String reason,
+            FileNotFoundException cause) {
         return new ConnectorException(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND,
-                "Snapshot not found: snapshot-id=" + version + " " + reason + " in table '" + table.name() + "'");
+                "Snapshot not found: snapshot-id=" + version + " " + reason + " in table '" + table.name() + "'",
+                cause);
     }
 }

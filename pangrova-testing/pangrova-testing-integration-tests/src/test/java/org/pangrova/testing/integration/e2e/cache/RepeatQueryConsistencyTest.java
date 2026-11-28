@@ -209,7 +209,7 @@ class RepeatQueryConsistencyTest extends SqlE2ETestBase {
                 workerManager.getWorker(WORKER_ID), "E2E Worker must be registered");
         workerManager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(WORKER_ID, workerManager.getWorker(WORKER_ID).workerExecutionIdentity().admissionDomainId(), workerManager.getWorker(WORKER_ID).workerExecutionIdentity().incarnationId()),
                 new org.pangrova.coordinator.worker.WorkerManager.HeartbeatData(
-                        pressure, worker.cpuUtilization(), worker.runningTaskCount(),
+                        pressure, worker.cpuUtilization(), worker.inFlightTaskCount(),
                         worker.availableMemoryBytes(), worker.cacheSummary()));
     }
 

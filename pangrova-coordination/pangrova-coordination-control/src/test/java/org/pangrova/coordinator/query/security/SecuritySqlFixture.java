@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.security;
 
+import org.pangrova.coordinator.materialization.PlanningMaterializations;
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -132,8 +133,9 @@ final class SecuritySqlFixture implements AutoCloseable {
                 metadata.metadataService(), metadata.catalogRegistry())
                 .buildRootSchema(SessionContextConverter.toConnectorSession(
                 session("schema_reader", Set.of())));
-        var rewrite = new DynamicTableRewriter(new DurableDynamicTableResolver(publications,
-                "security-test-tenant", "default", "default", candidate -> {
+        var rewrite = new DynamicTableRewriter(new DurableDynamicTableResolver(
+                new PlanningMaterializations(publications, "security-test-tenant", java.util.OptionalLong.empty()),
+                "default", "default", candidate -> {
                     // Policy-only compilation: no physical scan or generation GC in this fixture.
                     if (!candidate.generation().equals(published.generation())) {
                         throw new AssertionError("Unexpected generation in security compilation");

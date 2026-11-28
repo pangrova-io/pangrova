@@ -1,28 +1,21 @@
 package org.pangrova.protocol.rest.worker;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 
-/**
- * Heartbeat payload sent by Worker to Coordinator on each heartbeat tick.
- * F-CHAIN-CACHE-02: cachedFilePaths replaces the dead cacheBloomFilter field.
- */
+/** Current Worker placement and resource usage, sampled once per heartbeat. */
 public record HeartbeatRequest(
         @JsonProperty("worker_id") String workerId,
         @JsonProperty("memory_pressure") String memoryPressure,
         @JsonProperty("cpu_utilization") double cpuUtilization,
-        @JsonProperty("running_task_count") int runningTaskCount,
+        @JsonProperty("in_flight_task_count") int inFlightTaskCount,
         @JsonProperty("available_memory_bytes") long availableMemoryBytes,
         @JsonProperty("cached_file_paths") List<String> cachedFilePaths,
-        @JsonProperty("cache_used_bytes") long cacheUsedBytes,
-        @JsonProperty("cache_max_bytes") long cacheMaxBytes,
-        @JsonProperty("cache_hit_count") long cacheHitCount,
-        @JsonProperty("cache_miss_count") long cacheMissCount,
-        @JsonProperty("tenant_memory_bytes") Map<String, Long> tenantMemoryBytes,
-        @JsonProperty("tenant_active_queries") Map<String, Integer> tenantActiveQueries,
-        @JsonProperty("worker_execution_identity") org.pangrova.protocol.execution.identity.WorkerExecutionIdentity workerExecutionIdentity) {
+        @JsonProperty("tenant_usage") List<TenantUsageSnapshot> tenantUsage,
+        @JsonProperty("worker_execution_identity") WorkerExecutionIdentity workerExecutionIdentity) {
 
     public HeartbeatRequest {
         if (workerId == null || workerId.isBlank()) {
@@ -31,17 +24,17 @@ public record HeartbeatRequest(
         if (memoryPressure == null || memoryPressure.isBlank()) {
             memoryPressure = "NONE";
         }
-        java.util.Objects.requireNonNull(workerExecutionIdentity, "workerExecutionIdentity must not be null");
+        if (inFlightTaskCount < 0) {
+            throw new IllegalArgumentException("inFlightTaskCount must not be negative");
+        }
+        Objects.requireNonNull(workerExecutionIdentity, "workerExecutionIdentity must not be null");
         cachedFilePaths = cachedFilePaths == null ? List.of() : List.copyOf(cachedFilePaths);
-        tenantMemoryBytes = tenantMemoryBytes == null ? Map.of() : Map.copyOf(tenantMemoryBytes);
-        tenantActiveQueries = tenantActiveQueries == null ? Map.of() : Map.copyOf(tenantActiveQueries);
+        tenantUsage = tenantUsage == null ? List.of() : List.copyOf(tenantUsage);
     }
 
-    public HeartbeatRequest(String workerId, String memoryPressure,
-                            double cpuUtilization, int runningTaskCount,
-                            long availableMemoryBytes,
-                            org.pangrova.protocol.execution.identity.WorkerExecutionIdentity workerExecutionIdentity) {
-        this(workerId, memoryPressure, cpuUtilization, runningTaskCount,
-                availableMemoryBytes, List.of(), 0, 0, 0, 0, Map.of(), Map.of(), workerExecutionIdentity);
+    public HeartbeatRequest(String workerId, String memoryPressure, double cpuUtilization,
+            int inFlightTaskCount, long availableMemoryBytes, WorkerExecutionIdentity workerExecutionIdentity) {
+        this(workerId, memoryPressure, cpuUtilization, inFlightTaskCount, availableMemoryBytes, List.of(), List.of(),
+                workerExecutionIdentity);
     }
 }

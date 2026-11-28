@@ -102,7 +102,8 @@ public final class ReadBindingSdkFixture implements AutoCloseable {
             authority.beginMetadata("bound", () -> bootstrap.catalogRegistry().getCatalog("bound").getMetadata(actor));
             return org.pangrova.coordinator.query.execution.split.SplitFetcher.fetchRawConnectorSplits(
                     List.of(descriptor), bootstrap.catalogRegistry(), overrides,
-                    binding.declaration().metadata().columns(), admitted);
+                    binding.declaration().metadata().columns(), admitted,
+                    org.pangrova.connector.api.metadata.SplitPlanningBudget.FileGranularity.WHOLE_OBJECT);
         } finally {
             state.tryTransition(QueryState.CANCELLED);
             tracker.sealQueryIssuance(context.queryId());

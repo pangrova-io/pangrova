@@ -1,6 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.protocol.enums.DataTicketType;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,10 +14,7 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.coordinator.result.CoordinatorDataProducer;
-import org.pangrova.coordinator.result.CoordinatorResultBuffer;
 import org.pangrova.protocol.transport.TransportServerConfig;
-import org.pangrova.protocol.transport.DataTicket;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
 import org.pangrova.worker.heartbeat.SpillDiskMonitor;
 import org.pangrova.transport.flight.TransportServer;
@@ -31,14 +27,13 @@ class TransportServerTlsOwnerIntegrationTest {
     void validatesActualClientCertificateIdentity() throws Exception {
         try (var authority = new TestTlsAuthority(workspace);
              var foreign = new TestTlsAuthority(workspace);
-             var allocator = new RootAllocator(4 * 1024 * 1024);
-             var control = new ActualControlOwner()) {
+             var allocator = new RootAllocator(4 * 1024 * 1024)) {
             var identity = authority.issue("server", "localhost", false);
             var clientIdentity = authority.issue("client", "localhost", false);
             var foreignIdentity = foreign.issue("foreign", "localhost", false);
             var configuration = new TransportServerConfig(0, identity.certificateChain().toString(),
                     identity.privateKey().toString(), authority.root().toString(), true);
-            var server = new TransportServer(control.producer(), configuration);
+            var server = new TransportServer(emptyProducer(), configuration);
             try {
                 server.start();
                 check(server.isRunning() && server.getPort() > 0, "actual TLS server bound");
@@ -73,14 +68,14 @@ class TransportServerTlsOwnerIntegrationTest {
                     new CoordinatorBootstrapConfig.TransportConfig(0, 1024 * 1024, "localhost", tls),
                     base.workerHealth(), base.metadataJdbcConfig(), base.securityConfig(),
                     base.observabilityBootstrapConfig());
-            var started = ControlPlaneResultTransportBootstrap.start(configuration, null, scheduler);
+            var started = ControlPlaneResultTransportBootstrap.start(configuration, null, scheduler,
+                    ignored -> () -> { });
             try {
-                var completed = new java.util.concurrent.atomic.AtomicBoolean();
                 var result = started.service().dispatchControlPlaneRows("tls-ack",
                         java.util.List.of(org.pangrova.types.value.TypedRow.of(java.util.Map.of(
                                 "status", new org.pangrova.types.value.ColumnValue.StringValue("OK")))),
-                        java.util.List.of("status"), () -> completed.set(true));
-                check(completed.get() && result.resultEndpoint().protocol().equals("grpc+tls")
+                        java.util.List.of("status"));
+                check(result.resultEndpoint().protocol().equals("grpc+tls")
                         && result.resultEndpoint().port() == started.server().getPort(),
                         "configured bootstrap advertises the actual encrypted endpoint");
                 var actualServer = (TransportServer) started.server();
@@ -92,22 +87,23 @@ class TransportServerTlsOwnerIntegrationTest {
                     var descriptor = FlightDescriptor.command(new byte[] {4, 5});
                     check(trusted.getInfo(descriptor).getDescriptor().equals(descriptor),
                             "bootstrap path reaches the real authenticated Flight server");
-                    var ticket = new Ticket(new DataTicket("tls-ack", "", 0,
-                            DataTicketType.RESULT).serialize());
-                    for (int request = 0; request < 2; request++) {
-                        try (var stream = trusted.getStream(ticket)) {
-                            check(stream.next() && stream.getRoot().getRowCount() == 1,
-                                    "control acknowledgement is returned once");
-                            check(!stream.next(), "control acknowledgement reaches EOF");
-                        }
+                    var ticket = new Ticket(result.resultEndpoint().ticket()
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    try (var stream = trusted.getStream(ticket)) {
+                        check(stream.next() && stream.getRoot().getRowCount() == 1,
+                                "control acknowledgement is returned once");
+                        check(!stream.next(), "control acknowledgement reaches EOF");
                     }
+                    org.assertj.core.api.Assertions.assertThatThrownBy(() -> trusted.getStream(ticket).next())
+                            .isInstanceOf(org.apache.arrow.flight.FlightRuntimeException.class)
+                            .hasMessageContaining("unavailable");
                 } finally {
                     trusted.close();
                 }
                 rejectClient(allocator, started.server().getPort(), authority.root(), null);
             } finally {
                 started.server().stop();
-                check(started.buffer().contains("tls-ack"), "actual acknowledgement remains owned until close");
+                check(!started.buffer().contains("tls-ack"), "Flight retires the acknowledgement");
                 started.buffer().close();
                 check(started.buffer().bufferedBytes() == 0 && started.buffer().size() == 0,
                         "actual close retires acknowledgement bytes and expiry owner");
@@ -122,67 +118,63 @@ class TransportServerTlsOwnerIntegrationTest {
 
     @Test
     void rejectsIncompleteTlsWithoutSuccessfulRunningState() {
-        try (var control = new ActualControlOwner()) {
-            for (var invalid : new TransportServerConfig[] {
-                    new TransportServerConfig(0, workspace.toString(), null),
-                    new TransportServerConfig(0, workspace.toString(), workspace.toString(), null, true),
-                    new TransportServerConfig(0, workspace.toString(), workspace.toString())}) {
-                var broken = new TransportServer(control.producer(), invalid);
-                boolean rejected = false;
-                try {
-                    broken.start();
-                } catch (IllegalStateException expected) {
-                    rejected = true;
-                }
-                check(rejected && !broken.isRunning(), "invalid TLS must fail without false running state");
-                broken.stop();
+        for (var invalid : new TransportServerConfig[] {
+                new TransportServerConfig(0, workspace.toString(), null),
+                new TransportServerConfig(0, workspace.toString(), workspace.toString(), null, true),
+                new TransportServerConfig(0, workspace.toString(), workspace.toString())}) {
+            var broken = new TransportServer(emptyProducer(), invalid);
+            boolean rejected = false;
+            try {
+                broken.start();
+            } catch (IllegalStateException expected) {
+                rejected = true;
             }
+            check(rejected && !broken.isRunning(), "invalid TLS must fail without false running state");
+            broken.stop();
         }
     }
 
     @Test
     void retainsActualMemoryUntilReleaseAndAcceptsOnlySpillDirectories() throws Exception {
-        try (var control = new ActualControlOwner()) {
-            var owner = new TransportServer(control.producer(), new TransportServerConfig(0));
-            var actualOwner = org.pangrova.transport.flight.TransportServerAllocatorFixture.allocator(owner);
-            var actualBuffer = actualOwner.buffer(8192);
+        var owner = new TransportServer(emptyProducer(), new TransportServerConfig(0));
+        var actualOwner = org.pangrova.transport.flight.TransportServerAllocatorFixture.allocator(owner);
+        var actualBuffer = actualOwner.buffer(8192);
+        try {
+            owner.start();
+            boolean retained = false;
+            try {
+                owner.stop();
+            } catch (IllegalStateException expected) {
+                retained = true;
+            }
+            check(retained && actualOwner.getAllocatedMemory() == 8192,
+                    "failed actual drain retains allocation and rejects successful stop");
+            boolean admissionSealed = false;
             try {
                 owner.start();
-                boolean retained = false;
-                try {
-                    owner.stop();
-                } catch (IllegalStateException expected) {
-                    retained = true;
-                }
-                check(retained && actualOwner.getAllocatedMemory() == 8192,
-                        "failed actual drain retains allocation and rejects successful stop");
-                boolean admissionSealed = false;
-                try {
-                    owner.start();
-                } catch (IllegalStateException expected) {
-                    admissionSealed = true;
-                }
-                check(admissionSealed && actualOwner.getAllocatedMemory() == 8192,
-                        "failed close cannot reopen admission or discard its live budget");
-            } finally {
-                actualBuffer.close();
-                owner.stop();
+            } catch (IllegalStateException expected) {
+                admissionSealed = true;
             }
-            check(actualOwner.getAllocatedMemory() == 0, "actual release precedes successful retry");
-            var disk = new SpillDiskMonitor(workspace.toString());
-            check(disk.isConfigured() && disk.getAvailableBytes() > 0, "actual directory filesystem space");
-            Path regular = Files.createTempFile(workspace, "not-spill-directory-", ".txt");
-            try {
-                var fileMonitor = new SpillDiskMonitor(regular.toString());
-                check(!fileMonitor.isConfigured() && fileMonitor.getAvailableBytes() == 0,
-                        "regular file rejects spill directory");
-            } finally {
-                Files.delete(regular);
-            }
-            check(new SpillDiskMonitor(null).getAvailableBytes() == 0, "unconfigured directory");
-            check(new SpillDiskMonitor(workspace.resolve("absent").toString()).getAvailableBytes() == 0,
-                    "absent directory");
+            check(admissionSealed && actualOwner.getAllocatedMemory() == 8192,
+                    "failed close cannot reopen admission or discard its live budget");
+        } finally {
+            actualBuffer.close();
+            owner.stop();
         }
+        check(actualOwner.getAllocatedMemory() == 0, "actual release precedes successful retry");
+        var disk = new SpillDiskMonitor(workspace.toString());
+        check(disk.isConfigured() && disk.getAvailableBytes() > 0, "actual directory filesystem space");
+        Path regular = Files.createTempFile(workspace, "not-spill-directory-", ".txt");
+        try {
+            var fileMonitor = new SpillDiskMonitor(regular.toString());
+            check(!fileMonitor.isConfigured() && fileMonitor.getAvailableBytes() == 0,
+                    "regular file rejects spill directory");
+        } finally {
+            Files.delete(regular);
+        }
+        check(new SpillDiskMonitor(null).getAvailableBytes() == 0, "unconfigured directory");
+        check(new SpillDiskMonitor(workspace.resolve("absent").toString()).getAvailableBytes() == 0,
+                "absent directory");
     }
 
     private static FlightClient client(BufferAllocator allocator, int port, Path trust,
@@ -221,26 +213,7 @@ class TransportServerTlsOwnerIntegrationTest {
         }
     }
 
-    private static final class ActualControlOwner implements AutoCloseable {
-        private final java.util.concurrent.ScheduledExecutorService scheduler =
-                Executors.newSingleThreadScheduledExecutor();
-        private final CoordinatorResultBuffer buffer = new CoordinatorResultBuffer(scheduler, 60_000, 4, 1024);
-        private final CoordinatorDataProducer producer = new CoordinatorDataProducer(buffer);
-
-        CoordinatorDataProducer producer() {
-            return producer;
-        }
-
-        @Override
-        public void close() {
-            buffer.close();
-            scheduler.shutdownNow();
-            try {
-                check(scheduler.awaitTermination(10, TimeUnit.SECONDS), "owned scheduler joined");
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Owned scheduler join interrupted", interrupted);
-            }
-        }
+    private static org.pangrova.protocol.transport.DataProducer emptyProducer() {
+        return ticket -> () -> new byte[0];
     }
 }

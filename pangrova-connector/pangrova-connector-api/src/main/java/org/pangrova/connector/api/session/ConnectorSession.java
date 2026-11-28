@@ -16,6 +16,9 @@ import java.util.Optional;
 @Stable(since = "1.0")
 public interface ConnectorSession {
 
+    /** Reserved property set by the coordinator for authenticated internal materialization execution. */
+    String INTERNAL_MATERIALIZATION_EXECUTION = "pangrova.materialization.internal-execution";
+
     /**
      * Returns the authenticated user name for this session.
      *

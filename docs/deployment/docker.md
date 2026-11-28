@@ -46,6 +46,9 @@ HA: Workers 1 and 2 register with Coordinator 1, Worker 3 with Coordinator 2.
 The two endpoints have separate Worker registries and do not provide failover.
 Use a shared JDBC state store and the production HA configuration before
 claiming failover behavior.
+Each Coordinator has a separate admission directory on the persistent
+`coordinator-data` volume so a container replacement can prove the former
+process exited.
 
 ## Docker — Build Image from Source
 

@@ -3,8 +3,6 @@ package org.pangrova.connector.paimon;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.FileStoreTable;
-import org.apache.paimon.table.sink.CommitMessageImpl;
-import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
@@ -17,12 +15,9 @@ import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -125,18 +120,22 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
     }
 
     @Test
-    void abortDeletesOnlyUnpublishedStagedFiles() throws Exception {
+    void abortWithoutADurableCatalogBarrierPreservesUnpublishedFiles() throws Exception {
         createTable(false, false);
         var metadata = metadata();
         ConnectorOutputTableHandle output = metadata.beginInsert(SESSION, handle(metadata));
         byte[] fragment = prepare(provider().createPageSink(
                 ConnectorTransactionHandle.empty(), SESSION, output), ROW);
-        List<Path> staged = stagedDataFiles((FileStoreTable) freshTable(), fragment);
+        List<Path> staged = stagedDataFiles(output, fragment);
         assertThat(staged).isNotEmpty().allMatch(Files::exists);
 
-        metadata.abortDistributedWrite(SESSION, output, List.of(fragment));
+        var fragments = List.of(fragment);
+        var context = PaimonCommitTestSupport.context(
+                metadata, SESSION, output, fragments);
+        assertThatThrownBy(() -> metadata.abortDistributedWrite(SESSION, output, fragments, context))
+                .isInstanceOf(UnsupportedOperationException.class);
 
-        assertThat(staged).allMatch(path -> !Files.exists(path));
+        assertThat(staged).allMatch(Files::exists);
         assertThat(readRows()).isEmpty();
     }
 
@@ -147,10 +146,14 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         ConnectorOutputTableHandle output = metadata.beginInsert(SESSION, handle(metadata));
         byte[] fragment = prepare(provider().createPageSink(
                 ConnectorTransactionHandle.empty(), SESSION, output), ROW);
-        List<Path> staged = stagedDataFiles((FileStoreTable) freshTable(), fragment);
+        List<Path> staged = stagedDataFiles(output, fragment);
         writeRows(new StoredRow(2, "west", "two", "committed"));
 
-        metadata.abortDistributedWrite(SESSION, output, List.of(fragment));
+        var fragments = List.of(fragment);
+        var context = PaimonCommitTestSupport.context(
+                metadata, SESSION, output, fragments);
+        assertThatThrownBy(() -> metadata.abortDistributedWrite(SESSION, output, fragments, context))
+                .isInstanceOf(UnsupportedOperationException.class);
 
         assertThat(staged).allMatch(Files::exists);
         assertThat(readRows()).containsExactly(new StoredRow(2, "west", "two", "committed"));
@@ -199,25 +202,9 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         }
     }
 
-    private static List<Path> stagedDataFiles(FileStoreTable table, byte[] fragment) throws Exception {
-        var serializer = new CommitMessageSerializer();
-        List<Path> paths = new ArrayList<>();
-        try (var in = new DataInputStream(new ByteArrayInputStream(fragment))) {
-            int version = in.readInt();
-            in.readUTF();
-            in.readUTF();
-            in.readUTF();
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                byte[] bytes = new byte[in.readInt()];
-                in.readFully(bytes);
-                var message = (CommitMessageImpl) serializer.deserialize(version, bytes);
-                var factory = table.store().pathFactory()
-                        .createDataFilePathFactory(message.partition(), message.bucket());
-                message.newFilesIncrement().newFiles()
-                        .forEach(file -> paths.add(Paths.get(factory.toPath(file).toUri())));
-            }
-        }
-        return List.copyOf(paths);
+    private static List<Path> stagedDataFiles(ConnectorOutputTableHandle output, byte[] fragment) throws Exception {
+        return org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(fragment,
+                (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle) output).objects().stream()
+                .map(object -> Paths.get(java.net.URI.create(object.uri()))).toList();
     }
 }

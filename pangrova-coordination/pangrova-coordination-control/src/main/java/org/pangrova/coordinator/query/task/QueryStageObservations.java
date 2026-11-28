@@ -21,15 +21,18 @@ import org.pangrova.query.profiling.OperatorStatsSource.StageTransition;
 /** Records actual stage transitions and scheduling work on the owning Coordinator's monotonic clock. */
 public final class QueryStageObservations {
     private final long startedAt = System.nanoTime();
+    private final QueryStageMetrics metrics;
     private final List<Stage> stages;
     private final List<Exchange> exchanges;
     private final ConcurrentLinkedQueue<StageTransition> transitions = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SelectedAttempt> selectedAttempts = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<Preparation> preparations = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<StageDispatchWork> stageDispatchWork = new ConcurrentLinkedQueue<>();
-    private volatile RuntimeFilterWait runtimeFilterWait;
+    private final ConcurrentLinkedQueue<RuntimeFilterWait> runtimeFilterWaits;
 
-    QueryStageObservations(StageDAG dag) {
+    QueryStageObservations(StageDAG dag, QueryStageMetrics metrics) {
+        this.metrics = metrics;
+        runtimeFilterWaits = dag.runtimeFilters().isEmpty() ? null : new ConcurrentLinkedQueue<>();
         stages = dag.stages().stream().map(stage -> new Stage(stage.stageId(), stage.taskType(), stage.parallelism()))
                 .toList();
         exchanges = dag.stageEdges().stream().map(edge -> new Exchange(edge.exchangeId(), edge.upstreamStageId(),
@@ -62,15 +65,17 @@ public final class QueryStageObservations {
     /** Records a measured interval for one actual Stage generation. */
     public void recordDispatchWork(int stageId, int generation, DispatchPhase phase, long start,
             Integer itemCount, boolean successful) {
-        stageDispatchWork.add(new StageDispatchWork(stageId, generation, phase, start,
-                elapsedNanos(), itemCount, successful));
+        var work = new StageDispatchWork(stageId, generation, phase, start,
+                elapsedNanos(), itemCount, successful);
+        stageDispatchWork.add(work);
+        if (metrics != null) metrics.recordDispatch(work);
     }
 
     /** Records the actual decision before the held probe enumerates files. */
     public void recordRuntimeFilterWait(int buildStageId, int probeStageId, int probeGeneration,
             long startedNanos, RuntimeFilterOutcome outcome, int rangeCount) {
-        runtimeFilterWait = new RuntimeFilterWait(buildStageId, probeStageId, probeGeneration,
-                startedNanos, elapsedNanos(), outcome, rangeCount);
+        runtimeFilterWaits.add(new RuntimeFilterWait(buildStageId, probeStageId, probeGeneration,
+                startedNanos, elapsedNanos(), outcome, rangeCount));
     }
 
     /** One scheduler-owned operation, with a consistent snapshot at each transition. */
@@ -88,6 +93,7 @@ public final class QueryStageObservations {
 
         public void finish(PreparationOutcome outcome) {
             latest = new DownstreamPreparation(latest.submittedNanos(), latest.startedNanos(), elapsedNanos(), outcome);
+            if (metrics != null) metrics.recordPreparation(latest);
         }
     }
 
@@ -100,7 +106,8 @@ public final class QueryStageObservations {
                 .sorted(Comparator.comparingLong(DownstreamPreparation::submittedNanos)).toList();
         var dispatch = stageDispatchWork.stream().sorted(Comparator.comparingLong(StageDispatchWork::startedNanos))
                 .toList();
-        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation, dispatch,
-                runtimeFilterWait);
+        List<RuntimeFilterWait> filterWaits = runtimeFilterWaits == null ? List.of() : runtimeFilterWaits.stream()
+                .sorted(Comparator.comparingInt(RuntimeFilterWait::probeStageId)).toList();
+        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation, dispatch, filterWaits);
     }
 }

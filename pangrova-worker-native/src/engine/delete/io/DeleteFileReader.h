@@ -22,6 +22,10 @@
 #define PANGROVA_HAS_VELOX_DELETE_READER 0
 #endif
 
+namespace pangrova::velox {
+class MetadataReadContext;
+}
+
 namespace pangrova::delete_filter {
 
 // Reads Iceberg v2/v3 delete files (Parquet format) to extract
@@ -38,7 +42,8 @@ class DeleteFileReader {
   // Filters rows where file_path matches dataFilePath.
   static std::vector<int64_t> readPositions(
       const std::string& deleteFilePath,
-      const std::string& dataFilePath);
+      const std::string& dataFilePath,
+      const pangrova::velox::MetadataReadContext* reads = nullptr);
 
   // Read equality delete file, return serialized key strings.
   // Equality delete files contain columns matching the equality field IDs.

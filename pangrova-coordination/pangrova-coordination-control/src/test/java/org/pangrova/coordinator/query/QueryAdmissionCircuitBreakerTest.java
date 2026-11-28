@@ -209,6 +209,17 @@ class QueryAdmissionCircuitBreakerTest {
                 .isFalse();
     }
 
+    @Test
+    void cancellingBeforeAdmissionDoesNotInvokeTheHealthProbe() {
+        var state = new QueryStateMachine();
+        assertThat(state.tryTransition(QueryState.CANCELLED)).isTrue();
+        state.acquireAdmissionHealthProbe(() -> {
+            throw new AssertionError("Cancelled queries cannot acquire a health probe");
+        });
+        assertThat(state.getState()).isEqualTo(QueryState.CANCELLED);
+        assertThat(state.takeAdmissionHealthProbe()).isFalse();
+    }
+
     /**
      * Registers a query in RUNNING state and returns its queryId.
      */

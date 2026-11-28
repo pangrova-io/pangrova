@@ -6,6 +6,7 @@ import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 
 import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import io.substrait.proto.ExchangeRel;
 import io.substrait.proto.Expression;
 import io.substrait.proto.ExtensionLeafRel;
@@ -21,14 +22,20 @@ import org.pangrova.generation.execution.template.FrozenStageBindings;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.enums.GenerationPageKind;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization.BatchRange;
+import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.ExchangeDistribution;
 import org.pangrova.protocol.v2.ExchangeInputDetail;
+import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
+import org.pangrova.protocol.v2.ShufflePartitionPublication;
 
+import java.util.HexFormat;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,6 +71,30 @@ class DurableStageExchangeContractsTest {
             assertThatThrownBy(() -> DurableStageRuntime.validateExchangeContracts(persisted))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("rebuild required")
                     .hasRootCauseMessage("Exchange input differs from frozen producer schema: gather");
+        }
+    }
+
+    @Test
+    void onlyTheFrozenBatchCertificateAuthorizesThePublication() {
+        String digest = "ab".repeat(32);
+        var certificate = new BatchRange(2, 4, 32, 8, digest);
+        var partition = new GenerationExchangeFinalization.Partition(0, 256, 20, 5, digest, digest);
+        var finalized = new GenerationExchangeFinalization("exchange", digest, "shuffle", 1,
+                new GenerationExecutionOwner("coordinator", "incarnation", 1), 1, digest, List.of(partition), 256, 20, digest);
+        var publication = ShufflePartitionPublication.newBuilder().setStartSequence(2).setLastSequence(3)
+                .setTotalBytes(32).setTotalRows(8)
+                .setManifestSha256(ByteString.copyFrom(HexFormat.of().parseHex(digest))).build();
+        var binding = ExternalShuffleInput.newBuilder().setSourcePartitionStart(0).addPublications(publication)
+                .build();
+        assertThatCode(() -> StageExchangeAccessValidator.requireCertifiedRange(binding, finalized, certificate))
+                .doesNotThrowAnyException();
+        for (var changed : List.of(publication.toBuilder().clearStartSequence().build(),
+                publication.toBuilder().setLastSequence(4).build(), publication.toBuilder().setTotalBytes(33).build(),
+                publication.toBuilder().setTotalRows(9).build(),
+                publication.toBuilder().clearManifestSha256().build())) {
+            var forged = binding.toBuilder().setPublications(0, changed).build();
+            assertThatThrownBy(() -> StageExchangeAccessValidator.requireCertifiedRange(forged, finalized, certificate))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("frozen batch certificate");
         }
     }
 

@@ -586,6 +586,7 @@ artifacts:
       - org.pangrova.connector.iceberg.enums
       - org.pangrova.connector.iceberg.handle
       - org.pangrova.connector.iceberg.index
+      - org.pangrova.connector.iceberg.write
     providers:
       "org.pangrova.connector.api.plugin.ConnectorFactory":
         - org.pangrova.connector.iceberg.IcebergConnectorFactory
@@ -798,7 +799,6 @@ artifacts:
       - org.pangrova.coordinator.query.audit
       - org.pangrova.coordinator.query.execution
       - org.pangrova.coordinator.query.execution.dispatch
-      - org.pangrova.coordinator.query.execution.dispatch.adaptive
       - org.pangrova.coordinator.query.execution.dispatch.dag
       - org.pangrova.coordinator.query.execution.dispatch.dag.binding
       - org.pangrova.coordinator.query.execution.dispatch.dag.control
@@ -3039,8 +3039,9 @@ artifacts:
         - pangrova-persistence-query-api
         - pangrova-query
         - pangrova-security-codec
-        - pangrova-shuffle-api
       test:
+        - pangrova-common
+        - pangrova-execution-api
         - pangrova-governance-api
         - pangrova-persistence-query-api
         - pangrova-query
@@ -3558,7 +3559,6 @@ artifacts:
       - org.pangrova.protocol.rest.copy.preparation
       - org.pangrova.protocol.rest.data
       - org.pangrova.protocol.rest.maintenance
-      - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.exchange
       - org.pangrova.protocol.rest.version
@@ -3615,7 +3615,6 @@ artifacts:
       - org.pangrova.protocol.rest.copy.preparation
       - org.pangrova.protocol.rest.data
       - org.pangrova.protocol.rest.maintenance
-      - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.exchange
       - org.pangrova.protocol.rest.version
@@ -3653,7 +3652,6 @@ artifacts:
       - org.pangrova.query.lifecycle
       - org.pangrova.query.profiling
       - org.pangrova.query.profiling.enums
-      - org.pangrova.query.recovery
       - org.pangrova.query.retention
       - org.pangrova.query.runtime
       - org.pangrova.query.runtime.enums
@@ -3711,7 +3709,6 @@ artifacts:
       - org.pangrova.query.lifecycle
       - org.pangrova.query.profiling
       - org.pangrova.query.profiling.enums
-      - org.pangrova.query.recovery
       - org.pangrova.query.runtime
       - org.pangrova.query.session
       - org.pangrova.query.stage
@@ -3757,7 +3754,6 @@ artifacts:
       - org.pangrova.scheduler.admission
       - org.pangrova.scheduler.enums
       - org.pangrova.scheduler.placement
-      - org.pangrova.scheduler.resource
       - org.pangrova.scheduler.retry
       - org.pangrova.scheduler.speculation
     pomDependencies:
@@ -3784,7 +3780,6 @@ artifacts:
       - org.pangrova.scheduler.admission
       - org.pangrova.scheduler.enums
       - org.pangrova.scheduler.placement
-      - org.pangrova.scheduler.resource
       - org.pangrova.scheduler.speculation
     providers:
       {}
@@ -4326,7 +4321,6 @@ artifacts:
         - pangrova-semantic
         - pangrova-server-bootstrap
         - pangrova-shuffle-api
-        - pangrova-shuffle-exchange
         - pangrova-streaming-api
         - pangrova-streaming-pipeline
         - pangrova-table
@@ -4334,7 +4328,6 @@ artifacts:
         - pangrova-transport-http
         - pangrova-types
       test:
-        - pangrova-batch
         - pangrova-cache-api
         - pangrova-common
         - pangrova-config
@@ -4342,6 +4335,7 @@ artifacts:
         - pangrova-connector-lance
         - pangrova-coordination-api
         - pangrova-coordination-control
+        - pangrova-execution-api
         - pangrova-file
         - pangrova-filesystem-api
         - pangrova-generation-api
@@ -4375,7 +4369,6 @@ artifacts:
         - pangrova-persistence-security-api
         - pangrova-persistence-security-memory
         - pangrova-persistence-security-postgresql
-        - pangrova-persistence-streaming-memory
         - pangrova-persistence-streaming-postgresql
         - pangrova-persistence-table-api
         - pangrova-persistence-table-postgresql
@@ -4584,6 +4577,7 @@ artifacts:
         - pangrova-shuffle-api
         - pangrova-shuffle-native
       test:
+        - pangrova-common
         - pangrova-protocol
         - pangrova-shuffle-api
         - pangrova-shuffle-native
@@ -4622,6 +4616,7 @@ artifacts:
         - pangrova-common
         - pangrova-persistence-jdbc-support
         - pangrova-protocol
+        - pangrova-shuffle-api
       test:
         - pangrova-protocol
         - pangrova-testing-kit
@@ -4755,7 +4750,6 @@ artifacts:
       - org.pangrova.streaming.enums
       - org.pangrova.streaming.exception
       - org.pangrova.streaming.maintenance
-      - org.pangrova.streaming.pipeline
       - org.pangrova.streaming.watermark
     providers:
       {}
@@ -5442,7 +5436,6 @@ artifacts:
       - org.pangrova.worker.task
       - org.pangrova.worker.task.memory
       - org.pangrova.worker.task.report
-      - org.pangrova.worker.transport
       - org.pangrova.worker.write
     providers:
       {}

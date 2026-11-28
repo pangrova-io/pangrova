@@ -223,6 +223,11 @@ class QueryOwnershipRegistryTest {
         }
 
         @Override
+        public boolean isQueryRetired(String executionId) {
+            return backend.isQueryRetired(executionId);
+        }
+
+        @Override
         public Optional<ExecutionAnchor> current(String executionId) {
             currentReads++;
             return backend.current(executionId);

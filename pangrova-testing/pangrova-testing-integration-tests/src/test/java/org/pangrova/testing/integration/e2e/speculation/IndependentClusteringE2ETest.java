@@ -178,9 +178,9 @@ class IndependentClusteringE2ETest extends ContainerTestBase {
     private static void prepareTable(IndependentLocalProcesses processes) throws Exception {
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();
-        processes.executeWithoutRows("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", FLIGHT);
-        processes.executeWithoutRows("CREATE TABLE " + TABLE + " (id BIGINT, payload VARCHAR)", FLIGHT);
-        processes.executeWithoutRows("INSERT INTO " + TABLE + " VALUES (3, 'third'), (1, 'first'), (2, 'second')", FLIGHT);
+        processes.command("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", FLIGHT);
+        processes.command("CREATE TABLE " + TABLE + " (id BIGINT, payload VARCHAR)", FLIGHT);
+        processes.command("INSERT INTO " + TABLE + " VALUES (3, 'third'), (1, 'first'), (2, 'second')", FLIGHT);
         processes.query("ALTER TABLE " + TABLE + " SET CLUSTERING ORDER (id) MODE LINEAR", FLIGHT);
         assertThat(processes.query("SHOW CLUSTERING STATUS FOR TABLE " + TABLE, FLIGHT).output())
                 .contains("LINEAR", "PENDING");

@@ -58,7 +58,7 @@ public final class InMemoryWorkerRegistry implements WorkerRegistry {
                 existing.dataLocality(),
                 snapshot.memoryPressure(),
                 snapshot.cpuUtilization(),
-                snapshot.runningTaskCount(),
+                snapshot.inFlightTaskCount(),
                 snapshot.availableMemoryBytes(),
                 System.currentTimeMillis(),
                 existing.registeredAtMs(),

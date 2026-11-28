@@ -22,6 +22,8 @@ import java.io.Reader;
 public final class PangrovaParserFactory implements SqlParserImplFactory {
 
     private final SqlParser parser;
+    private static final AstToSqlNodeConverter BOUND_CONVERTER = new AstToSqlNodeConverter(true);
+
     private final AstToSqlNodeConverter converter;
 
     public PangrovaParserFactory() {
@@ -66,6 +68,11 @@ public final class PangrovaParserFactory implements SqlParserImplFactory {
      */
     public SqlNode convertAstToSqlNode(org.pangrova.parser.api.ast.Statement ast) {
         return converter.convert(ast);
+    }
+
+    /** Converts an AST whose snapshot selectors were installed in the planning session. */
+    public SqlNode convertBoundAstToSqlNode(Statement ast) {
+        return BOUND_CONVERTER.convert(ast);
     }
 
     /**

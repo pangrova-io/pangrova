@@ -3,6 +3,8 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.junit.jupiter.api.Test;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 
+import java.time.Instant;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Tests nullable persisted-buffer ownership only, not Native report validity or durable completion. */
@@ -25,7 +27,7 @@ class PostgresGenerationPageRowTest {
 
     private static PostgresGenerationJobStoreMappings.PageRow row(byte[] bytes) {
         return new PostgresGenerationJobStoreMappings.PageRow("tenant", "job", "page", 0, 0, 0,
-                GenerationPageKind.SOURCE_MAP, "PENDING", 0, 0, null, 0, null,
-                3, bytes, null, null);
+                GenerationPageKind.SOURCE_MAP, "PENDING", 0, 0, null, 0, null, Instant.EPOCH,
+                3, bytes, null, null, null);
     }
 }

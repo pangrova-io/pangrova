@@ -19,7 +19,6 @@ import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import java.util.function.BiFunction;
 
@@ -36,7 +35,7 @@ class GenerationEncodingCompatibilityTest {
                 new byte[]{7, 8}, template, List.of(), List.of("id", "value"), true);
         var edge = new GenerationStageGraph.Exchange("edge-1", 5, 0, GenerationExchangeDistribution.HASH,
                 List.of(0), 3, "BATCH_SERDE_ARROW_BATCH", true);
-        return new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
+        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(source, terminal), List.of(edge),
                 List.of(new ModelSnapshot("model-文本", "incarnation", 7, "deployment-v1", "a".repeat(64))));
     }
@@ -53,13 +52,13 @@ class GenerationEncodingCompatibilityTest {
                 r.registeredOwner(), 2, r.producerSetSha256(),
                 List.of(new GenerationExchangeFinalization.Partition(1, 10, 2, 0, "d".repeat(64)),
                         new GenerationExchangeFinalization.Partition(0, 0, 0, -1, "e".repeat(64))),
-                10, 2, Base64.getEncoder().encodeToString(response), DigestUtils.sha256Hex(response));
+                10, 2, DigestUtils.sha256Hex(response));
     }
     @Test
     void graphKeepsPersistedBytesAndDigest() throws Exception {
-        byte[] expected = golden("stage-graph-v2.json");
+        byte[] expected = golden("stage-graph-v4.json");
         assertThat(GenerationStageGraphCodec.encode(graph())).isEqualTo(expected);
-        assertThat(GenerationStageGraphCodec.sha256(graph())).isEqualTo("8373d039d72a8da44581c45f520e3b9bce59d1bcd4d488bb139a0ef388b00e80");
+        assertThat(GenerationStageGraphCodec.sha256(graph())).isEqualTo("19045762637c2cdf589e31beeaf2c627f8a6f4f47d345b40fdbdb024ea4ac88b");
         assertThat(GenerationStageGraphCodec.decode(expected, GenerationStageGraphCodec.sha256(graph()))).isEqualTo(graph());
     }
 
@@ -75,7 +74,7 @@ class GenerationEncodingCompatibilityTest {
     void finalizationKeepsPersistedBytesAndDigest() throws Exception {
         byte[] expected = golden("exchange-finalization.json");
         assertThat(GenerationExchangeEvidenceCodec.encode(finalization())).isEqualTo(expected);
-        assertThat(GenerationExchangeEvidenceCodec.sha256(finalization())).isEqualTo("d347fd6cde18debebc9bdd2da0c5bd823d3f2f295e59b9737893a659b2927a98");
+        assertThat(GenerationExchangeEvidenceCodec.sha256(finalization())).isEqualTo("f8fdba58edecb6a39a348a5c5d28f48a949d897daf6954ac267691cb2fa30602");
         assertThat(GenerationExchangeEvidenceCodec.decodeFinalization(expected, GenerationExchangeEvidenceCodec.sha256(finalization()))).isEqualTo(finalization());
     }
 
@@ -84,7 +83,7 @@ class GenerationEncodingCompatibilityTest {
         var terminal = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{1}, GenerationStageTemplate.of(new byte[]{2}, List.of(), List.of()),
                 List.of(), List.of("x".repeat(16 * 1024 * 1024)), true);
-        var oversized = new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
+        var oversized = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(terminal), List.of(), List.of());
         assertThatThrownBy(() -> GenerationStageGraphCodec.encode(oversized)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("size limit");
@@ -98,12 +97,12 @@ class GenerationEncodingCompatibilityTest {
     }
 
     @Test
-    void finalizationEncodingCountsBase64ExpansionAndEnvelope() {
-        var r = registration();
-        byte[] response = new byte[12 * 1024 * 1024];
-        var oversized = new GenerationExchangeFinalization(r.exchangeId(), GenerationExchangeEvidenceCodec.sha256(r), r.shuffleId(), 7,
-                r.registeredOwner(), 2, r.producerSetSha256(), finalization().partitions(), 10, 2,
-                Base64.getEncoder().encodeToString(response), DigestUtils.sha256Hex(response));
+    void finalizationEncodingEnforcesTheCanonicalReceiptLimit() {
+        var receipt = finalization();
+        var oversized = new GenerationExchangeFinalization(receipt.exchangeId(), receipt.registrationSha256(),
+                "x".repeat(16 * 1024 * 1024), receipt.planEpoch(), receipt.finalizingOwner(), receipt.producerCount(),
+                receipt.producerSetSha256(), receipt.partitions(), receipt.totalBytes(), receipt.totalRows(),
+                receipt.responseSha256());
         assertThatThrownBy(() -> GenerationExchangeEvidenceCodec.encode(oversized)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("size limit");
     }
@@ -129,7 +128,7 @@ class GenerationEncodingCompatibilityTest {
 
     @Test
     void correctlyHashedNullExtraFieldsAndTrailingValuesCannotBecomeReplayEvidence() throws Exception {
-        rejectNoncanonical("stage-graph-v2.json", GenerationStageGraphCodec::decode);
+        rejectNoncanonical("stage-graph-v4.json", GenerationStageGraphCodec::decode);
         rejectNoncanonical("exchange-registration.json", GenerationExchangeEvidenceCodec::decodeRegistration);
         rejectNoncanonical("exchange-finalization.json", GenerationExchangeEvidenceCodec::decodeFinalization);
     }

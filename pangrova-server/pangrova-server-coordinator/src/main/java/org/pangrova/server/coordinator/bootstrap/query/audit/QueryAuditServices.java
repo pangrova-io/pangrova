@@ -1,5 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap.query.audit;
 
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.query.api.audit.QueryAuditStore;
 import org.pangrova.query.audit.QueryAuditService;
 import org.pangrova.query.profiling.QueryProfileService;
@@ -12,9 +13,14 @@ public final class QueryAuditServices {
 
     /** Composes query audit, operator statistics and profile services over one audit store. */
     public QueryAuditServices(QueryAuditStore store) {
+        this(store, null);
+    }
+
+    /** Registers query-scoped profile and process-wide dispatch metrics together. */
+    public QueryAuditServices(QueryAuditStore store, MetricsProvider metricsProvider) {
         auditService = new QueryAuditService(
                 java.util.Objects.requireNonNull(store, "store must not be null"));
-        operatorStats = new org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry();
+        operatorStats = new org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry(metricsProvider);
         profileService = new QueryProfileService(auditService, operatorStats);
     }
 

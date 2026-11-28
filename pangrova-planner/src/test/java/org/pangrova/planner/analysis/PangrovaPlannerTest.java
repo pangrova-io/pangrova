@@ -2,6 +2,7 @@ package org.pangrova.planner.analysis;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Values;
+import org.apache.calcite.util.NlsString;
 import org.apache.calcite.util.TimestampString;
 import org.junit.jupiter.api.Test;
 
@@ -41,6 +42,16 @@ class PangrovaPlannerTest {
             assertThat(((Values) result).getTuples().get(0).get(0).getValueAs(String.class))
                     .isEqualTo(value);
         }
+    }
+
+    @Test
+    void unicodeStringLiteralKeepsItsValueAndUtf8Collation() {
+        RelNode result = planner.plan("SELECT '汉字😀' AS value_text").plan();
+        assertThat(result).isInstanceOf(Values.class);
+        NlsString literal = ((Values) result).getTuples().get(0).get(0).getValueAs(NlsString.class);
+        assertThat(literal.getValue()).isEqualTo("汉字😀");
+        assertThat(literal.getCharset()).isEqualTo(StandardCharsets.UTF_8);
+        assertThat(literal.getCollation().getCharset()).isEqualTo(StandardCharsets.UTF_8);
     }
 
     @Test

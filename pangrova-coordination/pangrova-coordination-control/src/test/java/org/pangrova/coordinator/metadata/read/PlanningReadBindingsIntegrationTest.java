@@ -371,7 +371,8 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
                     "bound", "db", "conflict", org.pangrova.connector.api.metadata.Constraint.EMPTY,
                     binding.declaration().metadata().columns(), java.util.Optional.of(binding))).toList();
             assertThatThrownBy(() -> org.pangrova.coordinator.query.execution.split.SplitFetcher.fetchRawConnectorSplits(
-                    sources, fixture.bootstrap.catalogRegistry(), Map.of(), List.of("id"), fixture.context))
+                    sources, fixture.bootstrap.catalogRegistry(), Map.of(), List.of("id"), fixture.context,
+                    org.pangrova.connector.api.metadata.SplitPlanningBudget.FileGranularity.WHOLE_OBJECT))
                     .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
                     .hasMessageContaining("Conflicting read bindings");
         }

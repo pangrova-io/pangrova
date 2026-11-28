@@ -116,6 +116,20 @@ class StageTest {
         assertThat(completedBuild(ranges).completeBuildKeyRanges().get(0)).containsExactly(new BuildKeyRange(0, 32));
     }
 
+    @Test
+    void laterWinningReportsExpandTheBoundedCoverageAfterDisjointOverflow() {
+        var ranges = new java.util.ArrayList<BuildKeyRange>();
+        for (long key = 0; key <= 32; key += 2) ranges.add(new BuildKeyRange(key, key));
+        ranges.add(new BuildKeyRange(4, 16));
+        ranges.add(new BuildKeyRange(Long.MIN_VALUE, -10));
+        ranges.add(new BuildKeyRange(40, Long.MAX_VALUE));
+        var stage = completedBuild(ranges);
+        var result = stage.completeBuildKeyRanges();
+
+        assertThat(result.get(0)).containsExactly(new BuildKeyRange(Long.MIN_VALUE, Long.MAX_VALUE));
+        assertThat(stage.completeBuildKeyRanges()).isSameAs(result);
+    }
+
     private Stage completedBuild(List<BuildKeyRange> ranges) {
         return completedBuildSummaries(ranges.stream().map(List::of).toList());
     }

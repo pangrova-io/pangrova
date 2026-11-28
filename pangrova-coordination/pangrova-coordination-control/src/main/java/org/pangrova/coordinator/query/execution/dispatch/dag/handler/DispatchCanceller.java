@@ -2,8 +2,6 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
 import org.pangrova.execution.task.StageDispatchRecord;
 
-import org.pangrova.persistence.query.api.state.QueryStateJournal;
-
 import java.util.List;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
@@ -84,29 +82,18 @@ public final class DispatchCanceller {
     public void prepareTaskDispatch(
             org.pangrova.protocol.rest.task.SubmitTaskRequest request,
             org.pangrova.coordinator.worker.WorkerInfo worker) {
-        var attempt = request.taskRequest().getAttempt();
-        String taskId = attempt.getTaskId();
-        String queryId = attempt.getQueryOrJobId();
-        taskTracker.registerTask(queryId, taskId);
-        try {
-            taskTracker.registerTaskRequest(taskId, request);
-            taskTracker.bindDispatchTarget(request, worker);
-            taskTracker.markScheduled(queryId, taskId);
-            taskTracker.assignWorker(taskId, worker.workerId());
-            taskTracker.setDeadline(taskId, java.time.Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
-        } catch (RuntimeException failure) {
-            taskTracker.unregisterUndispatchedTask(queryId, taskId);
-            throw failure;
-        }
+        taskTracker.prepareTaskDispatch(request, worker);
     }
 
     public void enterTaskDispatch(org.pangrova.protocol.rest.task.SubmitTaskRequest request) {
         taskTracker.enterTaskDispatch(request);
     }
 
-    /** Journals the same frozen fact retained by the sole issued-attempt authority. */
-    public void journalScheduledTask(QueryStateJournal journal, String taskId) {
-        journal.appendTaskEvent(taskTracker.scheduledJournalEvent(taskId));
+    /** Captures the original prepared event and the exact Worker address and binary seal. */
+    public org.pangrova.query.api.journal.TaskStateEvent issuanceFact(
+            org.pangrova.protocol.rest.task.SubmitTaskRequest request,
+            org.pangrova.coordinator.worker.WorkerInfo worker) {
+        return taskTracker.issuanceFact(request, worker);
     }
 
     /** Rolls back a prepared task only when dispatch did not start. */

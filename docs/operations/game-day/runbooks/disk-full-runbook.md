@@ -48,7 +48,7 @@ import json, sys
 workers = json.load(sys.stdin)
 for w in workers:
     if '${TARGET_WORKER}' in w['host']:
-        print(f'Worker {w[\"host\"]}: {w[\"healthState\"]} (runningTasks={w[\"runningTaskCount\"]})')
+        print(f'Worker {w[\"host\"]}: {w[\"healthState\"]} (inFlightTasks={w[\"inFlightTaskCount\"]})')
 "
 ```
 
@@ -146,7 +146,7 @@ import json, sys
 workers = json.load(sys.stdin)
 for w in workers:
     if '${TARGET_WORKER}' in w['host']:
-        print(f'healthState: {w[\"healthState\"]}  runningTasks={w[\"runningTaskCount\"]}  memoryPressure={w[\"memoryPressure\"]}')
+        print(f'healthState: {w[\"healthState\"]}  inFlightTasks={w[\"inFlightTaskCount\"]}  memoryPressure={w[\"memoryPressure\"]}')
 "
 
 # Verify a spill-capable query succeeds (submit and poll its state)

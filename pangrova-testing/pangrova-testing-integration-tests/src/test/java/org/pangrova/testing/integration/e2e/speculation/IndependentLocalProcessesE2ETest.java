@@ -151,9 +151,9 @@ class IndependentLocalProcessesE2ETest extends ContainerTestBase {
     }
 
     private static void seedTables() throws Exception {
-        processes.executeWithoutRows("CREATE TABLE " + orders + " (id BIGINT, score BIGINT)", ResultProtocol.GRPC_TLS);
-        processes.executeWithoutRows("CREATE TABLE " + customers + " (id BIGINT, label VARCHAR)", ResultProtocol.GRPC_TLS);
-        processes.executeWithoutRows("CREATE TABLE " + regions + " (id BIGINT, region VARCHAR)", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE TABLE " + orders + " (id BIGINT, score BIGINT)", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE TABLE " + customers + " (id BIGINT, label VARCHAR)", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE TABLE " + regions + " (id BIGINT, region VARCHAR)", ResultProtocol.GRPC_TLS);
         for (int file = 0; file < 8; file++) {
             StringBuilder ordersInsert = new StringBuilder("INSERT INTO " + orders + " VALUES ");
             StringBuilder customersInsert = new StringBuilder("INSERT INTO " + customers + " VALUES ");
@@ -171,9 +171,9 @@ class IndependentLocalProcessesE2ETest extends ContainerTestBase {
                 regionsInsert.append('(').append(id).append(", 'region-")
                         .append(id % 4).append("')");
             }
-            processes.executeWithoutRows(ordersInsert.toString(), ResultProtocol.GRPC_TLS);
-            processes.executeWithoutRows(customersInsert.toString(), ResultProtocol.GRPC_TLS);
-            processes.executeWithoutRows(regionsInsert.toString(), ResultProtocol.GRPC_TLS);
+            processes.command(ordersInsert.toString(), ResultProtocol.GRPC_TLS);
+            processes.command(customersInsert.toString(), ResultProtocol.GRPC_TLS);
+            processes.command(regionsInsert.toString(), ResultProtocol.GRPC_TLS);
         }
     }
 }

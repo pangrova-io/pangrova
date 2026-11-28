@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.shuffle;
 
+import org.pangrova.worker.task.WorkerIncarnationControlFixture;
 import java.nio.file.Path;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
@@ -53,7 +54,7 @@ class WorkerShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {
                 var envelope = SubmitTaskRequest.from(request);
                 var id = manager.submitTask(envelope);
                 assertThat(manager.getReportedTaskState(id)).contains(org.pangrova.protocol.enums.ReportedTaskState.FAILED);
-                assertThat(manager.getExecutorHandle(id)).isEmpty();
+                assertThat(WorkerIncarnationControlFixture.nativeHandle(manager, id, request.getAttempt())).isEmpty();
                 var failed = observed.stream().filter(report -> "FAILED".equals(report.state())).findFirst().orElseThrow();
                 var canonical = TaskReport.parseFrom(failed.canonicalTaskReport());
                 assertThat(canonical.getAttempt()).isEqualTo(request.getAttempt());

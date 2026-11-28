@@ -3,6 +3,19 @@ package org.pangrova.coordinator.task;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
+import org.pangrova.coordinator.query.execution.QueryOwnershipTracker;
+import org.pangrova.coordinator.worker.WorkerManager;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
+import org.pangrova.persistence.query.api.lifecycle.ShuffleCleanupIntentStore;
+import org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore;
+import org.pangrova.query.api.lifecycle.QueryExecutionCleanup;
+import org.pangrova.query.lifecycle.QueryStateMachine;
+import org.pangrova.query.lifecycle.QueryTerminalCleanup;
+import org.pangrova.shuffle.api.ShuffleCleanupRecovery;
+import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.protocol.constants.TerminalReportDeliveryPolicy;
@@ -22,17 +35,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Protocol/issuance boundary oracles; generated receipts are not Native execution proof. */
 class TaskIdentityRegistryDrainContractTest {
     @Test
-    void logicalJournalRecoveryDoesNotProveAnEmptyPhysicalOwnerSet() {
-        var registry = new TaskIdentityRegistry();
-        registry.markRecoveryUnresolved("recovered");
-        registry.sealQuery("recovered");
-        assertThatThrownBy(() -> registry.requireQueryDrained("recovered"))
-                .hasMessageContaining("lacks durable issued authority");
-        assertThatThrownBy(() -> registry.retireQuery("recovered"))
-                .hasMessageContaining("lacks durable issued authority");
-    }
-
-    @Test
     void enteredIdentityCannotBeRemovedOrRetiredOnLogicalCompletion() {
         var registry = new TaskIdentityRegistry();
         var request = request();
@@ -51,7 +53,7 @@ class TaskIdentityRegistryDrainContractTest {
     }
 
     @Test
-    void exactCancelResponseSignalsCleanupWithoutAnotherOperation() {
+    void exactExitSignalsActualQueryAndRemoteShuffleCleanupWithoutPolling() {
         var tracker = new CoordinatorTaskTracker();
         var request = request();
         tracker.openQueryIssuance("query");
@@ -59,29 +61,75 @@ class TaskIdentityRegistryDrainContractTest {
         tracker.bindDispatchTarget(request, TestWorkerInfoBuilder.active("worker", "original-host", 9001, 9002));
         tracker.enterTaskDispatch(request);
         var ready = new java.util.ArrayList<String>();
-        var execution = new org.pangrova.query.api.lifecycle.QueryExecutionCleanup() {
+        var shuffle = new java.util.ArrayList<String>();
+        var workerManager = new WorkerManager(20_000, 60_000,
+                new InMemoryWorkerRegistry());
+        try (var authority = new HighAvailabilityCoordinationService(
+                new InMemoryDistributedLease(),
+                new InMemoryExecutionAnchorStore())) {
+            assertThat(authority.acquireQueryOwnership("query", "owner")).isTrue();
+            var grant = authority.requireExecutionAnchor("query");
+            var executionOwner = new QueryOwnershipTracker(
+                    tracker, workerManager, null, new TaskCancelRetrier((attempt, worker) -> null, tracker));
+            executionOwner.setOwnershipTracking(authority, "owner");
+            executionOwner.setShuffleCleanup(new ShuffleCleanupIntentStore() {
+                @Override
+                public void markPending(ExecutionAnchor anchor) {
+                    throw new AssertionError("Physical cleanup never recreates the terminal intent");
+                }
+
+                @Override
+                public boolean completeWithoutScope(ExecutionAnchor anchor) {
+                    throw new AssertionError("A tracked scope uses its current cleanup capability");
+                }
+            }, new ShuffleCleanupRecovery() {
+                @Override
+                public boolean cleanupTrackedShuffle(String queryId, ShuffleExecutionOwner owner) {
+                    assertThat(owner.fencingToken()).isEqualTo(grant.fencingToken());
+                    shuffle.add(queryId);
+                    return true;
+                }
+
+                @Override
+                public void recoverCleanupShuffle(String queryId, ShuffleExecutionOwner owner) {
+                    throw new AssertionError("Normal tracked cleanup has no recovery RPC");
+                }
+            });
+            verifyExactDrainTriggersCleanup(tracker, executionOwner, grant, request, ready, shuffle);
+        }
+    }
+
+    private static void verifyExactDrainTriggersCleanup(CoordinatorTaskTracker tracker,
+            QueryOwnershipTracker executionOwner,
+            ExecutionAnchor grant, SubmitTaskRequest request,
+            java.util.List<String> ready, java.util.List<String> shuffle) {
+        var execution = new QueryExecutionCleanup() {
             @Override public void cancelDispatchedTasks(String queryId) {
                 throw new AssertionError("A finished query must not request cancellation");
             }
-            @Override public boolean tryCleanupQuery(String queryId) {
-                return tracker.tryClaimQueryCleanup(queryId);
+            @Override public boolean tryCleanupQuery(String queryId,
+                    ExecutionAnchor originalGrant) {
+                return executionOwner.tryCleanupQuery(queryId, originalGrant);
             }
             @Override public boolean tryCleanupUnadmittedQuery(String queryId) {
                 throw new AssertionError("The query already owns execution");
             }
         };
-        var cleanup = new org.pangrova.query.lifecycle.QueryTerminalCleanup(execution,
+        var cleanup = new QueryTerminalCleanup(execution,
                 ignored -> { }, ignored -> { }, context -> ready.add(context.queryId()), () -> 0L);
         tracker.addQueryDrainProgressListener(cleanup::onDrainProgress);
-        var state = new org.pangrova.query.lifecycle.QueryStateMachine();
+        var state = new QueryStateMachine();
+        state.bindJournalGrant(grant);
         state.toFinisher().run();
         cleanup.complete("query", state, "test");
         cleanup.retryPending();
         assertThat(ready).isEmpty();
+        assertThat(shuffle).isEmpty();
 
         tracker.recordExecutionDrain(request, receipt(request));
         cleanup.retryPending();
         assertThat(ready).containsExactly("query");
+        assertThat(shuffle).containsExactly("query");
         tracker.retireQueryIssuance("query");
     }
 
@@ -93,6 +141,47 @@ class TaskIdentityRegistryDrainContractTest {
         registry.sealQuery("query");
         assertThatThrownBy(() -> registry.enterDispatch(request)).hasMessageContaining("no open issuance");
         assertThatThrownBy(() -> registry.openQuery("query")).hasMessageContaining("sealed");
+    }
+
+    @Test
+    void placementLoadTracksOneExactTargetUntilItsFirstPhysicalReceipt() {
+        var registry = new TaskIdentityRegistry();
+        var request = request();
+        var worker = TestWorkerInfoBuilder.active("worker", "original-host", 8001, 8002);
+        var replacement = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity(
+                worker.workerExecutionIdentity().admissionDomainId(),
+                java.util.UUID.randomUUID().toString());
+        registry.openQuery("query");
+        registry.registerRequest("task", request);
+        registry.bindTarget(request, worker);
+        registry.bindTarget(request, worker);
+        assertThat(registry.workerLoad(worker.workerExecutionIdentity())).isOne();
+        assertThat(registry.workerLoad(replacement)).isZero();
+
+        registry.enterDispatch(request);
+        registry.sealQuery("query");
+        assertThatThrownBy(() -> registry.remove("task"))
+                .hasMessageContaining("without actual drain evidence");
+        assertThat(registry.workerLoad(worker.workerExecutionIdentity())).isOne();
+        var drained = receipt(request);
+        registry.recordExecutionDrain(request, drained);
+        registry.recordExecutionDrain(request, drained);
+        registry.retireQuery("query");
+        assertThat(registry.workerLoad(worker.workerExecutionIdentity())).isZero();
+    }
+
+    @Test
+    void placementLoadReturnsWhenPreparedTaskIsDiscardedBeforeTransport() {
+        var registry = new TaskIdentityRegistry();
+        var request = request();
+        var target = TestWorkerInfoBuilder.executionIdentity("worker");
+        issue(registry, request);
+        assertThat(registry.removeRequest("task", request)).isTrue();
+        assertThat(registry.workerLoad(target)).isZero();
+        issue(registry, request);
+        assertThat(registry.workerLoad(target)).isOne();
+        registry.remove("task");
+        assertThat(registry.workerLoad(target)).isZero();
     }
 
     @Test

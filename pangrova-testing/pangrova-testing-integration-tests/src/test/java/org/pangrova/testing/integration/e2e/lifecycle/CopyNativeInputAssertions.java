@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.lifecycle;
 
+import org.pangrova.worker.task.WorkerIncarnationControlFixture;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
@@ -149,16 +150,17 @@ final class CopyNativeInputAssertions {
         var accepted = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
         manager.observeControlEpoch(accepted.taskRequest().getAttempt().getControlEpoch());
         String id = ActualNativeTaskFixture.submitReadable(manager, accepted);
+        var attempt = accepted.taskRequest().getAttempt();
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> {
                     assertThat(manager.getTaskState(id).orElseThrow())
                             .as("COPY must create a Native owner without entering a failed terminal state")
                             .isNotIn(org.pangrova.worker.enums.TaskState.FAILED,
                                     org.pangrova.worker.enums.TaskState.CANCELLED);
-                    return manager.getExecutorHandle(id).orElse(0) > 0;
+                    return WorkerIncarnationControlFixture.nativeHandle(manager, id, attempt).orElse(0) > 0;
                 });
         assertThat(localInputs(stagingRoot)).hasSize(1);
-        long handle = manager.getExecutorHandle(id).orElseThrow();
+        long handle = WorkerIncarnationControlFixture.nativeHandle(manager, id, attempt).orElseThrow();
         readExactValues(runtime, accepted);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> manager.getTaskState(id).orElseThrow()
@@ -172,7 +174,7 @@ final class CopyNativeInputAssertions {
                 .isLessThanOrEqualTo(accepted.taskRequest().getResourceGrant().getObjectStoreReadBytes());
         assertThat(released.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
                 .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
-        assertThat(manager.getExecutorHandle(id).orElse(0)).isZero();
+        assertThat(WorkerIncarnationControlFixture.nativeHandle(manager, id, attempt)).isEmpty();
         assertThat(localInputs(stagingRoot)).isEmpty();
     }
 

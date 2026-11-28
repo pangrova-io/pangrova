@@ -11,6 +11,10 @@
 #include <roaring64map.hh>
 #include <string>
 
+namespace pangrova::velox {
+class MetadataReadContext;
+}
+
 namespace pangrova::delete_filter::io {
 
 // Puffin file constants (Iceberg v3 deletion vector container format).
@@ -41,7 +45,8 @@ class DeletionVectorReader {
   //
   // Throws std::runtime_error on I/O failure or invalid Puffin format.
   static roaring::Roaring64Map readIcebergDV(
-      const std::string& filePath, const std::string& dataFilePath = "");
+      const std::string& filePath, const std::string& dataFilePath = "",
+      const pangrova::velox::MetadataReadContext* reads = nullptr);
 
   // Read a generic raw portable Roaring Bitmap payload.
   // Paimon snapshot deletion containers use PaimonSnapshotDeletionFilter.
@@ -53,7 +58,8 @@ class DeletionVectorReader {
  private:
   // Read entire file content via Velox FileSystem API.
   // Supports local, S3, HDFS, GCS paths based on registered filesystems.
-  static std::string readFileBytes(const std::string& filePath);
+  static std::string readFileBytes(const std::string& filePath,
+      const pangrova::velox::MetadataReadContext* reads);
 
   // Parse Puffin footer to extract blob metadata.
   // Returns the offset and length of the matching blob payload.

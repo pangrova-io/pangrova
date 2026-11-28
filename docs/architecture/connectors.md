@@ -352,9 +352,9 @@ not declared. Configuration and the full capability matrix are in
 `ConnectorPageSinkProvider` and `ConnectorPageSink` are the canonical connector write SPI.
 The Worker `NativeWriteExecutor` appends columnar batches and obtains a staged metadata
 fragment with `finishWithMetadata()`; the Coordinator publishes it with
-`ConnectorMetadata.finishDistributedWrite()`. The CDC runtime writes through `CdcWriteSink`
-and `ConnectorPageSinkCdcWriter`. `TableWriter` was retired: its single-shot batch hierarchy had
-no production factory, consumer or close owner.
+`ConnectorMetadata.finishDistributedWrite()`. CDC stages admitted ranges using
+`BoundCdcPageSinkWriter` and publishes their fragments through the same connector commit
+contract and the durable write journal.
 
 **Relationship between ClassLoader isolation and the Native layer**: Java ClassLoader isolation applies only to Java-layer Connector plugins (metadata, Split planning, transaction management). The Native-layer DataSourceFactory is registered by the `connector_type` string (such as `"iceberg"`, `"paimon"`); it is a global, stateless format reader and is not affected by Java ClassLoader isolation. When multiple Connectors need to read the Parquet format, the Native layer shares the same `ParquetFormatReader` instance and distinguishes the semantics of different lakehouse formats via `SplitInfo.connector_info` (oneof) (such as Iceberg Delete File handling vs Paimon LSM Merge). Therefore, Java-layer ClassLoader isolation and Native-layer DataSourceFactory registration are two independent dimensions that do not interfere with each other.
 

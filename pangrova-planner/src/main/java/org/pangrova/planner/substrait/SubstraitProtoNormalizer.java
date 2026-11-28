@@ -142,8 +142,13 @@ final class SubstraitProtoNormalizer {
         var descriptor = fetch.getDescriptorForType();
         var changed = integerToExpression(fetch, null,
                 descriptor.findFieldByName("offset"), descriptor.findFieldByName("offset_expr"));
+        var count = descriptor.findFieldByName("count");
+        if (fetch.hasField(count) && (Long) fetch.getField(count) == -1L) {
+            // The producer emits the legacy ALL sentinel. The canonical count oneof is unset for ALL.
+            return (changed == null ? fetch.toBuilder() : changed).clearField(count);
+        }
         return integerToExpression(fetch, changed,
-                descriptor.findFieldByName("count"), descriptor.findFieldByName("count_expr"));
+                count, descriptor.findFieldByName("count_expr"));
     }
 
     private static Message.Builder integerToExpression(Message fetch, Message.Builder changed,

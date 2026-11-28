@@ -17,16 +17,15 @@ import javax.sql.DataSource;
 
 import org.pangrova.shuffle.server.authority.ExecutionAnchorFence;
 
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.claimCleanup;
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.findExpiredCleanup;
+import static org.pangrova.shuffle.server.PostgresShuffleRecords.claimSealedCleanup;
+import static org.pangrova.shuffle.server.PostgresShuffleRecords.lockExpiredCleanupScope;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireCleanupPageLimit;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
@@ -43,8 +42,9 @@ final class PostgresShuffleLifecycleTransitions {
                     + "AND lease_expires_at > clock_timestamp()";
     private static final String UNCERTAIN_SWEEP_COMPLETE_SQL =
             "UPDATE shuffle_uncertain_write_tombstone SET "
-                    + "next_sweep_at = clock_timestamp() + (? * INTERVAL '1 millisecond'), "
-                    + "lease_owner = NULL, lease_expires_at = NULL "
+                    + "next_sweep_at = CASE WHEN final_sweep THEN NULL "
+                    + "ELSE clock_timestamp() + (? * INTERVAL '1 millisecond') END, "
+                    + "lease_owner = NULL, lease_expires_at = NULL, final_sweep = FALSE "
                     + "WHERE shuffle_id = ? AND lease_owner = ?::uuid "
                     + "AND lease_expires_at > clock_timestamp()";
     private final DataSource dataSource;
@@ -67,7 +67,6 @@ final class PostgresShuffleLifecycleTransitions {
             }
             PostgresShuffleRecords.requireRegistered(allocation);
             PostgresShuffleStore.requireNoCleanupIntent(connection, queryId);
-            requireCompleteProducerSet(connection, allocation);
             requireFinalizedPartitions(connection, allocation, command.partitions());
             storeFinalization(connection, command);
             markFinalized(connection, allocation);
@@ -87,7 +86,7 @@ final class PostgresShuffleLifecycleTransitions {
             }
             long winnerVersion = current.metadataVersion();
             if (current.state() == ShuffleAllocationState.FINALIZED) {
-                // A concurrent publication of exactly this version produced the same content-addressed nodes.
+                // A concurrent publication of this winner set already advanced the metadata version.
                 winnerVersion--;
             } else {
                 PostgresShuffleRecords.requireRegistered(current);
@@ -100,94 +99,119 @@ final class PostgresShuffleLifecycleTransitions {
     }
 
     void settleManifestWrite(String reservation, String shuffleId, String key) {
-        transaction(dataSource, connection -> {
+        boolean live = transaction(dataSource, connection -> {
             String sql = """
                     DELETE FROM shuffle_write_intent
                     WHERE reservation_id = ?::uuid AND shuffle_id = ? AND object_key = ?
-                      AND recovery_after > clock_timestamp()
+                    RETURNING recovery_after > clock_timestamp()
                     """;
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, reservation);
                 statement.setString(2, shuffleId);
                 statement.setString(3, key);
-                if (statement.executeUpdate() != 1) {
-                    throw new SecurityException("shuffle manifest write reservation expired or was lost");
+                try (ResultSet row = statement.executeQuery()) {
+                    return row.next() && row.getBoolean(1);
                 }
+            }
+        });
+        // Keep an exact late acknowledgement even when the writer may no longer publish.
+        if (!live) {
+            throw new SecurityException("shuffle manifest write reservation expired or was lost");
+        }
+    }
+
+    void settleVisibleManifestWrites(String shuffleId, List<String> keys) {
+        transaction(dataSource, connection -> {
+            // The tombstone proves admission is sealed. Commit the observation before destroying it.
+            String sql = """
+                    DELETE FROM shuffle_write_intent i
+                    WHERE i.shuffle_id = ? AND i.object_key = ANY (?)
+                      AND EXISTS (
+                          SELECT 1 FROM shuffle_uncertain_write_tombstone t WHERE t.shuffle_id = i.shuffle_id
+                      )
+                    """;
+            var objectKeys = connection.createArrayOf("varchar", keys.toArray(String[]::new));
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, shuffleId);
+                statement.setArray(2, objectKeys);
+                statement.executeUpdate();
+            } finally {
+                objectKeys.free();
             }
             return null;
         });
     }
 
-    Optional<CleanupPlan> beginCleanup(CleanupCommand command, CleanupLease lease) {
+    CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease) {
         String queryId = command.queryId();
         CleanupAdmission admission = transaction(dataSource, connection -> {
-            ExecutionAnchorFence.requireLiveOwner(connection, queryId, command.owner(), true);
+            ExecutionAnchorFence.lockCleanupOwner(connection, queryId, command.owner());
             PostgresShuffleStore.QueryScope scope = PostgresShuffleStore.lockExistingQueryScope(connection, queryId);
             if (scope == null) {
-                deleteCleanupIntent(connection, queryId);
-                return new CleanupAdmission(null, null);
+                return new CleanupAdmission(PostgresShuffleRecords.recordEmptyScopeConvergence(
+                        connection, command), null);
             }
             PostgresShuffleStore.adoptOwnerIfFenced(connection, queryId, scope.owner(), command.owner());
-            if (hasActiveReads(connection, queryId)) {
-                PostgresShuffleRecords.sealCleanupAdmission(connection, queryId);
-                return new CleanupAdmission(null, "shuffle reads are still in progress");
+            CleanupIo io = cleanupIo(connection, queryId);
+            if (io.pendingReason() != null) {
+                PostgresShuffleRecords.sealCleanupAdmission(connection, command, null);
+                return new CleanupAdmission(null, io.pendingReason());
             }
-            if (protectOutstandingWrites(connection, queryId)) {
-                PostgresShuffleRecords.sealCleanupAdmission(connection, queryId);
-                return new CleanupAdmission(null, "shuffle writes are still in progress");
+            if ("ACTIVE".equals(scope.state())) {
+                PostgresShuffleRecords.sealCleanupAdmission(connection, command, lease);
+            } else {
+                claimSealedCleanup(connection, queryId, scope.cleanupLeaseExpiresAtMs(), lease);
             }
-            claimCleanup(connection, queryId, scope.state(), scope.cleanupLeaseExpiresAtMs(), lease, false);
-            return new CleanupAdmission(PostgresShuffleRecords.cleanupPlan(connection, queryId, lease.owner()), null);
+            return new CleanupAdmission(new CleanupPlan(queryId, lease.owner(), io.recoverWrites()), null);
         });
         // Preserve the committed admission seal even when existing I/O delays deletion.
         if (admission.pendingReason() != null) throw new IllegalStateException(admission.pendingReason());
-        return Optional.ofNullable(admission.plan());
+        return admission.start();
     }
 
-    private record CleanupAdmission(CleanupPlan plan, String pendingReason) {}
+    private record CleanupAdmission(CleanupStart start, String pendingReason) {}
 
     Optional<CleanupPlan> beginExpiredCleanup(CleanupLease lease) {
         return transaction(dataSource, connection -> {
-            String queryId = findExpiredCleanup(connection, lease.nowMs());
-            if (queryId == null) return Optional.empty();
-            PostgresShuffleStore.QueryScope scope = PostgresShuffleStore.lockExistingQueryScope(connection, queryId);
-            if (hasActiveReads(connection, queryId)) return Optional.empty();
-            if (protectOutstandingWrites(connection, queryId)) return Optional.empty();
-            claimCleanup(connection, queryId, scope.state(), scope.cleanupLeaseExpiresAtMs(), lease, true);
-            return Optional.of(PostgresShuffleRecords.cleanupPlan(connection, queryId, lease.owner()));
+            var scope = lockExpiredCleanupScope(connection, lease.nowMs());
+            if (scope == null) return Optional.empty();
+            String queryId = scope.queryId();
+            CleanupIo io = cleanupIo(connection, queryId);
+            if (io.pendingReason() != null) return Optional.empty();
+            claimSealedCleanup(connection, queryId, scope.leaseExpiresAtMs(), lease);
+            return Optional.of(new CleanupPlan(queryId, lease.owner(), io.recoverWrites()));
         });
     }
 
     Optional<String> claimUncertainSweep(String owner, long leaseMillis) {
         requireSweepInterval(leaseMillis);
         return transaction(dataSource, connection -> {
-            String shuffleId;
-            try (PreparedStatement select = connection.prepareStatement(
-                    "SELECT shuffle_id FROM shuffle_uncertain_write_tombstone "
-                            + "WHERE next_sweep_at <= clock_timestamp() "
-                            + "AND (lease_expires_at IS NULL "
-                            + "OR lease_expires_at <= clock_timestamp()) "
-                            + "ORDER BY next_sweep_at, shuffle_id "
-                            + "FOR UPDATE SKIP LOCKED LIMIT 1")) {
-                try (ResultSet row = select.executeQuery()) {
-                    if (!row.next()) {
-                        return Optional.empty();
-                    }
-                    shuffleId = row.getString(1);
+            // A final sweep needs positive drain evidence before the first object listing.
+            String sql = """
+                    WITH due AS MATERIALIZED (
+                        SELECT t.shuffle_id FROM shuffle_uncertain_write_tombstone t
+                        WHERE t.next_sweep_at <= clock_timestamp()
+                          AND (t.lease_expires_at IS NULL OR t.lease_expires_at <= clock_timestamp())
+                          AND NOT EXISTS (SELECT 1 FROM shuffle_allocation a WHERE a.shuffle_id = t.shuffle_id)
+                        ORDER BY t.next_sweep_at, t.shuffle_id
+                        FOR UPDATE OF t SKIP LOCKED LIMIT 1
+                    )
+                    UPDATE shuffle_uncertain_write_tombstone t
+                    SET lease_owner = ?::uuid,
+                        lease_expires_at = clock_timestamp() + (? * INTERVAL '1 millisecond'),
+                        final_sweep = t.reservations_retained AND NOT EXISTS (
+                            SELECT 1 FROM shuffle_write_intent i WHERE i.shuffle_id = t.shuffle_id
+                        )
+                    FROM due WHERE t.shuffle_id = due.shuffle_id
+                    RETURNING t.shuffle_id
+                    """;
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, owner);
+                statement.setLong(2, leaseMillis);
+                try (ResultSet row = statement.executeQuery()) {
+                    return row.next() ? Optional.of(row.getString(1)) : Optional.empty();
                 }
             }
-            try (PreparedStatement update = connection.prepareStatement(
-                    "UPDATE shuffle_uncertain_write_tombstone "
-                            + "SET lease_owner = ?::uuid, "
-                            + "lease_expires_at = clock_timestamp() "
-                            + "+ (? * INTERVAL '1 millisecond') "
-                            + "WHERE shuffle_id = ?")) {
-                update.setString(1, owner);
-                update.setLong(2, leaseMillis);
-                update.setString(3, shuffleId);
-                update.executeUpdate();
-            }
-            return Optional.of(shuffleId);
         });
     }
 
@@ -207,21 +231,11 @@ final class PostgresShuffleLifecycleTransitions {
         });
     }
 
-    CleanupObjectPage cleanupObjects(
-            CleanupPlan plan, CleanupCursor after, int limit, CleanupLease lease) {
-        return transaction(dataSource, connection -> {
-            requireCleanupPageLimit(limit);
-            PostgresShuffleRecords.renewCleanup(connection, plan, lease);
-            return PostgresShuffleRecords.cleanupObjects(connection, plan, after, limit);
-        });
-    }
-
-    CleanupShufflePage cleanupShuffles(
+    List<String> cleanupShuffles(
             CleanupPlan plan, String after, int limit, CleanupLease lease) {
         return transaction(dataSource, connection -> {
             requireCleanupPageLimit(limit);
-            PostgresShuffleRecords.renewCleanup(connection, plan, lease);
-            return PostgresShuffleRecords.cleanupShuffles(connection, plan, after, limit);
+            return PostgresShuffleRecords.cleanupShuffles(connection, plan, after, limit, lease);
         });
     }
 
@@ -232,59 +246,44 @@ final class PostgresShuffleLifecycleTransitions {
         });
     }
 
-    void completeCleanup(CleanupPlan plan) {
-        transaction(dataSource, connection -> {
-            PostgresShuffleRecords.completeCleanup(connection, plan);
-            deleteCleanupIntent(connection, plan.queryId());
-            return null;
-        });
+    CleanupReceipt completeCleanup(CleanupPlan plan) {
+        return transaction(dataSource, connection -> PostgresShuffleRecords.completeCleanup(connection, plan));
     }
 
-    private static boolean hasActiveReads(Connection connection, String queryId) throws SQLException {
-        // pinRead and cleanup serialize on the same query scope row.
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT 1 FROM shuffle_read_pin WHERE query_id = ? "
-                        + "AND protect_until_ms > EXTRACT(EPOCH FROM clock_timestamp()) * 1000 LIMIT 1")) {
-            statement.setString(1, queryId);
-            try (ResultSet result = statement.executeQuery()) {
-                return result.next();
-            }
-        }
-    }
+    private record CleanupIo(String pendingReason, boolean recoverWrites) {}
 
-    private static boolean protectOutstandingWrites(Connection connection, String queryId) throws SQLException {
-        // Use one cutoff for both outcomes. An expiring reservation must either hold
-        // cleanup or produce a durable tombstone for late object writes.
+    private static CleanupIo cleanupIo(Connection connection, String queryId) throws SQLException {
+        // The scope lock excludes new read pins and write grants. One cutoff classifies
+        // both existing I/O and the reservations that need late-write compensation.
         String sql = """
                 WITH cutoff AS MATERIALIZED (
                     SELECT clock_timestamp() AS now
+                ), readers AS MATERIALIZED (
+                    SELECT 1 FROM shuffle_read_pin CROSS JOIN cutoff
+                    WHERE query_id = ? AND protect_until_ms > EXTRACT(EPOCH FROM cutoff.now) * 1000
+                    LIMIT 1
                 ), reservations AS MATERIALIZED (
                     SELECT i.shuffle_id, i.recovery_after > cutoff.now AS protected
                     FROM shuffle_write_intent i JOIN shuffle_allocation a USING (shuffle_id)
-                    CROSS JOIN cutoff WHERE a.query_id = ?
+                    CROSS JOIN cutoff WHERE a.query_id = ? AND NOT EXISTS (SELECT 1 FROM readers)
                 ), fenced AS (
-                    INSERT INTO shuffle_uncertain_write_tombstone (shuffle_id)
-                    SELECT DISTINCT shuffle_id FROM reservations WHERE NOT protected
+                    INSERT INTO shuffle_uncertain_write_tombstone (shuffle_id, reservations_retained)
+                    SELECT DISTINCT shuffle_id, TRUE FROM reservations WHERE NOT protected
                       AND NOT EXISTS (SELECT 1 FROM reservations WHERE protected)
                     ON CONFLICT (shuffle_id) DO NOTHING
                 )
-                SELECT EXISTS (SELECT 1 FROM reservations WHERE protected)
+                SELECT CASE WHEN EXISTS (SELECT 1 FROM readers) THEN 'shuffle reads are still in progress'
+                            WHEN EXISTS (SELECT 1 FROM reservations WHERE protected)
+                            THEN 'shuffle writes are still in progress' END,
+                       EXISTS (SELECT 1 FROM reservations)
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, queryId);
+            statement.setString(2, queryId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
-                return row.getBoolean(1);
+                return new CleanupIo(row.getString(1), row.getBoolean(2));
             }
-        }
-    }
-
-    private static void deleteCleanupIntent(Connection connection, String queryId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM shuffle_cleanup_intent WHERE query_id = ?")) {
-            statement.setString(1, queryId);
-            statement.executeUpdate();
         }
     }
 
@@ -317,33 +316,13 @@ final class PostgresShuffleLifecycleTransitions {
         }
     }
 
-    private static void requireCompleteProducerSet(Connection connection, Allocation allocation)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT COUNT(*), MIN(producer_partition_id), MAX(producer_partition_id) "
-                        + "FROM shuffle_producer_commit WHERE shuffle_id = ?")) {
-            statement.setString(1, allocation.identity().shuffleId());
-            try (ResultSet rows = statement.executeQuery()) {
-                rows.next();
-                int expected = allocation.shape().expectedProducerCount();
-                if (rows.getLong(1) != expected) {
-                    throw new IllegalStateException("shuffle producer set is incomplete");
-                }
-                // The primary key makes each producer unique, so count and bounds prove coverage.
-                if (rows.getInt(2) != 0 || rows.getInt(3) != expected - 1) {
-                    throw new IllegalStateException("shuffle producer set is not contiguous");
-                }
-            }
-        }
-    }
-
     private static void requireFinalizedPartitions(
             Connection connection, Allocation allocation, List<PartitionPublication> partitions)
             throws SQLException {
-        Map<Integer, PartitionTotals> actual = partitionTotals(connection, allocation);
         if (partitions.size() != allocation.shape().partitionCount()) {
             throw new IllegalStateException("shuffle finalization lacks partition coverage");
         }
+        Map<Integer, PartitionTotals> actual = readWinnerTotals(connection, allocation);
         HashSet<Integer> seen = new HashSet<>();
         for (PartitionPublication publication : partitions) {
             FinalizedPartition partition = publication.partition();
@@ -363,22 +342,50 @@ final class PostgresShuffleLifecycleTransitions {
         }
     }
 
-    private static Map<Integer, PartitionTotals> partitionTotals(
+    private static Map<Integer, PartitionTotals> readWinnerTotals(
             Connection connection, Allocation allocation) throws SQLException {
-        String sql = "SELECT b.output_partition_id, COALESCE(SUM(b.batch_size_bytes), 0), "
-                + "COALESCE(SUM(b.row_count), 0), COUNT(*) FROM shuffle_batch b "
-                + "JOIN shuffle_producer_commit c ON c.shuffle_id = b.shuffle_id "
-                + "AND c.producer_partition_id = b.producer_partition_id "
-                + "AND c.producer_attempt_id = b.producer_attempt_id "
-                + "WHERE b.shuffle_id = ? GROUP BY b.output_partition_id";
+        String sql = """
+                WITH cohort AS MATERIALIZED (
+                    SELECT producer_partition_id, partition_totals FROM shuffle_producer_commit WHERE shuffle_id = ?
+                ), coverage AS (
+                    SELECT COUNT(*) AS producer_count, MIN(producer_partition_id) AS first_producer,
+                           MAX(producer_partition_id) AS last_producer FROM cohort
+                ), output AS (
+                    SELECT totals.partition_totals[part.tuple_start] AS partition_id,
+                           SUM(totals.partition_totals[part.tuple_start + 1]) AS batch_count,
+                           SUM(totals.partition_totals[part.tuple_start + 2]) AS total_bytes,
+                           SUM(totals.partition_totals[part.tuple_start + 3]) AS total_rows
+                    FROM cohort totals CROSS JOIN LATERAL
+                        generate_series(1, cardinality(totals.partition_totals), 4) AS part(tuple_start)
+                    GROUP BY totals.partition_totals[part.tuple_start]
+                )
+                SELECT coverage.producer_count, coverage.first_producer, coverage.last_producer,
+                       output.partition_id, output.total_bytes, output.total_rows, output.batch_count
+                FROM coverage LEFT JOIN output ON TRUE
+                """;
         Map<Integer, PartitionTotals> result = new HashMap<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, allocation.identity().shuffleId());
             try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    result.put(rows.getInt(1), new PartitionTotals(
-                            rows.getLong(2), rows.getLong(3), rows.getLong(4)));
+                if (!rows.next()) throw new SQLException("missing shuffle producer coverage");
+                int expected = allocation.shape().expectedProducerCount();
+                if (rows.getLong("producer_count") != expected) {
+                    throw new IllegalStateException("shuffle producer set is incomplete");
                 }
+                // The winner primary key makes each producer unique, so count and bounds prove coverage.
+                if (rows.getInt("first_producer") != 0 || rows.getInt("last_producer") != expected - 1) {
+                    throw new IllegalStateException("shuffle producer set is not contiguous");
+                }
+                do {
+                    int partition = rows.getInt("partition_id");
+                    if (!rows.wasNull()) {
+                        if (partition < 0 || partition >= allocation.shape().partitionCount()) {
+                            throw new IllegalStateException("winner totals contain an invalid output partition");
+                        }
+                        result.put(partition, new PartitionTotals(
+                                rows.getLong("total_bytes"), rows.getLong("total_rows"), rows.getLong("batch_count")));
+                    }
+                } while (rows.next());
             }
         }
         return result;
@@ -389,7 +396,8 @@ final class PostgresShuffleLifecycleTransitions {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO shuffle_finalized_partition "
                         + "(shuffle_id, partition_id, total_bytes, total_rows, "
-                        + "committed_last_sequence, output_checksum, manifest_root) VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                        + "committed_last_sequence, output_checksum, manifest_root, read_ranges) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
             for (PartitionPublication publication : command.partitions()) {
                 FinalizedPartition partition = publication.partition();
                 statement.setString(1, command.shuffleId());
@@ -399,6 +407,7 @@ final class PostgresShuffleLifecycleTransitions {
                 statement.setLong(5, partition.committedLastSequence());
                 statement.setBytes(6, partition.checksum());
                 statement.setBytes(7, publication.manifestRoot());
+                statement.setBytes(8, ShuffleReadRanges.encode(partition.readRanges()));
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -421,14 +430,14 @@ final class PostgresShuffleLifecycleTransitions {
         List<FinalizedPartition> partitions = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT partition_id, total_bytes, total_rows, committed_last_sequence, "
-                        + "output_checksum FROM shuffle_finalized_partition "
+                        + "output_checksum, read_ranges FROM shuffle_finalized_partition "
                         + "WHERE shuffle_id = ? ORDER BY partition_id")) {
             statement.setString(1, allocation.identity().shuffleId());
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
                     partitions.add(new FinalizedPartition(
                             rows.getInt(1), rows.getLong(2), rows.getLong(3),
-                            rows.getLong(4), rows.getBytes(5)));
+                            rows.getLong(4), rows.getBytes(5), ShuffleReadRanges.decode(rows.getBytes(6))));
                 }
             }
         }

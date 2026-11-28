@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query.task.write;
 import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.query.api.write.QuarantinedWriteCommit;
 import org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore;
 import org.slf4j.Logger;
@@ -108,19 +109,19 @@ public final class WriteCommitRecoveryService {
             RecoveryCounters counters) {
         WriteRecoveryOutcome outcome;
         try {
-            outcome = reconciler.reconcile(entry);
+            outcome = reconciler.reconcile(entry, claimedToken);
         } catch (RuntimeException e) {
             LOG.error("event=write_recovery_alarm severity=CRITICAL "
                     + "message=\"reconciler failed; quarantining intent\" queryId={} table={} error={}",
                     entry.queryId(), entry.tableName(), e.getMessage(), e);
-            quarantine(entry, "reconciler failed: " + e, counters);
+            quarantine(entry, "reconciler failed: " + e, claimedToken, durableFence, counters);
             return;
         }
         switch (outcome) {
             case COMMITTED -> markRecoveredCommitted(entry, claimedToken, durableFence, counters);
             case ABORTED -> markRecoveredAborted(entry, claimedToken, durableFence, counters);
             case DEFERRED -> counters.deferred.add(entry.queryId());
-            case QUARANTINED -> quarantine(entry, QUARANTINE_REASON_AMBIGUOUS, counters);
+            case QUARANTINED -> quarantine(entry, QUARANTINE_REASON_AMBIGUOUS, claimedToken, durableFence, counters);
             default -> throw new IllegalStateException("Unhandled recovery outcome: " + outcome);
         }
     }
@@ -129,7 +130,7 @@ public final class WriteCommitRecoveryService {
             WriteCommitEntry entry, long token,
             BiPredicate<String, Long> durableFence, RecoveryCounters counters) {
         requireCurrentFence(entry.queryId(), token, durableFence);
-        journal.markCommitted(entry.queryId());
+        recordTerminalOutcome(entry, token, WriteCommitState.COMMITTED);
         if (!entry.authorizationReceipt().declaration().hasGeneratedColumns()) {
             journal.acknowledgeNoDeferredWork(entry.commitFingerprint());
         }
@@ -142,15 +143,22 @@ public final class WriteCommitRecoveryService {
             WriteCommitEntry entry, long token,
             BiPredicate<String, Long> durableFence, RecoveryCounters counters) {
         requireCurrentFence(entry.queryId(), token, durableFence);
-        journal.markAborted(entry.queryId(), entry.commitFingerprint());
+        recordTerminalOutcome(entry, token, WriteCommitState.ABORTED);
         counters.aborted++;
         LOG.warn("event=write_commit_recovered outcome=ABORTED queryId={} table={}",
                 entry.queryId(), entry.tableName());
     }
 
+    private void recordTerminalOutcome(WriteCommitEntry entry, long token, WriteCommitState outcome) {
+        if (!journal.recordTerminalOutcome(entry, token, outcome)) {
+            throw new IllegalStateException("Lost execution anchor while recovering write intent: " + entry.queryId());
+        }
+    }
+
     private void quarantine(
-            WriteCommitEntry entry, String reason, RecoveryCounters counters) {
-        counters.quarantined++;
+            WriteCommitEntry entry, String reason, long token,
+            BiPredicate<String, Long> durableFence, RecoveryCounters counters) {
+        requireCurrentFence(entry.queryId(), token, durableFence);
         try {
             quarantine.record(new QuarantinedWriteCommit(
                     entry.queryId(), entry.commitFingerprint(), entry.catalogName(),
@@ -160,7 +168,10 @@ public final class WriteCommitRecoveryService {
                     + "message=\"quarantine decision is not durable; the next recovery pass "
                     + "will re-attempt this intent\" queryId={} table={} error={}",
                     entry.queryId(), entry.tableName(), e.getMessage(), e);
+            counters.deferred.add(entry.queryId());
+            return;
         }
+        counters.quarantined++;
         LOG.error("event=write_recovery_alarm severity=CRITICAL "
                 + "message=\"write-commit intent quarantined for manual reconciliation\" "
                 + "queryId={} catalog={} table={} fragments={} reason={}",

@@ -26,10 +26,14 @@ public interface GenerationTransactionAuthority {
     /** Includes the roles that authorized this exact persisted scope in the caller's transaction. */
     AuthorizedDispatch authorize(Connection connection, String tenantId, String jobId) throws SQLException;
 
-    record AuthorizedDispatch(GenerationDispatchSpec dispatchSpec, Set<String> currentDirectRoles) {
+    record AuthorizedDispatch(GenerationTransactionInputs.StoredDispatch stored, Set<String> currentDirectRoles) {
         public AuthorizedDispatch {
-            Objects.requireNonNull(dispatchSpec, "dispatchSpec");
+            Objects.requireNonNull(stored, "stored");
             currentDirectRoles = Set.copyOf(currentDirectRoles);
+        }
+
+        public GenerationDispatchSpec dispatchSpec() {
+            return stored.dispatchSpec();
         }
     }
 

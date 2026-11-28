@@ -100,6 +100,28 @@ TEST_F(TaskObjectReadBudgetTest, DownloadQualificationAndHydrationShareOneActual
   EXPECT_EQ(owner->activeReads(), 0);
 }
 
+TEST_F(TaskObjectReadBudgetTest, S3ObservationsStayWithTheExactTaskAndDoNotSpendItsGrant) {
+  auto owner = std::make_shared<TaskObjectReadBudget>(8);
+  auto alternate = std::make_shared<TaskObjectReadBudget>(8);
+  using facebook::velox::RuntimeCounter;
+  auto* s3 = owner->s3IoStats();
+  s3->addCounter("s3SdkReadAttempts", RuntimeCounter(2));
+  s3->addCounter("s3SdkReadRetries", RuntimeCounter(1));
+  s3->addCounter("s3SdkResponseBodyBytes", RuntimeCounter(13, RuntimeCounter::Unit::kBytes));
+
+  TaskBudgetReadFile input(open(), owner, {});
+  std::array<char, 8> bytes{};
+  EXPECT_EQ(input.pread(0, bytes.size(), bytes.data()), "01234567");
+  const auto stats = owner->snapshot();
+  EXPECT_EQ(stats.requested_bytes, 8);
+  EXPECT_EQ(stats.returned_bytes, 8);
+  EXPECT_EQ(stats.s3_sdk_attempts, 2);
+  EXPECT_EQ(stats.s3_sdk_retries, 1);
+  EXPECT_EQ(stats.s3_response_body_bytes, 13);
+  EXPECT_EQ(alternate->snapshot().s3_sdk_attempts, 0);
+  EXPECT_EQ(alternate->snapshot().s3_response_body_bytes, 0);
+}
+
 TEST_F(TaskObjectReadBudgetTest, ActualDiscontiguousRegionsReadOnlyTheirAdmittedRanges) {
   auto owner = std::make_shared<TaskObjectReadBudget>(8);
   TaskBudgetReadFile input(open(), owner, {});
@@ -111,6 +133,24 @@ TEST_F(TaskObjectReadBudgetTest, ActualDiscontiguousRegionsReadOnlyTheirAdmitted
   EXPECT_EQ(std::string(reinterpret_cast<const char*>(output[1].data()), output[1].length()), "opqr");
   EXPECT_EQ(owner->requestedBytes(), 8);
   EXPECT_EQ(owner->completedReturnedBytes(), 8);
+  EXPECT_EQ(owner->snapshot().payload_calls, 2);
+  EXPECT_EQ(owner->snapshot().metadata_calls, 1);
+  EXPECT_EQ(owner->snapshot().failed_calls, 0);
+  EXPECT_EQ(owner->activeReads(), 0);
+}
+
+TEST_F(TaskObjectReadBudgetTest, LaterRegionFailurePreservesTheFirstBackendReturn) {
+  auto owner = std::make_shared<TaskObjectReadBudget>(8);
+  TaskBudgetReadFile input(open(), owner, {});
+  const std::array<facebook::velox::common::Region, 2> regions{{{0, 4}, {100, 4}}};
+  std::array<folly::IOBuf, 2> output;
+  EXPECT_THROW(input.preadv(folly::Range(regions.data(), regions.size()),
+      folly::Range(output.data(), output.size())), std::exception);
+  const auto sample = owner->snapshot();
+  EXPECT_EQ(sample.requested_bytes, 8);
+  EXPECT_EQ(sample.returned_bytes, 4);
+  EXPECT_EQ(sample.payload_calls, 2);
+  EXPECT_EQ(sample.failed_calls, 1);
   EXPECT_EQ(owner->activeReads(), 0);
 }
 
@@ -158,8 +198,9 @@ TEST_F(TaskObjectReadBudgetTest, DrainWaitsForTheActualReadAttemptOwnerRatherTha
   auto reading = std::async(std::launch::async, [&] {
     auto attempt = owner->begin(8);
     std::array<char, 8> buffer{};
+    attempt.startCall();
     auto bytes = file->pread(0, 8, buffer.data());
-    attempt->complete(bytes.size());
+    attempt.completeCall(bytes.size());
     read_completed.set_value();
     released.wait();  // The genuine operation owner still retains its buffers.
   });

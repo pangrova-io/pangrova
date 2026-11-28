@@ -183,12 +183,11 @@ final class QueryExecutionBootstrap {
                 config.spillBudget(),
                 moduleWiring != null ? moduleWiring.getResilienceRegistry() : null);
         QueryDispatcherContext deps = new QueryDispatcherContext(
-                new org.pangrova.shuffle.skew.MedianSkewDetector(), scopedCompiler,
+                scopedCompiler,
                 security, scheduling,
                 metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry(),
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
                 config.effectiveTaskTimeoutSeconds(),
-                new org.pangrova.planner.adaptive.AdaptiveQueryExecutor(),
                 org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED,
                 shuffleSession, coordinationService,
                 coordinationService != null ? config.coordinatorId() : null,
@@ -266,11 +265,10 @@ final class QueryExecutionBootstrap {
                         catalog, maintenancePolicyService,
                         moduleWiring != null ? moduleWiring.getDistributedLease() : null,
                         config.coordinatorId(), new OtelExecutionTraceContextFactory());
-        String internalSecret = config.internalAuthSecret();
-        if (internalSecret != null && !internalSecret.isBlank()) {
+        if (config.internalAuthSecret() != null && !config.internalAuthSecret().isBlank()) {
             controlledMaintenance.setReclusterDispatcher(
                     new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
-                            workerManager::getActiveWorkers, internalSecret));
+                            requireWorkerManager()::getActiveWorkers, config.internalAuthSecret()));
         }
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
@@ -333,7 +331,8 @@ final class QueryExecutionBootstrap {
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
                 resultSvc,
                 List.copyOf(factories), List.of(schemaListener), accessControl, ddlGuard);
-        return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
+        return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context,
+                metadataDataSource == null ? null : deps.stateJournal()::reserveCoordinatorStatement);
     }
 
     /** Registers metadata tasks whose wiring depends on optional modules. */
@@ -447,9 +446,6 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.DropViewTask(catalogRegistry));
         tasks.put(org.pangrova.parser.api.ast.statement.ShowViewsStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.ShowViewsTask(catalogRegistry));
-        // Incremental read (CHANGES BETWEEN SNAPSHOT x AND y)
-        tasks.put(org.pangrova.parser.api.ast.statement.IncrementalReadStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalogRegistry));
         // SHOW metadata (redirects to system table queries)
         return new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
     }

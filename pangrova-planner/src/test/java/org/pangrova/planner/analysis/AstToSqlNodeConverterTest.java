@@ -34,6 +34,19 @@ class AstToSqlNodeConverterTest {
     private final AstToSqlNodeConverter converter = new AstToSqlNodeConverter();
 
     @Test
+    void appliesResultClausesAboveTheCompleteSetExpression() {
+        var result = (SqlOrderBy) new PangrovaParserFactory().parseToSqlNode(
+                "SELECT 3 AS id UNION ALL SELECT 1 INTERSECT SELECT 1 ORDER BY id LIMIT 2 OFFSET 1");
+        var union = (SqlCall) result.query;
+
+        assertThat(union.getKind()).isEqualTo(SqlKind.UNION);
+        assertThat(union.operand(1).getKind()).isEqualTo(SqlKind.INTERSECT);
+        assertThat(result.orderList).hasSize(1);
+        assertThat(((SqlNumericLiteral) result.fetch).intValue(true)).isEqualTo(2);
+        assertThat(((SqlNumericLiteral) result.offset).intValue(true)).isEqualTo(1);
+    }
+
+    @Test
     void convertIntegerLiteral() {
         Query query = selectExpr(Literal.ofInteger(42));
         SqlNode node = converter.convert(query);

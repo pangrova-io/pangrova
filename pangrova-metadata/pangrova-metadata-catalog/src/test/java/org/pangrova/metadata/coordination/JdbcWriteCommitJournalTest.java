@@ -2,6 +2,7 @@ package org.pangrova.metadata.coordination;
 
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.query.postgresql.transaction.JdbcObservedWriteStaging;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
@@ -10,11 +11,24 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.testing.testkit.ContainerTestBase;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
+import org.postgresql.PGConnection;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
+
+import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainOutcome;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainReceipt;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
+import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.TaskIssuance;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -90,7 +104,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         // fragments, write mode and idempotency key must survive a DB round-trip so a replacement
         // coordinator can reconstruct the commit after a crash rather than just observe a marker.
         java.util.List<byte[]> fragments = java.util.List.of(
-                new byte[]{1, 2, 3}, new byte[]{4, 5, 6, 7});
+                new byte[]{0, (byte) 0xff, 44}, new byte[0], new byte[]{1, (byte) 0x80});
         String fingerprint = WriteCommitFingerprint.compute(
                 new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
                         "q-replay",
@@ -99,7 +113,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                         "analytics.events",
                         "OVERWRITE",
                         41L,
-                        new byte[]{42},
+                        new byte[]{0, 42, (byte) 0xff},
                         "alice",
                         org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(), null),
                 fragments);
@@ -116,7 +130,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 "alice",
                 org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(),
                 41L,
-                new byte[]{42},
+                new byte[]{0, 42, (byte) 0xff},
                 fingerprint,
                 "coord-A",
                 "process-A",
@@ -124,14 +138,19 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 null, null, null));
 
         WriteCommitEntry reloaded = journal.getEntry("q-replay").orElseThrow();
-        assertThat(reloaded.fragments()).hasSize(2);
-        assertThat(reloaded.fragments().get(0)).isEqualTo(new byte[]{1, 2, 3});
-        assertThat(reloaded.fragments().get(1)).isEqualTo(new byte[]{4, 5, 6, 7});
+        var replayed = journal.replayPendingEntries(Set.of("q-replay"));
+        assertThat(replayed).hasSize(1);
+        for (var copy : List.of(reloaded, replayed.get(0))) {
+            assertThat(copy.fragments()).hasSize(fragments.size());
+            for (int index = 0; index < fragments.size(); index++) {
+                assertThat(copy.fragments().get(index)).isEqualTo(fragments.get(index));
+            }
+        }
         assertThat(reloaded.writeMode()).isEqualTo("OVERWRITE");
         assertThat(reloaded.idempotencyKey()).isEqualTo(fingerprint);
         assertThat(reloaded.tenantId()).isEqualTo("tenant-a");
         assertThat(reloaded.baseSnapshotId()).isEqualTo(41L);
-        assertThat(reloaded.writeOutputBinding()).isEqualTo(new byte[]{42});
+        assertThat(reloaded.writeOutputBinding()).isEqualTo(new byte[]{0, 42, (byte) 0xff});
         assertThat(reloaded.commitFingerprint()).isEqualTo(fingerprint);
         assertThat(reloaded.ownerId()).isEqualTo("coord-A");
         assertThat(reloaded.ownerIncarnation()).isEqualTo("process-A");
@@ -246,7 +265,163 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         journal.purge("q-1");
 
         assertThat(journal.getEntry("q-1")).isEmpty();
-        assertThat(journal.isCommitted("q-1")).isFalse();
+        assertThat(journal.isCommitted("q-1")).isTrue();
+    }
+
+    @Test
+    void recoveredWriteRemainsPendingUntilPublicationAndRetiresAsFinished() {
+        var intent = entry("recover-committed-write", "catalog-a", "schema.table", WriteCommitState.PENDING, 1L);
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var prior = anchors.tryAcquire(intent.queryId(), "original", "original-boot", lease).orElseThrow();
+        var settings = new StateJournalConfig("JDBC", "jdbc:postgresql:journal-test", 20, 20, 24, 1024);
+        try (var facts = new JdbcQueryStateJournal(dataSource, settings)) {
+            facts.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(101L, prior.ownerId()),
+                    intent.queryId(), "INSERT INTO table VALUES (1)", "{}", "RUNNING"));
+            facts.appendTaskIssuancesSync(List.of(new TaskStateEvent(
+                    JournalEventContext.create(102L, prior.ownerId()), intent.queryId(), "writer", "worker",
+                    "SCHEDULED", 0, 0, new TaskIssuance("worker-host", 8081, prior.ownerIncarnation(),
+                            prior.fencingToken(), new byte[] {1}))));
+            journal.recordIntent(intent);
+            assertThat(anchors.yield(prior)).isTrue();
+            var successor = anchors.tryAcquire(intent.queryId(), "successor", "successor-boot", lease).orElseThrow();
+            var issued = facts.pendingTaskDrains(successor, 0).get(0);
+            assertThat(facts.retainTaskDrains(successor, List.of(new DrainReceipt(issued.rowId(), new byte[] {2}))))
+                    .isTrue();
+            assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.PENDING_WRITE);
+            assertThat(facts.latestQueryEvent(intent.queryId()).orElseThrow().state()).isEqualTo("RUNNING");
+
+            assertThat(journal.recordTerminalOutcome(intent, successor.fencingToken(), WriteCommitState.COMMITTED))
+                    .isTrue();
+            journal.acknowledgeNoDeferredWork(intent.commitFingerprint());
+            journal.purge(intent.queryId());
+            assertThat(journal.getEntry(intent.queryId())).isPresent();
+            assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.CONFIRMED);
+            var terminal = facts.latestQueryEvent(intent.queryId()).orElseThrow();
+            assertThat(terminal.state()).isEqualTo("FINISHED");
+            assertThat(terminal.terminalOutcome().resultDisposition())
+                    .isEqualTo(org.pangrova.common.enums.ResultDisposition.NONE);
+            assertThat(terminal.terminalOutcome().error()).isNull();
+            assertThat(anchors.releaseDrainedQuery(successor, false)).isTrue();
+            assertThat(journal.getEntry(intent.queryId())).isEmpty();
+        }
+    }
+
+    @Test
+    void unpublishedAbortHandoffWaitsForTheExactWorkersToDrain() throws SQLException {
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var staging = new JdbcObservedWriteStaging(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var prior = anchors.tryAcquire("recover-aborted-write", "original", "original-boot", lease).orElseThrow();
+        var intent = entry(prior.executionId(), "catalog-a", "schema.table", WriteCommitState.PENDING, 1L, prior);
+        var settings = new StateJournalConfig("JDBC", "jdbc:postgresql:journal-test", 20, 20, 24, 1024);
+        try (var facts = new JdbcQueryStateJournal(dataSource, settings);
+                var listener = dataSource.getConnection()) {
+            var subscription = listenToStaging(listener);
+            facts.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(101L, prior.ownerId()),
+                    intent.queryId(), "INSERT INTO table VALUES (1)", "{}", "RUNNING"));
+            facts.appendTaskIssuancesSync(List.of(new TaskStateEvent(
+                    JournalEventContext.create(102L, prior.ownerId()), intent.queryId(), "writer", "worker",
+                    "SCHEDULED", 0, 0, new TaskIssuance("worker-host", 8081, prior.ownerIncarnation(),
+                            prior.fencingToken(), new byte[] {1}))));
+            journal.recordIntent(intent);
+            assertThat(stagingDrainToken(intent)).isNull();
+            assertThat(anchors.yield(prior)).isTrue();
+            var successor = anchors.tryAcquire(intent.queryId(), "successor", "successor-boot", lease).orElseThrow();
+            assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isTrue();
+            assertThat(facts.confirmRecoveredTaskDrains(prior)).isEqualTo(DrainOutcome.LOST_CLAIM);
+            assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.PENDING_RECEIPTS);
+            assertThat(stagingDrainToken(intent)).isZero();
+            assertThat(staging.claim("first-cleaner").claim()).isNull();
+            assertThat(anchors.releaseDrainedQuery(successor, false)).isFalse();
+
+            var issued = facts.pendingTaskDrains(successor, 0).get(0);
+            assertThat(facts.retainTaskDrains(successor, List.of(new DrainReceipt(issued.rowId(), new byte[] {2}))))
+                    .isTrue();
+            assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.CONFIRMED);
+            assertThat(subscription.getNotifications(1_000)).hasSize(1);
+            assertThat(stagingDrainToken(intent)).isEqualTo(successor.fencingToken());
+            assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isTrue();
+            assertThat(stagingDrainToken(intent)).isEqualTo(successor.fencingToken());
+            assertThat(anchors.releaseDrainedQuery(successor, false)).isTrue();
+            var first = staging.claim("first-cleaner").claim();
+            assertThat(first.intent().commitFingerprint()).isEqualTo(intent.commitFingerprint());
+            assertThat(staging.claim("peer").claim()).isNull();
+            assertThat(staging.decline(first, "first-cleaner")).isTrue();
+            assertThat(subscription.getNotifications(1_000)).hasSize(1);
+            var paused = staging.claim("first-cleaner");
+            assertThat(paused.claim()).isNull();
+            assertThat(paused.delayMillis().orElseThrow()).isPositive();
+            var peer = staging.claim("peer").claim();
+            assertThat(peer.id()).isNotEqualTo(first.id());
+            assertThat(staging.complete(first)).isFalse();
+            expireStagingClaim(intent.queryId());
+            assertThat(staging.complete(peer)).isFalse();
+            var retry = staging.claim("peer").claim();
+            assertThat(retry.id()).isNotEqualTo(peer.id());
+            var otherIntent = entry(intent.queryId(), "other-catalog", "schema.table", WriteCommitState.PENDING, 1L);
+            assertThat(staging.complete(new JdbcObservedWriteStaging.Claim(retry.id(), otherIntent))).isFalse();
+            assertThat(staging.complete(retry)).isTrue();
+            var empty = staging.claim("peer");
+            assertThat(empty.claim()).isNull();
+            assertThat(empty.delayMillis()).isEmpty();
+            assertThat(stagingDrainToken(intent)).isEqualTo(successor.fencingToken());
+            assertThat(journal.getEntry(intent.queryId())).get().extracting(WriteCommitEntry::state)
+                    .isEqualTo(WriteCommitState.ABORTED);
+        }
+    }
+
+    @Test
+    void localPhysicalDrainPersistsTheSameGrantAsTheAbortHandoff() throws SQLException {
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var owner = anchors.tryAcquire("local-aborted-write", "original", "original-boot", Duration.ofMinutes(1))
+                .orElseThrow();
+        var intent = entry(owner.executionId(), "catalog-a", "schema.table", WriteCommitState.PENDING, 1L, owner);
+        journal.recordIntent(intent);
+        assertThat(journal.abortBeforePublication(intent, owner.fencingToken())).isTrue();
+        assertThat(stagingDrainToken(intent)).isZero();
+        assertThat(anchors.releaseLocallyDrainedQuery(owner)).isTrue();
+        assertThat(stagingDrainToken(intent)).isEqualTo(owner.fencingToken());
+        var staging = new JdbcObservedWriteStaging(dataSource);
+        var claim = staging.claim("independent-cleaner").claim();
+        assertThat(claim.intent().commitFingerprint()).isEqualTo(intent.commitFingerprint());
+        assertThat(staging.complete(claim)).isTrue();
+    }
+
+    private static PGConnection listenToStaging(Connection connection) throws SQLException {
+        try (var statement = connection.createStatement()) {
+            long relation;
+            try (var rows = statement.executeQuery("SELECT 'write_commit_journal'::regclass::oid")) {
+                assertThat(rows.next()).isTrue();
+                relation = rows.getLong(1);
+            }
+            statement.execute("LISTEN pangrova_write_staging_" + relation);
+            return connection.unwrap(PGConnection.class);
+        }
+    }
+
+    private void expireStagingClaim(String queryId) throws SQLException {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement("""
+                        UPDATE write_commit_journal SET staging_observed_due_at = clock_timestamp() - INTERVAL '1 second'
+                        WHERE query_id = ?
+                        """)) {
+            statement.setString(1, queryId);
+            assertThat(statement.executeUpdate()).isEqualTo(1);
+        }
+    }
+
+    private Long stagingDrainToken(WriteCommitEntry intent) throws SQLException {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement(
+                        "SELECT staging_drain_token FROM write_commit_journal WHERE query_id=? AND commit_fingerprint=?")) {
+            statement.setString(1, intent.queryId());
+            statement.setString(2, intent.commitFingerprint());
+            try (var row = statement.executeQuery()) {
+                assertThat(row.next()).isTrue();
+                return row.getObject(1, Long.class);
+            }
+        }
     }
 
     @Test
@@ -392,6 +567,12 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     private static WriteCommitEntry entry(
             String queryId, String catalog, String table,
             WriteCommitState state, long timestampMs) {
+        return entry(queryId, catalog, table, state, timestampMs, null);
+    }
+
+    private static WriteCommitEntry entry(
+            String queryId, String catalog, String table,
+            WriteCommitState state, long timestampMs, ExecutionAnchor owner) {
         String mode = "INSERT";
         String tenant = "tenant-a";
         String fingerprint = WriteCommitFingerprint.compute(
@@ -421,9 +602,9 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 -1L,
                 new byte[]{42},
                 fingerprint,
-                null,
-                null,
-                0L,
+                owner == null ? null : owner.ownerId(),
+                owner == null ? null : owner.ownerIncarnation(),
+                owner == null ? 0L : owner.fencingToken(),
                 null, null, null);
     }
 }

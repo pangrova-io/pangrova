@@ -13,15 +13,18 @@
  */
 package org.pangrova.coordinator.query.execution;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Reference;
+import org.pangrova.planner.api.exception.PlannerException;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,7 +32,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Expands view references in SQL before compilation. Replaces fully-qualified
  * view references with their definition SQL as subqueries. Supports nested views
- * via iterative expansion up to a configurable depth limit.
+ * with a fixed expansion limit.
  */
 final class ViewExpander {
 
@@ -42,99 +45,51 @@ final class ViewExpander {
         this.catalogRegistry = catalogRegistry;
     }
 
-    String expand(String sql, SqlCompiler compiler, QuerySession context) {
-        if (catalogRegistry == null) {
-            return sql;
+    Analysis expand(Analysis input, QuerySession context) {
+        if (catalogRegistry == null || input.references().isEmpty()) {
+            return input;
         }
-        String expanded = sql;
+        Map<QualifiedTableName, Optional<String>> definitions =
+                new HashMap<>();
+        Analysis expanded = input;
         for (int depth = 0; depth < MAX_EXPANSION_DEPTH; depth++) {
-            String before = expanded;
-            expanded = expandOnce(expanded, compiler, context);
-            if (expanded.equals(before)) {
-                break;
+            Analysis next = expanded.rewriteNames(reference -> expandReference(reference, context, definitions));
+            if (next == expanded) {
+                return expanded;
             }
+            expanded = next;
         }
         return expanded;
     }
 
-    private String expandOnce(String sql, SqlCompiler compiler, QuerySession context) {
-        org.pangrova.parser.api.ast.Statement ast;
-        try {
-            ast = compiler.parseToAst(sql);
-        } catch (Exception e) {
-            return sql;
+    private String expandReference(Reference reference, QuerySession context,
+            Map<QualifiedTableName, Optional<String>> definitions) {
+        var ref = reference.table();
+        var parts = ref.name().parts();
+        if (reference.cte() || parts.size() != 3 || ref.systemTableRef().isPresent()) {
+            return null;
         }
-        if (ast == null) {
-            return sql;
+        var name = new QualifiedTableName(
+                parts.get(0), parts.get(1), parts.get(2));
+        var definition = definitions.computeIfAbsent(name,
+                key -> lookupView(key.catalog(), key.schema(), key.table(), context));
+        if (definition.isEmpty()) {
+            return null;
         }
-        List<org.pangrova.parser.api.ast.TableRef> refs = collectAllNamedRefs(ast);
-        if (refs.isEmpty()) {
-            return sql;
+        if (ref.timeTravelSpec().isPresent()) {
+            throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "Time travel cannot target a logical view: " + name);
         }
-        String expanded = sql;
-        for (org.pangrova.parser.api.ast.TableRef ref : refs) {
-            List<String> parts = ref.name().parts();
-            if (parts.size() < 3) {
-                continue;
-            }
-            String catalog = parts.get(0);
-            String schema = parts.get(1);
-            String table = parts.get(2);
-            Optional<String> viewDef = lookupView(catalog, schema, table, context);
-            if (viewDef.isEmpty()) {
-                continue;
-            }
-            String fqn = catalog + "." + schema + "." + table;
-            String alias = ref.alias().orElse(table);
-            expanded = expanded.replace(fqn, "(" + viewDef.get() + ") AS " + alias);
-            LOG.info("event=view_expanded view={} alias={}", fqn, alias);
-        }
-        return expanded;
+        String alias = ref.alias().isPresent() ? "" : " AS \"" + name.table().replace("\"", "\"\"") + "\"";
+        LOG.debug("event=view_expanded view={}", name);
+        return "(" + definition.orElseThrow() + ")" + alias;
     }
 
     private Optional<String> lookupView(
             String catalog, String schema, String table, QuerySession context) {
-        CatalogHandle handle = catalogRegistry.getCatalog(catalog);
         var session = SessionContextConverter.toConnectorSession(context, catalog, schema);
-        return handle.getMetadata(session).getViewDefinition(session, new SchemaTableName(schema, table));
+        return catalogRegistry.metadataForQuery(catalog, session)
+                .getViewDefinition(session, new SchemaTableName(schema, table));
     }
 
-    private static List<org.pangrova.parser.api.ast.TableRef> collectAllNamedRefs(
-            org.pangrova.parser.api.ast.Statement ast) {
-        List<org.pangrova.parser.api.ast.TableRef> result = new ArrayList<>();
-        collectRefsFromStatement(ast, result);
-        return result;
-    }
-
-    private static void collectRefsFromStatement(
-            org.pangrova.parser.api.ast.Statement ast,
-            List<org.pangrova.parser.api.ast.TableRef> result) {
-        if (ast instanceof org.pangrova.parser.api.ast.Query query) {
-            collectRefsFromQuery(query, result);
-        } else if (ast instanceof org.pangrova.parser.api.ast.CteQuery cte) {
-            if (cte.body() instanceof org.pangrova.parser.api.ast.Query query) {
-                collectRefsFromQuery(query, result);
-            }
-        }
-    }
-
-    private static void collectRefsFromQuery(
-            org.pangrova.parser.api.ast.Query query,
-            List<org.pangrova.parser.api.ast.TableRef> result) {
-        for (org.pangrova.parser.api.ast.TableRef ref : query.from()) {
-            if (ref.kind() == org.pangrova.parser.api.enums.TableRefKind.NAMED) {
-                result.add(ref);
-            } else if (ref.subquery().isPresent()) {
-                collectRefsFromStatement(ref.subquery().get(), result);
-            }
-        }
-        for (org.pangrova.parser.api.ast.JoinClause join : query.joins()) {
-            org.pangrova.parser.api.ast.TableRef right = join.right();
-            if (right.kind() == org.pangrova.parser.api.enums.TableRefKind.NAMED) {
-                result.add(right);
-            } else if (right.subquery().isPresent()) {
-                collectRefsFromStatement(right.subquery().get(), result);
-            }
-        }
-    }
 }

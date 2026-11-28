@@ -50,6 +50,16 @@ class SqlCompilerTest {
     }
 
     @Test
+    void sortCanUseAnUnprojectedFieldWithoutAddingItToTheResult() {
+        PlanResult result = compiler.compileForPolicyApplication(
+                "SELECT t.label FROM (SELECT 2 AS id, 'b' AS label UNION ALL SELECT 1, 'a') AS t"
+                        + " ORDER BY t.id LIMIT 1");
+
+        assertThat(result.preOptimizationColumnNames()).containsExactly("label");
+        assertThat(result.plan().getRowType().getFieldNames()).containsExactly("label");
+    }
+
+    @Test
     void validatedSerializationProducesSameBytesAsCompile() {
         String sql = "SELECT 1 + 2";
         byte[] directBytes = compiler.compile(sql);

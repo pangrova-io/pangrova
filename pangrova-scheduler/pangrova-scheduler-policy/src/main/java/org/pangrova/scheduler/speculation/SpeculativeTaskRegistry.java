@@ -34,17 +34,10 @@ public interface SpeculativeTaskRegistry {
 
     void unregisterUndispatchedTask(String queryId, String taskId);
 
-    void registerTask(String queryId, String taskId);
-
-    void registerTaskRequest(String taskId, SubmitTaskRequest request);
-
-    void bindDispatchTarget(SubmitTaskRequest request, PlacementWorker worker);
-
-    void markScheduled(String queryId, String taskId);
+    /** Installs the local attempt and commits its exact issuance before transport entry. */
+    void prepareDispatch(SubmitTaskRequest request, PlacementWorker worker);
 
     void assignWorker(String taskId, String workerId);
-
-    void setDeadline(String taskId, Instant deadline);
 
     void enterTaskDispatch(SubmitTaskRequest request);
 

@@ -18,7 +18,7 @@ import java.util.Objects;
  *
  * @param memoryPressure      current memory pressure level (e.g. "NONE", "LOW", "HIGH") (required)
  * @param cpuUtilization      CPU utilization ratio (0.0–1.0)
- * @param runningTaskCount    number of tasks currently executing
+ * @param inFlightTaskCount    number of attempts holding preparation, execution or cleanup
  * @param availableMemoryBytes free memory in bytes
  * @param cacheSummary        worker data cache summary (nullable when cache disabled)
  */
@@ -26,7 +26,7 @@ import java.util.Objects;
 public record HeartbeatSnapshot(
         String memoryPressure,
         double cpuUtilization,
-        int runningTaskCount,
+        int inFlightTaskCount,
         long availableMemoryBytes,
         CacheCatalogSummary cacheSummary
 ) {

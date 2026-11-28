@@ -21,37 +21,20 @@ import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.statement.ShowIndexesStatement;
 import org.pangrova.parser.api.ast.statement.stream.ShowStreamsStatement;
 import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
-import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
-import org.pangrova.persistence.streaming.postgresql.JdbcStreamOffsetStore;
 import org.pangrova.persistence.streaming.postgresql.JdbcStreamStateStore;
-import org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
-import org.pangrova.streaming.commit.TwoPhaseCommitCoordinator;
 import org.pangrova.streaming.coordinator.CdcSourceRegistry;
-import org.pangrova.streaming.coordinator.StreamConfig;
 import org.pangrova.streaming.coordinator.StreamDdlContext;
 import org.pangrova.streaming.coordinator.StreamDdlExecutor;
-import org.pangrova.streaming.coordinator.StreamScheduler;
-import org.pangrova.streaming.coordinator.StreamSchedulerContext;
-import org.pangrova.streaming.maintenance.CompactionResult;
-import org.pangrova.streaming.maintenance.MaintenanceConfig;
-import org.pangrova.streaming.maintenance.MaintenanceScheduler;
-import org.pangrova.streaming.maintenance.MaintenanceStatus;
-import org.pangrova.streaming.maintenance.OrphanCleanupResult;
-import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
-import org.pangrova.streaming.maintenance.TableMaintenance;
-import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.constants.TestObservability;
 
 import javax.sql.DataSource;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -116,17 +99,10 @@ class MetadataStoreShowResultSchemaIntegrationTest extends ContainerTestBase {
 
     static void verifyStreamSchemas(DataSource source) throws Exception {
         var states = new JdbcStreamStateStore(source);
-        var offsets = new JdbcStreamOffsetStore(source);
-        try (var maintenance = new MaintenanceScheduler(new UnusedMaintenance(), MaintenanceConfig.defaults());
-             var scheduler = new StreamScheduler(new StreamSchedulerContext(TestObservability.METRICS,
-                     states, offsets, new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(source)),
-                     new CdcRecordConverterRegistry(List.of()), new WatermarkTracker(new JdbcWatermarkPositionStore(source)),
-                     maintenance, StreamConfig.withDefaults(),
-                     state -> { throw new AssertionError("SHOW must not open a source"); },
-                     state -> { throw new AssertionError("SHOW must not open a sink"); }), "show-stream-shape");
-             var results = new MetadataShowResultSchemaTest.ResultHarness()) {
-            var task = new ShowStreamsTask(new StreamDdlExecutor(new StreamDdlContext(states, offsets,
-                    scheduler, StreamConfig.withDefaults(), new CdcSourceRegistry(List.of()))));
+        try (var results = new MetadataShowResultSchemaTest.ResultHarness()) {
+            var task = new ShowStreamsTask(new StreamDdlExecutor(new StreamDdlContext(states,
+                    new CdcRecordConverterRegistry(List.of()), 10,
+                    new CdcSourceRegistry(List.of()))));
             var stmt = new ShowStreamsStatement();
             List<String> columns = List.of("stream_name", "tenant_id", "state", "target_table", "source_format", "created_at");
             assertThat(results.execute(stmt, task, columns)).isEmpty();
@@ -138,21 +114,6 @@ class MetadataStoreShowResultSchemaIntegrationTest extends ContainerTestBase {
             assertThat(results.execute(stmt, task, columns)).containsExactly(List.of(
                     "orders-stream", "tenant-a", "SUSPENDED", "test_cat.default.orders", "debezium-json",
                     Instant.EPOCH.toString()));
-        }
-    }
-
-    private static final class UnusedMaintenance implements TableMaintenance {
-        @Override public CompletableFuture<CompactionResult> compactAsync(String name) {
-            throw new AssertionError("SHOW must not compact");
-        }
-        @Override public CompletableFuture<OrphanCleanupResult> cleanOrphansAsync(String name, Duration olderThan) {
-            throw new AssertionError("SHOW must not clean orphans");
-        }
-        @Override public CompletableFuture<SnapshotExpirationResult> expireSnapshotsAsync(String name, Duration olderThan) {
-            throw new AssertionError("SHOW must not expire snapshots");
-        }
-        @Override public MaintenanceStatus getMaintenanceStatus(String name) {
-            throw new AssertionError("SHOW must not query maintenance");
         }
     }
 }

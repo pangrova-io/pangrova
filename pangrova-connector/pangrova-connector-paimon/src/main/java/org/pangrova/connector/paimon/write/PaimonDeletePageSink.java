@@ -1,7 +1,8 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.connector.api.enums.CommitEventType;
-import org.apache.paimon.table.Table;
+import org.apache.paimon.table.FileStoreTable;
+import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.apache.paimon.types.RowKind;
 
 /**
@@ -13,10 +14,8 @@ import org.apache.paimon.types.RowKind;
  */
 public final class PaimonDeletePageSink extends AbstractPaimonPageSink {
 
-    PaimonDeletePageSink(Table table, String schemaName, String tableName, String tempDir) {
-        super(new PaimonPageSinkContext(table.newBatchWriteBuilder(),
-                new PaimonRowConverter(table.rowType()),
-                schemaName, tableName, tempDir));
+    PaimonDeletePageSink(FileStoreTable table, PaimonOutputTableHandle output, String tempDir) {
+        super(new PaimonPageSinkContext(table, output, table.newBatchWriteBuilder(), tempDir));
     }
 
     @Override

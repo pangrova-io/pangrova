@@ -72,6 +72,11 @@ mvn -pl pangrova-testing/pangrova-testing-integration-tests test \
   -Dpangrova.e2e.local.native-lib="$release_library"
 ```
 
+Public CLI assertions check the terminal disposition declared by each scenario.
+Ordinary catalog and table creation and SQL writes must reach `FINISHED` with
+`NONE` and no result endpoint. Reads must reach `STREAM` with the expected
+Flight transport, and the CLI receipt must confirm consumption.
+
 A missing artifact, rejected runtime hash, child startup failure, or failed scenario
 is a test failure; the fixture does not skip or replace it with an in-process worker.
 
@@ -81,8 +86,8 @@ is a test failure; the fixture does not skip or replace it with an in-process wo
 It kills the original Worker process after staging while the relay holds its
 terminal report. A surviving Worker publishes one catalog version with the
 expected row count. A separate scenario interrupts journal confirmation and
-restarts the Coordinator. The test checks the original query ID, fingerprint and
-exact visible rows. The failure follows catalog publication in Iceberg and Paimon.
+restarts the Coordinator. It checks the durable terminal receipt for the original
+query ID and fingerprint, then verifies the exact visible rows. The failure follows catalog publication in Iceberg and Paimon.
 Lance updates its catalog pointer and journal in a single PostgreSQL transaction,
 so the same fault leaves the pointer unchanged until recovery. The Lance test
 also observes a second serialization failure during a live recovery scan,
@@ -141,6 +146,16 @@ The model container needs outbound access to download its pinned weights.
 ## Checking tenant quota recovery at fixed arrivals
 
 `PersistentTenantOverloadE2ETest` uses the staged Coordinator and two Native Worker JVMs, a persistent SDK client, LDAP authentication and mTLS Flight. It holds two exact PostgreSQL admission slots by leaving their Native result streams unopened. The test then offers 45 submissions at 20 per second across five SQL workloads and requires the tenant quota response for all 45. It warms each workload before holding the slots. After consuming both held results and observing zero slots, it offers 40 queries at five per second with one recovery query in flight and checks the result values, EOF and physical release. The log records the planned arrival, client queue time, HTTP admission response, EOF and drain offsets. Use the same staged-role inputs as the other independent-process tests.
+
+The two-Coordinator case starts two independent Coordinator and Worker pairs against the
+same PostgreSQL schema and LDAP tenant. Each client uses the address of its own
+Coordinator and its Worker returns status to that Coordinator. A held Native result
+on each pair consumes one of the two shared slots. The test offers 40 requests at
+40 per second during saturation, then drains both results and offers 80 queries at
+eight per second across both Coordinators. It validates exact results, first row,
+EOF, physical drain and the shared slot count. Twelve status reads after reconnecting
+to each live owner produce zero query-journal SELECTs. Shared Worker routing and
+cross-host latency have separate acceptance conditions in the execution plan.
 
 ## Measuring public SQL latency across two builds
 

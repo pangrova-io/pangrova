@@ -420,9 +420,9 @@ public final class PlannedQuery {
     FragmentedPlan fragmentForCluster(int clusterParallelismLimit,
             java.util.function.Supplier<List<org.pangrova.protocol.function.catalog.FunctionCatalogView>>
                     catalogueSource,
-            java.util.function.IntUnaryOperator driverEstimate) {
+            java.util.function.IntUnaryOperator driverEstimate, boolean supportsBroadcastExchange) {
         return PlanFragmenter.fragment(plan, -1, StageTerminalPurpose.QUERY_RESULT, clusterParallelismLimit,
-                false, catalogueSource, driverEstimate);
+                false, catalogueSource, driverEstimate, supportsBroadcastExchange);
     }
 
     /** Carries physical identity through producer/exchange/merge and trims only final output. */
@@ -438,9 +438,16 @@ public final class PlannedQuery {
     /** Gives retrieval fusion and reranking a separate complete output stage even with a single producer. */
     public FragmentedPlan fragmentWithPhysicalRetrievalIdentity(
             int clusterParallelismLimit, boolean needsRetrievalReducer) {
+        return fragmentWithPhysicalRetrievalIdentity(clusterParallelismLimit, needsRetrievalReducer, true);
+    }
+
+    /** Fragments retrieval using the selected transport's exchange capabilities. */
+    public FragmentedPlan fragmentWithPhysicalRetrievalIdentity(int clusterParallelismLimit,
+            boolean needsRetrievalReducer, boolean supportsBroadcastExchange) {
         RelNode extended = org.pangrova.planner.retrieval.PhysicalRetrievalIdentityRewriter.rewrite(plan);
         FragmentedPlan fragments = PlanFragmenter.fragment(extended, -1,
-                StageTerminalPurpose.QUERY_RESULT, clusterParallelismLimit, needsRetrievalReducer);
+                StageTerminalPurpose.QUERY_RESULT, clusterParallelismLimit, needsRetrievalReducer,
+                List::of, ignored -> 0, supportsBroadcastExchange);
         int visibleCount = plan.getRowType().getFieldCount();
         var stages = fragments.stages().stream().map(stage -> {
             if (!stage.taskType().equals("OUTPUT")) {
@@ -457,8 +464,7 @@ public final class PlannedQuery {
                     stage.fragment().estimatedShuffleBytes(), stage.fragment().estimatedShuffleRows()),
                     stage.parallelism(), stage.taskType());
         }).toList();
-        return new FragmentedPlan(stages, fragments.transfers(), fragments.stageDependencies(),
-                java.util.Optional.empty());
+        return new FragmentedPlan(stages, fragments.transfers(), fragments.stageDependencies(), List.of());
     }
 
     /** Serializes only this protected plan's exchange stages; no original SQL retry or persisted node is needed. */

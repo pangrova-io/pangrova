@@ -114,7 +114,7 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
 
 bool PlanExecutionDriver::publishRunner(const std::shared_ptr<Execution>& execution) {
   for (const auto& binding : config_.initial_runtime_filters) {
-    injectDynamicFilter(binding.plan_node_id(), binding.filters());
+    injectDynamicFilter(binding);
   }
   std::vector<PendingDynamicFilter> filters;
   {

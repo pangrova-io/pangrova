@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -85,8 +86,7 @@ class OperationsChainTest extends org.pangrova.server.coordinator.testinfra.Sign
         int port = coordinatorBootstrap.getHttpPort();
 
         java.net.http.HttpResponse<String> resp = submitQuery(port, "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(coordinatorBootstrap.getQueryManager(), resp);
     }
 
     // DynamicConfigService tests removed (R1.4: idle five-layer chain deleted)

@@ -45,10 +45,10 @@ class WorkerHeartbeatIdentityTest {
         assertThat(first.onHeartbeat(identity(old), metrics(99))).isEqualTo(FENCED);
         assertThat(first.getWorker("same").workerExecutionIdentity()).isEqualTo(replacement.workerExecutionIdentity());
         assertThat(first.refreshWorker(old)).isFalse();
-        assertThat(registry.getWorker("same").orElseThrow().runningTaskCount()).isZero();
+        assertThat(registry.getWorker("same").orElseThrow().inFlightTaskCount()).isZero();
         assertThat(first.onHeartbeat(identity(replacement), metrics(3))).isEqualTo(ACCEPTED);
         assertThat(first.getWorker("same").workerExecutionIdentity()).isEqualTo(replacement.workerExecutionIdentity());
-        assertThat(first.getWorker("same").runningTaskCount()).isEqualTo(3);
+        assertThat(first.getWorker("same").inFlightTaskCount()).isEqualTo(3);
     }
 
     @Test

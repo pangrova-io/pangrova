@@ -14,15 +14,13 @@ import java.util.Set;
 
 /** Process-local current authority evidence; neither a credential nor a persisted identity snapshot. */
 public final class PostgresCurrentGenerationAuthority implements CurrentGenerationAuthority {
-    private final GenerationDispatchSpec dispatchSpec;
+    private final GenerationTransactionAuthority.AuthorizedDispatch authorization;
     private final ExecutionAnchor executionAnchor;
-    private final Set<String> currentDirectRoles;
 
-    private PostgresCurrentGenerationAuthority(GenerationDispatchSpec dispatchSpec, ExecutionAnchor executionAnchor,
-                                            Set<String> currentDirectRoles) {
-        this.dispatchSpec = dispatchSpec;
+    private PostgresCurrentGenerationAuthority(GenerationTransactionAuthority.AuthorizedDispatch authorization,
+            ExecutionAnchor executionAnchor) {
+        this.authorization = authorization;
         this.executionAnchor = executionAnchor;
-        this.currentDirectRoles = Set.copyOf(currentDirectRoles);
     }
 
     /**
@@ -41,12 +39,15 @@ public final class PostgresCurrentGenerationAuthority implements CurrentGenerati
             throw new IllegalArgumentException("Current artifact authority returned another tenant or job");
         }
         var anchor = executionFence.requireCurrent(connection, tenantId, jobId, expectedOwner);
-        return new PostgresCurrentGenerationAuthority(spec, anchor, authorization.currentDirectRoles());
+        return new PostgresCurrentGenerationAuthority(authorization, anchor);
     }
 
     /** Includes the original compiler-observed policies; current reads never invent new compiler observations. */
     @Override
-    public GenerationDispatchSpec dispatchSpec() { return dispatchSpec; }
+    public GenerationDispatchSpec dispatchSpec() { return authorization.dispatchSpec(); }
+
+    /** Reuses the exact digest validated when this transaction loaded the original graph bytes. */
+    public String graphSha256() { return authorization.stored().graphSha256(); }
 
     /** Actual backend-issued owner and bounded deadline, not a synthetic identity or caller token. */
     @Override
@@ -54,5 +55,5 @@ public final class PostgresCurrentGenerationAuthority implements CurrentGenerati
 
     /** Current persistent direct roles, distinct from IdP groups and never durably replayed as roles. */
     @Override
-    public Set<String> currentDirectRoles() { return currentDirectRoles; }
+    public Set<String> currentDirectRoles() { return authorization.currentDirectRoles(); }
 }

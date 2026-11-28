@@ -3,6 +3,7 @@ package org.pangrova.coordinator.coordination;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore;
+import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore.QueryAcquisition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,6 +12,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -52,48 +55,74 @@ final class QueryOwnershipRegistry {
     }
 
     boolean acquire(String queryId, String coordinatorId, String incarnation) {
+        return acquire(queryId, coordinatorId, incarnation, null).isPresent();
+    }
+
+    Optional<QueryAcquisition> acquire(String queryId, String coordinatorId, String incarnation, String tenantId) {
+        return acquire(queryId, coordinatorId, incarnation, tenantId, OptionalInt.empty());
+    }
+
+    Optional<QueryAcquisition> acquire(String queryId, String coordinatorId, String incarnation,
+            String tenantId, OptionalInt capacity) {
         Ownership cached = ownership.get(queryId);
         if (cached != null) {
+            if (capacity.isPresent()) return Optional.empty();
             if (!cached.active() || !ownedBy(cached.anchor(), coordinatorId, incarnation)) {
-                return false;
+                return Optional.empty();
             }
             var current = store.current(queryId).filter(anchor -> sameOwner(anchor, cached.anchor()));
             if (current.isPresent()) {
                 Ownership latest = ownership.get(queryId);
-                return latest != null && latest.active() && sameOwner(latest.anchor(), cached.anchor());
+                return latest != null && latest.active() && sameOwner(latest.anchor(), cached.anchor())
+                        ? current.map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()))
+                        : Optional.empty();
             }
             if (!ownership.remove(queryId, cached)) {
-                return false;
+                return Optional.empty();
             }
         }
         if (ownership.size() >= maxEntries) {
             ALARM_LOG.error("event=coordinator_alarm severity=CRITICAL component=query_execution_anchor "
                             + "message=\"local execution-anchor cache at capacity\" size={} maxEntries={} queryId={}",
                     ownership.size(), maxEntries, queryId);
-            return false;
+            return Optional.empty();
         }
         Ownership acquiring = new Ownership(null, false);
         if (ownership.putIfAbsent(queryId, acquiring) != null) {
-            return false;
+            return Optional.empty();
         }
         try {
-            Optional<ExecutionAnchor> acquired = store.tryAcquire(queryId, coordinatorId, incarnation, leaseDuration);
-            if (acquired.isEmpty()) {
-                acquired = store.current(queryId).filter(anchor -> ownedBy(anchor, coordinatorId, incarnation));
+            Optional<QueryAcquisition> acquired = acquireFresh(queryId, coordinatorId, incarnation,
+                    tenantId, capacity);
+            if (acquired.isEmpty() && capacity.isEmpty()) {
+                acquired = store.current(queryId).filter(anchor -> ownedBy(anchor, coordinatorId, incarnation))
+                        .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()));
             }
             if (acquired.isEmpty()) {
-                return false;
+                return Optional.empty();
             }
-            ExecutionAnchor anchor = acquired.orElseThrow();
+            ExecutionAnchor anchor = acquired.orElseThrow().anchor();
             if (!ownership.replace(queryId, acquiring, new Ownership(anchor, false))) {
-                return false;
+                return Optional.empty();
             }
             LOG.debug("event=execution_anchor_acquired queryId={} coordinatorId={} incarnation={} fencingToken={}",
                     queryId, coordinatorId, incarnation, anchor.fencingToken());
-            return true;
+            return acquired;
         } finally {
             ownership.remove(queryId, acquiring);
         }
+    }
+
+    private Optional<QueryAcquisition> acquireFresh(String queryId, String coordinatorId, String incarnation,
+            String tenantId, OptionalInt capacity) {
+        if (capacity.isPresent()) {
+            return store.tryAcquireLimitedQuery(queryId, coordinatorId, incarnation, leaseDuration,
+                    tenantId, capacity.getAsInt());
+        }
+        if (tenantId != null) return store.tryAcquireQuery(queryId, coordinatorId, incarnation, leaseDuration,
+                tenantId);
+        return store.tryAcquire(queryId, coordinatorId, incarnation, leaseDuration)
+                .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()));
     }
 
     private static boolean sameOwner(ExecutionAnchor first, ExecutionAnchor second) {
@@ -116,6 +145,11 @@ final class QueryOwnershipRegistry {
         if (retiring == null) {
             return false;
         }
+        return finishRetirement(retiring, backendOperation);
+    }
+
+    private boolean finishRetirement(Ownership retiring, Predicate<ExecutionAnchor> backendOperation) {
+        String executionId = retiring.anchor().executionId();
         try {
             boolean completed = backendOperation.test(retiring.anchor());
             ownership.remove(executionId, retiring);
@@ -206,6 +240,38 @@ final class QueryOwnershipRegistry {
             ownership.put(anchor.executionId(), new Ownership(anchor, false));
         }
         return claimed;
+    }
+
+    boolean release(ExecutionAnchor anchor) {
+        return retire(anchor.executionId(), current -> sameOwner(current, anchor), store::release);
+    }
+
+    boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
+        Predicate<ExecutionAnchor> retirement = durableRetirement.isPresent()
+                ? durableRetirement.orElseThrow() : store::releaseLocallyDrainedQuery;
+        var retiring = claimRetirement(anchor.executionId(), current -> sameOwner(current, anchor));
+        // Renewal may already have evicted the stale grant. Its exact drain proof can still reach PostgreSQL.
+        return retiring == null ? retirement.test(anchor) : finishRetirement(retiring, retirement);
+    }
+
+    boolean isQueryRetired(String executionId) {
+        return store.isQueryRetired(executionId);
+    }
+
+    boolean releaseDrainedQuery(ExecutionAnchor anchor, boolean remoteShuffle) {
+        // A remote scope or commit can still be pending. Keep the local grant renewable while it is live.
+        Ownership retiring = claimRetirement(anchor.executionId(), current -> sameOwner(current, anchor));
+        if (retiring == null) return false;
+        try {
+            if (store.releaseDrainedQuery(anchor, remoteShuffle)) {
+                ownership.remove(anchor.executionId(), retiring);
+                return true;
+            }
+            return false;
+        } finally {
+            ownership.replace(anchor.executionId(), retiring, new Ownership(retiring.anchor(), false));
+        }
     }
 
     boolean yield(ExecutionAnchor anchor) {

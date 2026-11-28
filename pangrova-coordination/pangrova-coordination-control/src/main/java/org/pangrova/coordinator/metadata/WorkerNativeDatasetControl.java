@@ -525,7 +525,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
         WorkerInfo worker = dependencies.workers().get().stream()
                 .min(Comparator.<WorkerInfo, Boolean>comparing(candidate -> candidate.workerExecutionIdentity() == null
                         || !stagedBy.contains(candidate.workerExecutionIdentity().toProto()))
-                        .thenComparingInt(WorkerInfo::runningTaskCount).thenComparing(WorkerInfo::workerId))
+                        .thenComparingInt(WorkerInfo::inFlightTaskCount).thenComparing(WorkerInfo::workerId))
                 .orElseThrow(NativeDatasetWorkerUnavailableException::new);
         try {
             return new URI("http", null, worker.host(), worker.httpPort(), "/v1/native-dataset/control", null, null);

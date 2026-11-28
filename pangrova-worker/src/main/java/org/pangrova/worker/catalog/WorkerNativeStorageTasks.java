@@ -62,6 +62,12 @@ public final class WorkerNativeStorageTasks {
     private static void requirePhysicalFiles(org.pangrova.protocol.v2.DataSplit split, CatalogControlLease lease) {
         if (!split.hasFileDetail()) return;
         var detail = DataSplitProtoCodec.fileDetail(split);
+        for (var delete : detail.getIceberg().getDeleteFilesList()) {
+            lease.requireDatasetLocation(delete.getOpaqueLocation());
+            if (!delete.getDeletionVectorLocation().isEmpty()) {
+                lease.requireDatasetLocation(delete.getDeletionVectorLocation());
+            }
+        }
         for (var level : detail.getPaimon().getLsmLevelsList()) {
             for (var file : level.getFilesList()) {
                 lease.requireDatasetLocation(file.getOpaqueLocation());

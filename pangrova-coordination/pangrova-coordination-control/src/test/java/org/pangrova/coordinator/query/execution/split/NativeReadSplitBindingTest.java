@@ -68,10 +68,12 @@ class NativeReadSplitBindingTest {
         CanonicalConnectorSplit source = new CanonicalConnectorSplit() {
             @Override public DataSplit toDataSplit() { return data; }
             @Override public long estimatedScanBytes() { return 8_192; }
+            @Override public long estimatedScanRows() { return 100; }
         };
         var bound = NativeReadSplitBinding.prepare(catalog, session("tenant-a")).bind(source);
+        assertThat(bound.estimatedScanRows()).isEqualTo(100);
         assertThat(SplitFetcher.toSplitWithPaths(java.util.List.of(bound))).singleElement().satisfies(stage -> {
-            assertThat(stage.estimatedScanBytes()).isEqualTo(8_192);
+            assertThat(stage.estimatedPlacementWeight()).isEqualTo(8_192);
             assertThat(stage.data().toBuilder().clearCatalog().build()).isEqualTo(data);
         });
     }

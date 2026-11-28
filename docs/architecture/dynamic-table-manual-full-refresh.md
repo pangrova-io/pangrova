@@ -77,8 +77,10 @@ DROP DYNAMIC TABLE iceberg.sales.orders_rollup CASCADE;
   definition and a connector-proven change set. Affected-key and CDC strategies
   are not registered and are rejected rather than approximated.
 - `REFRESH_MODE = CDC`, `WAREHOUSE`, and `WITH` properties are rejected.
-- `SUSPEND` / `RESUME` change scheduling only; they do not alter the
-  definition or the published generation.
+- For scheduled tables, `SUSPEND` pauses scheduling and hides the object from new SQL lookups.
+  The current generation remains available to already admitted readers
+  with pins. `RESUME` makes the object visible again using the same definition
+  and generation.
 - `DROP` is restrictive while a live materialization depends on the object.
   `CASCADE` drops transitive dependents first, deepest dependent first, and is
   refused without `CASCADE` when dependents exist.
@@ -125,6 +127,11 @@ rewrite in isolation.
 ## Refresh strategy provider lifecycle
 
 The Coordinator installs materialization SQL handlers through `MaterializationDdlRegistration`.
+Query-serving Coordinators bind the shared execution authority before assembling the
+statement dispatcher. They install Dynamic Table, Materialized View, and Continuous
+Query handlers before opening the HTTP listener. Scheduled refresh, recovery, and
+garbage collection start after coordination starts and remain scoped to the control leader.
+
 During registration its class loader discovers `org.pangrova.materialization.api.refresh.RefreshStrategyFactory`
 services. A provider JAR lists one public factory per algorithm in
 `META-INF/services/org.pangrova.materialization.api.refresh.RefreshStrategyFactory`.

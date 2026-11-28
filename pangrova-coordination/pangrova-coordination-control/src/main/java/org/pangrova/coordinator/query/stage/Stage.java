@@ -5,8 +5,6 @@ import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageRetryPolicy;
 import org.pangrova.query.stage.StageStateMachine;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,9 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.planner.api.adaptive.AdaptiveDecision;
 import org.pangrova.query.api.error.QueryFailure;
-import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
@@ -52,13 +48,11 @@ public final class Stage {
      */
     private final AtomicInteger attemptGeneration = new AtomicInteger(0);
     private volatile QueryFailure lastError;
-    private volatile ShuffleStageStatsReport shuffleStatsReport;
     private volatile ShuffleHandle shuffleHandle;
     private volatile long shufflePlanEpoch;
     private volatile ShuffleCommitReceipt shuffleReceipt;
     private volatile org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner;
-    private volatile AdaptiveDecision adaptiveDecision;
-    private volatile org.pangrova.planner.api.adaptive.CoalesceResult coalescedInputs;
+    private volatile ShuffleInputLayout shuffleInputs;
 
     /** Per-task retry counters for task-level retry before stage-level retry. */
     private final ConcurrentHashMap<String, AtomicInteger> taskRetryCounters =
@@ -68,7 +62,8 @@ public final class Stage {
     private boolean clientResultPublished;
     private boolean replayUnsafeWrite;
     private boolean consumerAdmitted;
-    private Map<Integer, List<BuildKeyRange>> buildKeyRanges;
+    private Map<Integer, BuildKeyRangeUnion> buildKeyRanges;
+    private Map<Integer, List<BuildKeyRange>> completedBuildKeyRanges;
     private int buildKeyReports;
 
     /** Pins this generation when a consumer begins to bind its issued producer records. */
@@ -84,24 +79,28 @@ public final class Stage {
     }
 
     /** Freeze the physical cohort before allocating its shuffle output or issuing any task. */
-    public synchronized void freezeCoalescedInputs(org.pangrova.planner.api.adaptive.CoalesceResult inputs) {
-        if (inputs.isCoalesced() && inputs.originalCount() != plan.parallelism()) {
-            throw new IllegalArgumentException("Coalesced inputs must cover the original stage partitions");
+    public synchronized void freezeShuffleInputs(ShuffleInputLayout inputs) {
+        if (!inputs.consumers().isEmpty() && inputs.originalCount() != plan.parallelism()) {
+            throw new IllegalArgumentException("Adaptive inputs must cover the original stage partitions");
         }
-        if (coalescedInputs != null && !coalescedInputs.equals(inputs)) {
+        if (shuffleInputs != null && !shuffleInputs.equals(inputs)) {
             throw new IllegalStateException("A stage retry cannot change its admitted input ranges");
         }
-        coalescedInputs = inputs;
+        shuffleInputs = inputs;
     }
 
-    public java.util.List<org.pangrova.planner.api.adaptive.PartitionGroup> coalescedInputRanges() {
-        var inputs = coalescedInputs;
-        return inputs == null ? java.util.List.of() : inputs.groups();
+    public boolean hasFrozenShuffleInputs() {
+        return shuffleInputs != null;
+    }
+
+    public ShuffleInputLayout shuffleInputs() {
+        var inputs = shuffleInputs;
+        return inputs == null ? ShuffleInputLayout.DEFAULT : inputs;
     }
 
     public int physicalTaskCount() {
-        var inputs = coalescedInputs;
-        return inputs == null || !inputs.isCoalesced() ? plan.parallelism() : inputs.coalescedCount();
+        var consumers = shuffleInputs().consumers();
+        return consumers.isEmpty() ? plan.parallelism() : consumers.size();
     }
 
     /** A client can already hold this endpoint; transparent retries cannot redirect a Flight stream. */
@@ -152,34 +151,30 @@ public final class Stage {
 
     /** Returns a bounded per-column union for a complete cohort, or null if any summary is absent. */
     public synchronized Map<Integer, List<BuildKeyRange>> completeBuildKeyRanges() {
-        if (!terminalDecisionClaimed || !failedTaskIds.isEmpty() || buildKeyReports != taskIds.size()
-                || buildKeyRanges == null) return null;
-        Map<Integer, List<BuildKeyRange>> union = new HashMap<>();
-        buildKeyRanges.forEach((ordinal, ranges) -> union.put(ordinal, unionBuildKeyRanges(ranges)));
-        return Map.copyOf(union);
+        return completedBuildKeyRanges;
     }
 
-    private static List<BuildKeyRange> unionBuildKeyRanges(List<BuildKeyRange> ranges) {
-        if (ranges.size() <= 1) return List.copyOf(ranges);
-
-        ranges.sort(Comparator.comparingLong(BuildKeyRange::minimum));
-        List<BuildKeyRange> union = new ArrayList<>(Math.min(BuildKeyRange.MAX_RANGES, ranges.size()));
-        BuildKeyRange current = ranges.get(0);
-        for (int index = 1; index < ranges.size(); index++) {
-            BuildKeyRange next = ranges.get(index);
-            if (current.maximum() == Long.MAX_VALUE || next.minimum() <= current.maximum() + 1) {
-                current = current.merge(next);
-                continue;
-            }
-            union.add(current);
-            if (union.size() == BuildKeyRange.MAX_RANGES) {
-                long maximum = ranges.stream().mapToLong(BuildKeyRange::maximum).max().orElseThrow();
-                return List.of(new BuildKeyRange(ranges.get(0).minimum(), maximum));
-            }
-            current = next;
+    private void addBuildKeyReport(Map<Integer, List<BuildKeyRange>> ranges) {
+        // A missing report cannot be repaired by another attempt or generation.
+        if (buildKeyReports != finishedTaskIds.size()) return;
+        if (ranges == null || ranges.isEmpty()
+                || (buildKeyRanges != null && !buildKeyRanges.keySet().equals(ranges.keySet()))) {
+            buildKeyRanges = null;
+            return;
         }
-        union.add(current);
-        return List.copyOf(union);
+        if (buildKeyRanges == null) buildKeyRanges = new HashMap<>();
+        ranges.forEach((ordinal, bounds) -> buildKeyRanges
+                .computeIfAbsent(ordinal, ignored -> new BuildKeyRangeUnion()).addAll(bounds));
+        buildKeyReports++;
+    }
+
+    private void finishBuildKeyReports(boolean success) {
+        if (success && buildKeyRanges != null && buildKeyReports == taskIds.size()) {
+            Map<Integer, List<BuildKeyRange>> union = new HashMap<>();
+            buildKeyRanges.forEach((ordinal, ranges) -> union.put(ordinal, ranges.snapshot()));
+            completedBuildKeyRanges = Map.copyOf(union);
+        }
+        buildKeyRanges = null;
     }
 
     /** Convenience overload for callers that do not track generation (defaults to current). */
@@ -207,15 +202,8 @@ public final class Stage {
             if (generation != attemptGeneration.get() || !taskIds.contains(taskId) || terminalDecisionClaimed
                     || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return false;
             if (success) {
+                addBuildKeyReport(ranges);
                 finishedTaskIds.add(taskId);
-                if (ranges != null && !ranges.isEmpty()) {
-                    if (buildKeyRanges == null) buildKeyRanges = new HashMap<>();
-                    if (buildKeyRanges.isEmpty() || buildKeyRanges.keySet().equals(ranges.keySet())) {
-                        ranges.forEach((ordinal, bounds) -> buildKeyRanges
-                                .computeIfAbsent(ordinal, ignored -> new ArrayList<>()).addAll(bounds));
-                        buildKeyReports++;
-                    }
-                }
             } else {
                 failedTaskIds.add(taskId);
                 lastError = error;
@@ -223,6 +211,7 @@ public final class Stage {
             if (!allTasksReported()) return true;
             terminalDecisionClaimed = true;
             allSucceeded = failedTaskIds.isEmpty();
+            finishBuildKeyReports(allSucceeded);
         }
         // State listeners can retire the query, dispatch the next stage or synchronously retry.
         if (allSucceeded) {
@@ -252,6 +241,7 @@ public final class Stage {
         attemptGeneration.incrementAndGet();
         finishedTaskIds.clear();
         buildKeyRanges = null;
+        completedBuildKeyRanges = null;
         buildKeyReports = 0;
         failedTaskIds.clear();
         taskIds.clear();
@@ -346,16 +336,6 @@ public final class Stage {
         return lastError;
     }
 
-    /** Stores real shuffle statistics reported by Worker after stage completion. */
-    public void setShuffleStatsReport(ShuffleStageStatsReport report) {
-        this.shuffleStatsReport = report;
-    }
-
-    /** Returns the Worker-reported shuffle statistics, or null if not yet received. */
-    public ShuffleStageStatsReport shuffleStatsReport() {
-        return shuffleStatsReport;
-    }
-
     /**
      * Binds the external shuffle allocation for the current stage generation.
      * A newer generation replaces the failed generation's allocation; stale
@@ -376,7 +356,6 @@ public final class Stage {
         }
         if (shufflePlanEpoch < planEpoch) {
             shuffleExecutionOwner = null;
-            shuffleStatsReport = null;
             shuffleReceipt = null;
         }
         shuffleHandle = handle;
@@ -464,16 +443,6 @@ public final class Stage {
     /** Returns the fenced owner of the shuffle allocation, or null before dispatch. */
     public org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner() {
         return shuffleExecutionOwner;
-    }
-
-    /** Stores the AQE decision produced after this stage completed. */
-    public void setAdaptiveDecision(AdaptiveDecision decision) {
-        this.adaptiveDecision = decision;
-    }
-
-    /** Returns the AQE decision for this stage, or null if AQE was disabled or not yet evaluated. */
-    public AdaptiveDecision adaptiveDecision() {
-        return adaptiveDecision;
     }
 
     public int stageId() {

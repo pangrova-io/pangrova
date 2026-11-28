@@ -21,19 +21,14 @@ import org.pangrova.persistence.generation.api.publication.GenerationPublication
 import org.pangrova.persistence.governance.postgresql.JdbcGovernanceAuditTrail;
 import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.persistence.streaming.memory.InMemoryCdcRegistrationStore;
-import org.pangrova.persistence.streaming.memory.InMemoryWatermarkStore;
 import org.pangrova.persistence.streaming.postgresql.JdbcCdcRegistrationStore;
-import org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore;
 import org.pangrova.security.tenant.QuotaChecker;
 import org.pangrova.security.tenant.TenantResolver;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 import org.pangrova.streaming.api.cdc.CdcRegistrationStore;
-import org.pangrova.streaming.api.watermark.WatermarkStore;
 import org.pangrova.streaming.cdc.CdcRegistrationHandler;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
-import org.pangrova.streaming.pipeline.StreamingContext;
-import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +47,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     private volatile boolean maintenanceLeader;
 
     // Streaming
-    private StreamingContext streamingModule;
     private CdcRegistrationHandler cdcRegistrationHandler;
     private MaintenanceScheduler maintenanceScheduler;
     private org.pangrova.streaming.maintenance.MaintenanceTableSource maintenanceTableSource;
@@ -160,10 +154,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         this.branchTtlCleanupTask = cleanupTask;
     }
 
-    synchronized StreamingBootstrap getStreamingBootstrap() {
-        return streamingBootstrap;
-    }
-
     void startStreaming(CoordinatorBootstrapConfig config, DataSource dataSource) {
         startStreaming(config, dataSource, catalogRegistry);
     }
@@ -177,15 +167,11 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         this.catalogRegistry = catalogs;
         MaintenanceScheduler scheduler = buildMaintenanceScheduler(catalogs, config);
         this.maintenanceScheduler = scheduler;
-        WatermarkStore watermarkStore = dataSource != null
-                ? new JdbcWatermarkPositionStore(dataSource) : new InMemoryWatermarkStore();
-        WatermarkTracker tracker = new WatermarkTracker(watermarkStore);
-        streamingModule = new StreamingContext(scheduler, tracker);
         CdcRegistrationStore cdcStore = createCdcRegistrationStore(dataSource);
         cdcRegistrationHandler = new CdcRegistrationHandler(cdcStore);
-        LOG.info("Phase: streaming — initialized (watermarkStore={} cdcRegistrationStore={} "
+        LOG.info("Phase: streaming — initialized (cdcRegistrationStore={} "
                         + "maintenanceSource={} periodicScanLeaderGated=true)",
-                watermarkStore.getClass().getSimpleName(), cdcStore.getClass().getSimpleName(),
+                cdcStore.getClass().getSimpleName(),
                 maintenanceTableSource.getClass().getSimpleName());
     }
 
@@ -306,7 +292,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     CdcLifecycleManager getCdcLifecycleManager() { return cdcRegistrationHandler; }
     MaintenanceScheduler getMaintenanceScheduler() { return maintenanceScheduler; }
-    StreamingContext getStreamingContext() { return streamingModule; }
     LineageEventEmitter getLineageEmitter() { return lineageEmitter; }
 
     CircuitBreakerPolicy getCircuitBreakerPolicy() { return resilienceRegistry; }
@@ -483,8 +468,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     private void closeStreaming() {
-        closeModule(streamingModule, "streaming");
-        streamingModule = null;
+        closeModule(maintenanceScheduler, "streaming");
         maintenanceScheduler = null;
         maintenanceTableSource = null;
         cdcRegistrationHandler = null;

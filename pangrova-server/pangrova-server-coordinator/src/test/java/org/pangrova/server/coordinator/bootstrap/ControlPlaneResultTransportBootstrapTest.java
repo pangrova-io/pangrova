@@ -86,13 +86,13 @@ class ControlPlaneResultTransportBootstrapTest {
         var scheduler = ManagedExecutorFactory.newSingleThreadScheduledExecutor("control-transport-test");
         ControlPlaneResultTransportBootstrap.Started started = null;
         try {
-            started = ControlPlaneResultTransportBootstrap.start(config, null, scheduler);
-            var result = started.service().dispatchControlPlaneRows("control-ack", List.of(), List.of(), () -> {});
+            started = ControlPlaneResultTransportBootstrap.start(config, null, scheduler, ignored -> () -> { });
+            var result = started.service().dispatchControlPlaneRows("control-ack", List.of(), List.of());
             assertion.verify(result.resultEndpoint());
         } finally {
             try {
                 if (started != null) {
-                    started.service().stopExpirationScheduling();
+                    started.buffer().seal();
                     scheduler.shutdown();
                     assertThat(scheduler.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
                     try { started.server().stop(); }

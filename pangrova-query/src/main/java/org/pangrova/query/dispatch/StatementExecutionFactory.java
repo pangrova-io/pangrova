@@ -24,6 +24,11 @@ public interface StatementExecutionFactory<T extends Statement> {
         return CompletableFuture.completedFuture(execute(statement, context));
     }
 
+    /** Whether work or result publication remains owned by this Coordinator after dispatch. */
+    default boolean usesCoordinatorStatementAuthority(T statement) {
+        return true;
+    }
+
     /** Returns the concrete statement classes this factory handles. */
     Set<Class<? extends T>> supportedTypes();
 }

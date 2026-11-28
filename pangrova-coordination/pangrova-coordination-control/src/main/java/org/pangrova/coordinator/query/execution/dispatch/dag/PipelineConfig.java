@@ -5,36 +5,31 @@ package org.pangrova.coordinator.query.execution.dispatch.dag;
  *
  * @param enabled             whether pipeline scheduling is active (upstream RUNNING → schedule downstream)
  * @param maxConcurrentStages maximum concurrent RUNNING stages (0 = unlimited)
- * @param commitNotificationTimeoutMs timeout for upstream commit notifications to Workers
+ * @param localShuffle whether the entire query uses Worker-local shuffle
  */
 public record PipelineConfig(
         boolean enabled,
         int maxConcurrentStages,
-        long commitNotificationTimeoutMs,
         boolean localShuffle
 ) {
     /** Pipeline disabled: barrier-only scheduling (current behavior). */
-    public static final PipelineConfig DISABLED = new PipelineConfig(false, 0, 5000);
+    public static final PipelineConfig DISABLED = new PipelineConfig(false, 0);
 
     /** Disk segments are consumed only after each producer stage finishes on the selected Worker. */
-    public static final PipelineConfig LOCAL = new PipelineConfig(false, 0, 5000, true);
+    public static final PipelineConfig LOCAL = new PipelineConfig(false, 0, true);
 
-    public PipelineConfig(boolean enabled, int maxConcurrentStages, long commitNotificationTimeoutMs) {
-        this(enabled, maxConcurrentStages, commitNotificationTimeoutMs, false);
+    public PipelineConfig(boolean enabled, int maxConcurrentStages) {
+        this(enabled, maxConcurrentStages, false);
     }
 
-    /** Pipeline enabled with defaults: unlimited concurrent stages, 5s commit timeout. */
-    public static final PipelineConfig ENABLED = new PipelineConfig(true, 0, 5000);
+    /** Pipeline enabled with defaults: unlimited concurrent stages. */
+    public static final PipelineConfig ENABLED = new PipelineConfig(true, 0);
 
     public PipelineConfig {
         if (localShuffle && enabled) throw new IllegalArgumentException("Local shuffle requires blocking stages");
         if (maxConcurrentStages < 0) {
             throw new IllegalArgumentException(
                     "maxConcurrentStages must be non-negative, got: " + maxConcurrentStages);
-        }
-        if (commitNotificationTimeoutMs <= 0) {
-            throw new IllegalArgumentException(
-                    "commitNotificationTimeoutMs must be positive, got: " + commitNotificationTimeoutMs);
         }
     }
 }

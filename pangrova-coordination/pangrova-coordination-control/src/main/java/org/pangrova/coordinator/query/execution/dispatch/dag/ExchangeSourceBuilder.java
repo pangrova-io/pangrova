@@ -5,23 +5,26 @@ import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.execution.task.StageDispatchRecord;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
 import com.google.protobuf.ByteString;
 import java.util.HexFormat;
+import org.pangrova.coordinator.query.stage.ShuffleInputLayout.Consumer;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.planner.api.adaptive.PartitionGroup;
 import org.pangrova.protocol.v2.DirectExchangeInput;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.protocol.v2.ShuffleServiceEndpoint;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;
 
 /** Freezes an admitted producer cohort before binding individual consumer partitions. */
 final class ExchangeSourceBuilder {
@@ -55,16 +58,18 @@ final class ExchangeSourceBuilder {
         List<PartitionInput> inputs = new ArrayList<>();
         Set<Integer> upstreamIds = Set.copyOf(upstreamIdList);
         Stage consumer = dag.findStage(stage.stageId());
-        List<PartitionGroup> grouped = consumer == null ? List.of() : consumer.coalescedInputRanges();
-        for (StageEdge edge : dag.stageEdges()) {
-            if (edge.downstreamStageId() != stage.stageId()
-                    || !upstreamIds.contains(edge.upstreamStageId())) {
+        List<Consumer> layout = consumer == null ? List.of() : consumer.shuffleInputs().consumers();
+        for (StageEdge edge : dag.incomingEdges(stage.stageId())) {
+            if (!upstreamIds.contains(edge.upstreamStageId())) {
                 continue;
             }
             Stage upstream = dag.findStage(edge.upstreamStageId());
             if (upstream != null && upstream.shuffleHandle() != null) {
-                inputs.add(externalInput(upstream.publishedShuffle(), edge, grouped));
+                inputs.add(externalInput(upstream.publishedShuffle(), edge, layout));
             } else {
+                if (!layout.isEmpty()) {
+                    throw new IllegalStateException("Adaptive consumer requires its published Shuffle inputs");
+                }
                 if (stage.stagePlan().mode() == StagePlanMode.DURABLE_REPLAY) {
                     throw new IllegalStateException("Durable exchange has no persisted external shuffle allocation: "
                             + edge.exchangeId());
@@ -158,7 +163,7 @@ final class ExchangeSourceBuilder {
     }
 
     private static PartitionInput externalInput(Stage.PublishedShuffle published, StageEdge edge,
-            List<PartitionGroup> grouped) {
+            List<Consumer> layout) {
         var receipt = published.receipt();
         var handle = published.handle();
         handle.validatePartitionCoverage(edge.partitionCount());
@@ -199,23 +204,44 @@ final class ExchangeSourceBuilder {
                 .setReadMode(protocolReadMode(edge))
                 .setExternal(external)
                 .build();
-        return (partitionId, worker) -> {
-            int start = grouped.isEmpty() ? partitionId : grouped.get(partitionId).startInclusive();
-            int end = grouped.isEmpty() ? partitionId + 1 : grouped.get(partitionId).endExclusive();
-            var binding = shared.getExternal().toBuilder().setSourcePartitionStart(start);
-            for (int id = start; id < end; id++) {
-                var partition = receipt.partitions().get(id);
-                if (partition == null) {
-                    throw new IllegalArgumentException("Partition outside published shuffle: " + id);
+        if (layout.isEmpty()) {
+            return (partitionId, worker) -> shared.toBuilder().setExternal(shared.getExternal().toBuilder()
+                    .setSourcePartitionStart(partitionId)
+                    .addPublications(wholePartition(receipt.partitions().get(partitionId)))).build();
+        }
+        var whole = new HashMap<Integer, ShufflePartitionPublication>();
+        var ranges = new HashMap<ReadRange, ShufflePartitionPublication>();
+        var bound = new ArrayList<ExchangeInputBinding>(layout.size());
+        for (var consumer : layout) {
+            var group = consumer.partitions();
+            var binding = shared.getExternal().toBuilder().setSourcePartitionStart(group.startInclusive());
+            var range = consumer.ranges().get(edge.exchangeId());
+            if (range != null) {
+                binding.addPublications(ranges.computeIfAbsent(range, ExchangeSourceBuilder::certifiedRange));
+            } else {
+                for (int id = group.startInclusive(); id < group.endExclusive(); id++) {
+                    binding.addPublications(whole.computeIfAbsent(
+                            id, key -> wholePartition(receipt.partitions().get(key))));
                 }
-                binding.addPublications(ShufflePartitionPublication.newBuilder()
-                        .setLastSequence(partition.lastSequence())
-                        .setTotalBytes(partition.bytes())
-                        .setTotalRows(partition.rows())
-                        .setManifestSha256(ByteString.copyFrom(HexFormat.of().parseHex(partition.manifestSha256()))));
             }
-            return shared.toBuilder().setExternal(binding).build();
-        };
+            bound.add(shared.toBuilder().setExternal(binding).build());
+        }
+        List<ExchangeInputBinding> frozen = List.copyOf(bound);
+        return (partitionId, worker) -> frozen.get(partitionId);
+    }
+
+    private static ShufflePartitionPublication wholePartition(Partition partition) {
+        if (partition == null) throw new IllegalArgumentException("Partition outside published Shuffle");
+        return ShufflePartitionPublication.newBuilder().setLastSequence(partition.lastSequence())
+                .setTotalBytes(partition.bytes()).setTotalRows(partition.rows())
+                .setManifestSha256(ByteString.copyFrom(HexFormat.of().parseHex(partition.manifestSha256()))).build();
+    }
+
+    private static ShufflePartitionPublication certifiedRange(ReadRange range) {
+        return ShufflePartitionPublication.newBuilder().setStartSequence(range.startSequence())
+                .setLastSequence(range.endSequenceExclusive() - 1)
+                .setTotalBytes(range.bytes()).setTotalRows(range.rows())
+                .setManifestSha256(ByteString.copyFrom(HexFormat.of().parseHex(range.manifestSha256()))).build();
     }
 
     private static org.pangrova.protocol.v2.ExchangeReadMode protocolReadMode(

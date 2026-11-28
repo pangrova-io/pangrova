@@ -1,5 +1,8 @@
 package org.pangrova.connector.iceberg.handle;
 
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.util.PropertyUtil;
+
 import java.util.Map;
 import java.util.Optional;
 
@@ -86,6 +89,11 @@ public record IcebergTableHandle(
         readMode = readMode == null ? READ_MODE_FULL : readMode;
     }
 
+    /** Returns the scan range target captured with the table declaration. */
+    public long targetScanRangeBytes() {
+        return PropertyUtil.propertyAsLong(properties, TableProperties.SPLIT_SIZE, TableProperties.SPLIT_SIZE_DEFAULT);
+    }
+
     @Override
     public org.pangrova.connector.api.metadata.table.TableCapabilities capabilities() {
         return CAPABILITIES;
@@ -128,7 +136,7 @@ public record IcebergTableHandle(
     public IcebergTableHandle withIncrementalRead(long startSnapshotId, long endSnapshotId) {
         return new IcebergTableHandle(
                 schemaName, tableName, tableLocation,
-                Optional.empty(), schemaJson, partitionSpecJson,
+                Optional.of(endSnapshotId), schemaJson, partitionSpecJson,
                 formatVersion, selectorProperties(),
                 READ_MODE_INCREMENTAL, startSnapshotId, endSnapshotId, pushedLimit);
     }

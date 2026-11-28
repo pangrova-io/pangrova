@@ -2,6 +2,7 @@ package org.pangrova.connector.paimon.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.batch.api.reader.ReadableBatch;
 import org.pangrova.connector.api.data.ColumnarPageSink;
 import org.pangrova.connector.api.exception.ConnectorException;
@@ -16,14 +17,11 @@ import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.CommitMessage;
-import org.apache.paimon.table.sink.CommitMessageSerializer;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.RowKind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.List;
 
 /**
@@ -44,8 +42,8 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
     private final BatchTableWrite tableWrite;
     private final BatchTableCommit tableCommit;
     private final PaimonRowConverter rowConverter;
-    private final String schemaName;
-    private final String tableName;
+    private final FileStoreTable table;
+    private final PaimonOutputTableHandle output;
     private final boolean dynamicBucket;
     private boolean finished;
     private boolean aborted;
@@ -60,9 +58,9 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
         this.tableWrite = context.writeBuilder().newWrite();
         this.tableWrite.withIOManager(ioManager);
         this.tableCommit = context.writeBuilder().newCommit();
-        this.rowConverter = context.rowConverter();
-        this.schemaName = context.schemaName();
-        this.tableName = context.tableName();
+        this.table = context.table();
+        this.output = context.output();
+        this.rowConverter = new PaimonRowConverter(table.rowType());
         this.dynamicBucket = context.dynamicBucket();
     }
 
@@ -173,7 +171,8 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
             resource.close();
         } catch (Exception failure) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Failed to close Paimon " + name + " for " + schemaName + "." + tableName, failure);
+                    "Failed to close Paimon " + name + " for " + output.schemaName() + "." + output.tableName(),
+                    failure);
         }
     }
 
@@ -208,37 +207,10 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
             List<CommitMessage> messages = tableWrite.prepareCommit();
             LOG.debug("event=paimon_write_prepared messageCount={} sinkType={}",
                     messages.size(), getClass().getSimpleName());
-            return serializeCommitMessages(messages);
+            return PaimonSdkWriteFragment.encode(table, output, commitEventType(), messages);
         } catch (Exception e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Failed to prepare Paimon commit metadata", e);
-        }
-    }
-
-    /**
-     * Serializes Paimon CommitMessage objects using Paimon's native
-     * {@link CommitMessageSerializer}. The binary format is:
-     * {@code [version:int][operation:utf][schema:utf][table:utf][count:int][msg_len:int][msg_bytes]...}
-     */
-    private byte[] serializeCommitMessages(List<CommitMessage> messages) {
-        CommitMessageSerializer serializer = new CommitMessageSerializer();
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             DataOutputStream out = new DataOutputStream(baos)) {
-            out.writeInt(serializer.getVersion());
-            out.writeUTF(commitEventType().name());
-            out.writeUTF(schemaName);
-            out.writeUTF(tableName);
-            out.writeInt(messages.size());
-            for (CommitMessage msg : messages) {
-                byte[] msgBytes = serializer.serialize(msg);
-                out.writeInt(msgBytes.length);
-                out.write(msgBytes);
-            }
-            out.flush();
-            return baos.toByteArray();
-        } catch (IOException e) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Failed to serialize Paimon commit messages", e);
         }
     }
 

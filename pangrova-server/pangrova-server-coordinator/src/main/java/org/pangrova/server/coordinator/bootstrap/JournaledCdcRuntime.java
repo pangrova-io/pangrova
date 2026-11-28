@@ -16,6 +16,8 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
@@ -23,13 +25,12 @@ import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
-import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
+import org.pangrova.persistence.streaming.postgresql.JdbcRunningStreamFeed;
 import org.pangrova.persistence.streaming.postgresql.JdbcStreamOffsetStore;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.streaming.api.source.CdcSourceReader;
-import org.pangrova.streaming.api.commit.SourceId;
 import org.pangrova.streaming.coordinator.CdcSourceRegistry;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.slf4j.Logger;
@@ -44,6 +45,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -67,8 +69,8 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private static final long SHUTDOWN_TIMEOUT_MS = 30_000L;
 
     private final StreamStateStore stateStore;
+    private final JdbcRunningStreamFeed runningStreams;
     private final JdbcStreamOffsetStore offsetStore;
-    private final JdbcCdcCommitStateStore legacyCommits;
     private final CdcSourceRegistry sources;
     private final CatalogRegistry catalogRegistry;
     private final WriteCommitJournal journal;
@@ -77,10 +79,11 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private final LocalCdcBatchExecutor local;
     private final org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
     private final String coordinatorId;
-    private final java.util.function.LongSupplier maintenanceEpoch;
+    private final MaintenanceLeadershipBootstrap maintenanceLeadership;
     private final ScheduledExecutorService reconciler;
     private final ExecutorService streams;
     private final Set<String> activeStreams = ConcurrentHashMap.newKeySet();
+    private final ConcurrentMap<String, IdleCheckpoint> idleCheckpoints = new ConcurrentHashMap<>();
     private final AtomicBoolean leaderActive = new AtomicBoolean();
     private final java.util.concurrent.atomic.AtomicBoolean closed = new AtomicBoolean();
 
@@ -91,10 +94,10 @@ final class JournaledCdcRuntime implements AutoCloseable {
             org.pangrova.query.api.write.WriteAuthorityResolver authorityResolver,
             org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority,
             WorkerDispatch workers, LocalCdcBatchExecutor local,
-            java.util.function.LongSupplier maintenanceEpoch) {
+            MaintenanceLeadershipBootstrap maintenanceLeadership, JdbcRunningStreamFeed runningStreams) {
+        this.runningStreams = java.util.Objects.requireNonNull(runningStreams, "runningStreams");
         this.stateStore = java.util.Objects.requireNonNull(streaming.stateStore(), "stateStore");
         this.offsetStore = java.util.Objects.requireNonNull(streaming.offsetStore(), "offsetStore");
-        this.legacyCommits = java.util.Objects.requireNonNull(streaming.legacyCommitStore(), "legacyCommitStore");
         this.sources = java.util.Objects.requireNonNull(streaming.sourceRegistry(), "sources");
         this.catalogRegistry = java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry");
         this.journal = java.util.Objects.requireNonNull(journal, "journal");
@@ -106,7 +109,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
         }
         this.workers = workers;
         this.local = local;
-        this.maintenanceEpoch = java.util.Objects.requireNonNull(maintenanceEpoch, "maintenanceEpoch");
+        this.maintenanceLeadership = java.util.Objects.requireNonNull(maintenanceLeadership, "maintenanceLeadership");
         this.reconciler = Executors.newSingleThreadScheduledExecutor(
                 runnable -> new Thread(runnable, "cdc-worker-reconciler"));
         this.streams = Executors.newFixedThreadPool(4,
@@ -114,31 +117,42 @@ final class JournaledCdcRuntime implements AutoCloseable {
     }
 
     record WorkerDispatch(HighAvailabilityCoordinationService coordination,
-                          WorkerCdcTaskDispatcher dispatcher, CdcTaskCompletionRegistry completions) {
+                          WorkerCdcTaskDispatcher dispatcher, CdcTaskCompletionRegistry completions,
+                          java.util.function.Consumer<String> purgeTaskJournal) {
         WorkerDispatch(HighAvailabilityCoordinationService coordination, TaskDispatcher dispatcher,
-                WorkerSelector selector, CoordinatorTaskTracker tracker, TaskStatusReceiver receiver) {
-            this(coordination, new WorkerCdcTaskDispatcher(dispatcher, selector, tracker),
-                    new CdcTaskCompletionRegistry(tracker));
+                WorkerSelector selector, CoordinatorTaskTracker tracker, TaskStatusReceiver receiver,
+                QueryStateJournal taskJournal) {
+            this(coordination, new WorkerCdcTaskDispatcher(
+                    dispatcher, selector, tracker, taskJournal::appendTaskIssuancesSync),
+                    new CdcTaskCompletionRegistry(tracker), taskJournal::purgeQuery);
             receiver.setCdcCompletions(completions);
         }
     }
 
     void start() {
+        runningStreams.start();
         reconciler.scheduleWithFixedDelay(this::reconcileSafely,
                 RECONCILE_INTERVAL_SECONDS, RECONCILE_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
-    void setActive(boolean leader) {
-        leaderActive.set(leader);
+    synchronized void setActive(boolean leader) {
+        if (leader && !closed.get()) {
+            runningStreams.setActive(true);
+            leaderActive.set(true);
+        } else {
+            leaderActive.set(false);
+            runningStreams.setActive(false);
+            idleCheckpoints.clear();
+        }
     }
 
     @Override
     public void close() {
         closed.set(true);
-        leaderActive.set(false);
+        setActive(false);
         reconciler.shutdownNow();
         streams.shutdownNow();
-        ResourceCloser.closeAll(null,
+        ResourceCloser.closeAll(null, runningStreams::close,
                 () -> ExecutorDrain.shutdownAndAwait(reconciler, SHUTDOWN_TIMEOUT_MS),
                 () -> ExecutorDrain.shutdownAndAwait(streams, SHUTDOWN_TIMEOUT_MS));
     }
@@ -146,8 +160,11 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private void reconcileSafely() {
         if (closed.get() || !leaderActive.get()) return;
         try {
-            for (StreamState state : stateStore.listByState(
-                    org.pangrova.streaming.api.enums.StreamLifecycleState.RUNNING)) {
+            long term = maintenanceLeadership.activeEpoch();
+            if (term <= 0) return;
+            var running = runningStreams.snapshot();
+            idleCheckpoints.keySet().retainAll(running.keySet());
+            for (StreamState state : running.values()) {
                 try {
                     if (CdcWriteAuthority.privileges(state).isEmpty()) continue;
                 } catch (RuntimeException invalidStream) {
@@ -158,7 +175,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
                 if (!activeStreams.add(state.streamName())) continue;
                 streams.execute(() -> {
                     try {
-                        executeStream(state);
+                        executeStream(state, term);
                     } catch (RuntimeException | Error failure) {
                         LOG.error("event=cdc_worker_stream_failed stream={}",
                                 state.streamName(), failure);
@@ -172,11 +189,54 @@ final class JournaledCdcRuntime implements AutoCloseable {
         }
     }
 
-    private void executeStream(StreamState state) {
-        long maintenanceTerm = maintenanceEpoch.getAsLong();
-        if (!leaderActive.get() || maintenanceTerm <= 0) return;
+    private void executeStream(StreamState state, long maintenanceTerm) {
+        if (!leaderActive.get() || maintenanceLeadership.activeEpoch() != maintenanceTerm
+                || runningStreams.snapshot().get(state.streamName()) != state) return;
+        var idle = idleCheckpoints.get(state.streamName());
+        if (idle != null && !idle.matches(state, maintenanceTerm)) {
+            idleCheckpoints.remove(state.streamName(), idle);
+            idle = null;
+        }
+        if (idle == null && !holdsMaintenanceTerm(maintenanceTerm)) return;
+
+        try {
+            // A cold or invalidated stream reconciles its journal even when the broker is unavailable.
+            var starts = idle == null ? loadStartOffsets(state, maintenanceTerm) : Map.<TopicPartitionOffset, Long>of();
+            try (var reader = sources.open(state.sourceProvider(), state.checkpointId(), state.sourceProperties())) {
+                var observed = CdcTaskPlanner.SourceOffsets.observe(reader);
+                if (idle != null) {
+                    // The hint can rule out work. A changed source view always reloads durable authority.
+                    if (idle.source().equals(observed)) return;
+                    idleCheckpoints.remove(state.streamName(), idle);
+                    if (!holdsMaintenanceTerm(maintenanceTerm)) return;
+                    starts = loadStartOffsets(state, maintenanceTerm);
+                }
+                executeObservedStream(state, reader, observed, starts, maintenanceTerm);
+            }
+        } catch (RuntimeException | Error failure) {
+            idleCheckpoints.remove(state.streamName());
+            throw failure;
+        }
+    }
+
+    private boolean holdsMaintenanceTerm(long term) {
+        return leaderActive.get() && maintenanceLeadership.verifiedActiveEpoch() == term;
+    }
+
+    private Map<TopicPartitionOffset, Long> loadStartOffsets(StreamState state, long maintenanceTerm) {
         Map<TopicPartitionOffset, Long> starts = new HashMap<>(offsetStore.loadOffsets(state.streamName()));
         recoverCommittedCheckpoint(state, starts, maintenanceTerm);
+        return starts;
+    }
+
+    private void executeObservedStream(StreamState state, CdcSourceReader reader,
+            CdcTaskPlanner.SourceOffsets observed, Map<TopicPartitionOffset, Long> starts, long maintenanceTerm) {
+        if (observed.endOffsets().entrySet().stream()
+                .allMatch(entry -> starts.getOrDefault(entry.getKey(), 0L).equals(entry.getValue()))) {
+            idleCheckpoints.put(state.streamName(), new IdleCheckpoint(
+                    state.tenantId(), state.checkpointId(), state.epoch(), maintenanceTerm, observed));
+            return;
+        }
         var reference = QualifiedTableName.resolve(List.of(state.targetTable().split("\\.")));
         CatalogHandle catalog = catalogRegistry.getCatalog(reference.catalog());
         if (catalog == null) {
@@ -184,34 +244,31 @@ final class JournaledCdcRuntime implements AutoCloseable {
         }
         ConnectorSession session = StreamingBootstrap.sessionFor(state);
         ConnectorMetadata metadata = catalog.getMetadata(session);
-        CdcSourceReader reader = sources.open(state.sourceProvider(), state.checkpointId(),
-                state.sourceProperties());
-        try {
-            List<TopicPartitionOffset> partitions = reader.partitions();
-            Map<TopicPartitionOffset, Long> ends = reader.endOffsets(partitions);
-            boolean hasWork = partitions.stream().anyMatch(partition ->
-                    starts.getOrDefault(partition, 0L) < ends.getOrDefault(partition, 0L));
-            if (!hasWork) return;
+        executeOwnedBatch(state, catalog, session, metadata, reader, starts, observed, maintenanceTerm);
+    }
 
-            executeOwnedBatch(state, catalog, session, metadata, reader, starts, maintenanceTerm);
-        } finally {
-            reader.close();
+    private record IdleCheckpoint(String tenantId, String checkpointId, long streamEpoch, long maintenanceTerm,
+            CdcTaskPlanner.SourceOffsets source) {
+        boolean matches(StreamState state, long term) {
+            return term == maintenanceTerm && state.epoch() == streamEpoch
+                    && state.tenantId().equals(tenantId) && state.checkpointId().equals(checkpointId);
         }
     }
 
     private void executeOwnedBatch(
             StreamState state, CatalogHandle catalog, ConnectorSession session, ConnectorMetadata metadata,
-            CdcSourceReader reader, Map<TopicPartitionOffset, Long> starts, long maintenanceTerm) {
+            CdcSourceReader reader, Map<TopicPartitionOffset, Long> starts,
+            CdcTaskPlanner.SourceOffsets observed, long maintenanceTerm) {
         String executionId = "cdc-" + state.streamName() + "-" + state.epoch() + "-" + UUID.randomUUID();
         ExecutionAnchor anchor = acquire(executionId);
         try {
             long controlEpoch = workers == null ? maintenanceTerm : workers.coordination().getCurrentEpoch();
             var owner = new BatchOwner(anchor, controlEpoch, maintenanceTerm);
             requireCurrentOwner(state, owner);
-            executeBatch(state, catalog, session, metadata, reader, starts, owner);
+            executeBatch(state, catalog, session, metadata, reader, starts, observed, owner);
         } catch (RuntimeException | Error failure) {
             try {
-                if (journal.getEntry(executionId).isPresent()) {
+                if (workers != null || journal.getEntry(executionId).isPresent()) {
                     yieldAnchor(anchor);
                 } else {
                     release(anchor);
@@ -226,7 +283,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
 
     private ExecutionAnchor acquire(String executionId) {
         if (workers == null) {
-            return executionAuthority.acquire(executionId).orElseThrow(() ->
+            return executionAuthority.acquireNew(executionId).orElseThrow(() ->
                     new IllegalStateException("Could not acquire CDC execution ownership: " + executionId));
         }
         if (!workers.coordination().acquireQueryOwnership(executionId, coordinatorId)) {
@@ -248,7 +305,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private void executeBatch(
             StreamState state, CatalogHandle catalog, ConnectorSession session, ConnectorMetadata metadata,
             CdcSourceReader reader, Map<TopicPartitionOffset, Long> starts,
-            BatchOwner owner) {
+            CdcTaskPlanner.SourceOffsets observed, BatchOwner owner) {
         ExecutionAnchor anchor = owner.anchor();
         CdcWriteAuthority.CdcWritePlan writePlan = CdcWriteAuthority.allocate(
                 state, catalog, session, authorityResolver);
@@ -279,90 +336,83 @@ final class JournaledCdcRuntime implements AutoCloseable {
                 .setJvmHeapBytes(256L * 1024 * 1024)
                 .build();
         CdcTaskPlanner.CdcTaskPlan plan = CdcTaskPlanner.plan(
-                state, reader, writePlan, starts, MAX_RECORDS_PER_RANGE, MAX_RECORDS_PER_RANGE, RANGES_PER_TASK,
+                state, observed, writePlan, starts, MAX_RECORDS_PER_RANGE, MAX_RECORDS_PER_RANGE, RANGES_PER_TASK,
                 baseAttempt, security, grant, System.currentTimeMillis() + TASK_TIMEOUT.toMillis(),
                 targetTableUuid, baseSnapshotId);
         if (plan.tasks().isEmpty()) return;
         CdcSourceIdentity source = sourceIdentity(state, plan);
         var publisher = (org.pangrova.coordinator.streaming.CdcWriteCommitCoordinator.Publisher) intent -> {
             requireCurrentOwner(state, owner);
-            metadata.finishDistributedWrite(session, writePlan.outputHandle(),
-                    intent.fragments(), intent.commitContext());
+            var context = metadata.requiresPublicationClaim()
+                    ? journal.publicationContext(intent, anchor.fencingToken())
+                    : intent.commitContext();
+            metadata.finishDistributedWrite(session, writePlan.outputHandle(), intent.fragments(), context);
         };
         var acknowledger = (CdcStreamExecution.OffsetCommitter) (actualSource, endOffsets, fingerprint) -> {
-            requireCurrentOwner(state, owner);
+            requireMaintenanceTerm(state, owner.maintenanceEpoch());
+            requireExecutionOwner(owner);
             offsetStore.acknowledge(state, endOffsets);
         };
         if (local != null) {
             local.execute(state, catalog, session, reader, writePlan, plan, source, anchor,
+                    () -> !leaderActive.get() || maintenanceLeadership.activeEpoch() != owner.maintenanceEpoch(),
                     () -> requireCurrentOwner(state, owner), publisher, acknowledger);
             return;
         }
         CdcStreamExecution execution = new CdcStreamExecution(
                 request -> {
-                    requireCurrentOwner(state, owner);
+                    requireCurrentStream(state, owner.maintenanceEpoch());
+                    if (workers.coordination().getActiveLeaderEpoch() != owner.controlEpoch()) {
+                        throw lostOwner(anchor);
+                    }
                     workers.dispatcher().dispatch(request);
                 }, workers.completions(), journal, publisher, acknowledger,
                 TASK_TIMEOUT);
         execution.execute(plan, writePlan, state, session, source, baseSnapshotId,
                 System.currentTimeMillis(), anchor.ownerId(), anchor.ownerIncarnation(), anchor.fencingToken());
+        workers.purgeTaskJournal().accept(anchor.executionId());
         LOG.info("event=cdc_worker_stream_committed stream={} tasks={}", state.streamName(), plan.tasks().size());
     }
 
     private void recoverCommittedCheckpoint(
             StreamState state, Map<TopicPartitionOffset, Long> offsets, long maintenanceTerm) {
-        var previous = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId());
-        if (previous.isEmpty()) {
-            recoverLegacyCheckpoint(state, offsets, maintenanceTerm);
-            return;
-        }
-        var entry = previous.orElseThrow();
-        if (local != null && entry.state() == org.pangrova.persistence.query.api.enums.WriteCommitState.PENDING) {
-            local.recover(entry, () -> requireCurrentStream(state, maintenanceTerm));
-            entry = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId())
+        var checkpoint = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId())
+                .orElse(null);
+        if (checkpoint == null) return;
+        if (local != null && checkpoint.state() == WriteCommitState.PENDING) {
+            local.recover(checkpoint, () -> requireCurrentStream(state, maintenanceTerm));
+            checkpoint = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId())
                     .orElse(null);
-            if (entry == null) return;
+            if (checkpoint == null) return;
         }
-        if (entry.state() == org.pangrova.persistence.query.api.enums.WriteCommitState.PENDING) {
+        if (checkpoint.state() == WriteCommitState.PENDING) {
             throw new IllegalStateException("CDC publication must be reconciled before admitting another batch: "
-                    + entry.queryId());
+                    + checkpoint.queryId());
         }
         Map<TopicPartitionOffset, Long> recovered = new HashMap<>();
-        for (var range : entry.cdcSource().ranges()) {
+        for (var range : checkpoint.cdcSource().ranges()) {
             var partition = new TopicPartitionOffset(range.topic(), range.partition());
             long saved = recovered.getOrDefault(partition, offsets.getOrDefault(partition, 0L));
             if (saved < range.startOffset()) {
-                throw new IllegalStateException("CDC checkpoint has a gap before " + entry.queryId());
+                throw new IllegalStateException("CDC checkpoint has a gap before " + checkpoint.queryId());
             }
             if (saved < range.endOffset()) recovered.put(partition, range.endOffset());
         }
         if (!recovered.isEmpty()) {
-            requireCurrentStream(state, maintenanceTerm);
+            requireMaintenanceTerm(state, maintenanceTerm);
             offsetStore.acknowledge(state, recovered);
             offsets.putAll(recovered);
-            LOG.info("event=cdc_worker_checkpoint_restored stream={} queryId={}", state.streamName(), entry.queryId());
-        }
-    }
-
-    private void recoverLegacyCheckpoint(
-            StreamState state, Map<TopicPartitionOffset, Long> offsets, long maintenanceTerm) {
-        var source = new SourceId(state.checkpointId());
-        var unresolved = legacyCommits.findInFlight(source);
-        if (!unresolved.isEmpty()) {
-            throw new IllegalStateException("Resolve the previous CDC commit state before resuming stream "
-                    + state.streamName() + ": " + unresolved.get(0).id());
-        }
-        var recovered = new HashMap<>(legacyCommits.findLastCommittedOffsets(source));
-        recovered.entrySet().removeIf(offset -> offset.getValue() <= offsets.getOrDefault(offset.getKey(), 0L));
-        if (!recovered.isEmpty()) {
-            requireCurrentStream(state, maintenanceTerm);
-            offsetStore.acknowledge(state, recovered);
-            offsets.putAll(recovered);
+            LOG.info("event=cdc_worker_checkpoint_restored stream={} queryId={}",
+                    state.streamName(), checkpoint.queryId());
         }
     }
 
     private void requireCurrentOwner(StreamState state, BatchOwner owner) {
         requireCurrentStream(state, owner.maintenanceEpoch());
+        requireExecutionOwner(owner);
+    }
+
+    private void requireExecutionOwner(BatchOwner owner) {
         ExecutionAnchor anchor = owner.anchor();
         boolean current = workers == null
                 ? executionAuthority.backend().current(anchor.executionId())
@@ -373,20 +423,30 @@ final class JournaledCdcRuntime implements AutoCloseable {
                         && workers.coordination().validateDurableExecutionToken(
                                 anchor.executionId(), anchor.fencingToken());
         if (owner.controlEpoch() <= 0 || !current) {
-            throw new IllegalStateException("CDC execution lost its current owner: " + anchor.executionId());
+            throw lostOwner(anchor);
         }
+    }
+
+    private static IllegalStateException lostOwner(ExecutionAnchor anchor) {
+        return new IllegalStateException("CDC execution lost its current owner: " + anchor.executionId());
     }
 
     private record BatchOwner(ExecutionAnchor anchor, long controlEpoch, long maintenanceEpoch) {}
 
     private void requireCurrentStream(StreamState state, long maintenanceTerm) {
-        if (!leaderActive.get() || maintenanceEpoch.getAsLong() != maintenanceTerm
-                || stateStore.loadState(state.streamName())
+        requireMaintenanceTerm(state, maintenanceTerm);
+        if (stateStore.loadState(state.streamName())
                 .filter(current -> current.tenantId().equals(state.tenantId())
                         && current.checkpointId().equals(state.checkpointId())
                         && current.epoch() == state.epoch()
                         && current.lifecycleState() == state.lifecycleState()).isEmpty()) {
             throw new IllegalStateException("CDC stream changed or lost maintenance leadership: " + state.streamName());
+        }
+    }
+
+    private void requireMaintenanceTerm(StreamState state, long term) {
+        if (!holdsMaintenanceTerm(term)) {
+            throw new IllegalStateException("CDC stream lost maintenance leadership: " + state.streamName());
         }
     }
 

@@ -1,9 +1,12 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.query.api.session.QuerySession;
 
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,13 +26,25 @@ class TimeTravelExtractorTest {
                 (catalog, schema, table, type, name) -> {
                     assertThat(type).isEqualTo("BRANCH");
                     assertThat(name).isEqualTo("dev");
-                    return java.util.OptionalLong.of(9);
+                    return Optional.of(new TimeTravelExtractor.ResolvedReference(9,
+                            new QualifiedTableName(catalog, schema, table), Optional.empty()));
                 });
         assertThat(selected.snapshotOverrides()).containsExactlyEntriesOf(Map.of("catalog.schema.rows", 9L));
         assertThat(TimeTravelExtractor.extract("SELECT id FROM rows FOR VERSION AS OF 12", routed, null)
                 .snapshotOverrides()).containsExactlyEntriesOf(Map.of("catalog.schema.rows", 12L));
         assertThat(TimeTravelExtractor.extract("WITH rows AS (SELECT 1 AS id) SELECT id FROM rows", routed, null)
                 .snapshotOverrides()).isEmpty();
+    }
+
+    @Test
+    void repeatedNamedReferenceUsesOneSnapshotObservation() {
+        var lookups = new AtomicInteger();
+        var result = TimeTravelExtractor.extract("SELECT a.id FROM rows VERSION AS OF TAG 'pinned' a "
+                + "JOIN Catalog.Schema.rows VERSION AS OF TAG 'pinned' b ON a.id = b.id", SESSION,
+                (catalog, schema, table, type, name) -> Optional.of(new TimeTravelExtractor.ResolvedReference(
+                        lookups.incrementAndGet(), new QualifiedTableName(catalog, schema, table), Optional.empty())));
+        assertThat(lookups).hasValue(1);
+        assertThat(result.snapshotOverrides()).containsExactlyEntriesOf(Map.of("catalog.schema.rows", 1L));
     }
 
     @Test

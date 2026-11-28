@@ -101,6 +101,59 @@ TaskExecutorConfig makeShuffleConfig(int32_t num_partitions) {
 
 // --- Shuffle output routes to SerializedShuffleQueue ---
 
+TEST(ShuffleOutputTest, ReportsSignedNarrowBuildKeysFromSerializedShuffle) {
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
+  auto* root = plan.add_relations()->mutable_root();
+  root->add_names("tiny_key");
+  root->add_names("small_key");
+  auto* exchange = root->mutable_input()->mutable_exchange();
+  exchange->set_partition_count(1);
+  exchange->mutable_round_robin();
+  auto* read = exchange->mutable_input()->mutable_read();
+  auto* schema = read->mutable_base_schema();
+  schema->add_names("tiny_key");
+  schema->add_names("small_key");
+  schema->mutable_struct_()->add_types()->mutable_i8()->set_nullability(
+      substrait::Type::NULLABILITY_REQUIRED);
+  schema->mutable_struct_()->add_types()->mutable_i16()->set_nullability(
+      substrait::Type::NULLABILITY_REQUIRED);
+  auto* values = read->mutable_virtual_table();
+  auto add_row = [values](int32_t tiny, int32_t small) {
+    auto* row = values->add_expressions();
+    row->add_fields()->mutable_literal()->set_i8(tiny);
+    row->add_fields()->mutable_literal()->set_i16(small);
+  };
+  add_row(-128, -32768);
+  add_row(-127, 32766);
+  add_row(1, 32767);
+
+  auto config = makeShuffleConfig(1);
+  config.substrait_plan = serialize(plan);
+  config.build_key_ordinals = {0, 1};
+  TaskExecutor exec(config);
+  exec.start();
+  ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
+  ASSERT_EQ(exec.state(), ExecutorState::FINISHED);
+  auto stats = exec.collectTaskStats();
+  ASSERT_TRUE(stats.has_value());
+  ASSERT_EQ(stats->build_key_summaries_size(), 2);
+  const auto& tiny = stats->build_key_summaries(0);
+  const auto& small = stats->build_key_summaries(1);
+  ASSERT_EQ(tiny.ranges_size(), 2);
+  ASSERT_EQ(small.ranges_size(), 2);
+  EXPECT_EQ(tiny.ordinal(), 0);
+  EXPECT_EQ(tiny.ranges(0).minimum(), -128);
+  EXPECT_EQ(tiny.ranges(0).maximum(), -127);
+  EXPECT_EQ(tiny.ranges(1).minimum(), 1);
+  EXPECT_EQ(tiny.ranges(1).maximum(), 1);
+  EXPECT_EQ(small.ordinal(), 1);
+  EXPECT_EQ(small.ranges(0).minimum(), -32768);
+  EXPECT_EQ(small.ranges(0).maximum(), -32768);
+  EXPECT_EQ(small.ranges(1).minimum(), 32766);
+  EXPECT_EQ(small.ranges(1).maximum(), 32767);
+  exec.release();
+}
+
 TEST(ShuffleOutputTest, SerializedQueueOwnsSubmittedBytes) {
   pangrova::shuffle::SerializedShuffleQueue queue(1);
   pangrova::shuffle::ShuffleBatch submitted;

@@ -1,6 +1,10 @@
 package org.pangrova.coordinator.query;
 
+import java.util.function.Predicate;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.query.api.journal.QueryTerminalOutcome;
 import org.pangrova.query.api.exception.IdempotencyConflictException;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
@@ -17,6 +21,7 @@ import java.util.Optional;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +41,11 @@ final class QueryJournalLifecycle
     }
     QueryStateJournal journal() { return journal; }
     @Override public void setOwner(String owner) { coordinatorId = owner; }
-    @Override public void purge(String queryId, QueryStateMachine state) {
+    @Override public Optional<Predicate<ExecutionAnchor>> durableRetirement() {
+        return journal.durableRetirement();
+    }
+
+    @Override public void purgeLocal(String queryId, QueryStateMachine state) {
         if (state.hasJournalOwnership()) journal.purgeQuery(queryId);
     }
 
@@ -47,12 +56,6 @@ final class QueryJournalLifecycle
     @Override public void purgeQuery(String queryId) { journal.purgeQuery(queryId); }
     @Override public void close() { journal.close(); }
     @Override public boolean isDrained() { return journal.isDrained(); }
-    @Override public java.util.List<QueryStateEvent> replayActiveQueries() {
-        return journal.replayActiveQueries();
-    }
-    @Override public java.util.List<TaskStateEvent> replayActiveTasks() {
-        return journal.replayActiveTasks();
-    }
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         return journal.latestQueryEvent(queryId);
     }
@@ -64,18 +67,22 @@ final class QueryJournalLifecycle
     }
 
     @Override
-    public void queued(String queryId, String sql, QuerySession session, QueryStateMachine state) {
+    public void queued(String queryId, String sql, QuerySession session, QueryStateMachine state,
+            ExecutionAnchor anchor) {
         QueryStateEvent fact = state.journalEvent(QueryState.QUEUED,
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                         System.currentTimeMillis(), coordinatorId), queryId, sql,
                         org.pangrova.query.api.session.JournalSessionPayload.encode(session),
                         QueryState.QUEUED.name(), state.lineageStart()));
-        record(state, () -> journal.appendQueryEventSync(fact));
+        record(state, () -> {
+            if (anchor == null) journal.appendQueryEventSync(fact);
+            else journal.appendFencedAdmissionSync(fact, anchor);
+        });
     }
 
     @Override
     public QueryAcceptanceAdmission accept(String queryId, String sql, QuerySession session,
-            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs) {
+            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs, ExecutionAnchor anchor) {
         var acceptance = QueryAcceptance.pending(request, queryId, retentionMs);
         QueryStateEvent fact = state.journalEvent(QueryState.QUEUED,
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
@@ -83,11 +90,13 @@ final class QueryJournalLifecycle
                         org.pangrova.query.api.session.JournalSessionPayload.encode(session),
                         QueryState.QUEUED.name(), state.lineageStart(), acceptance));
         try {
-            var admission = journal.acceptQuerySync(fact);
+            var admission = anchor == null
+                    ? journal.acceptQuerySync(fact) : journal.acceptFencedQuerySync(fact, anchor);
             if (admission.newExecution()) state.retainJournalOwnership();
             return admission;
         } catch (JournalWriteException failure) {
             if (failure.admissionOutcome() == JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED) {
+                if (anchor != null) return reconcileFencedAdmission(fact, anchor, state, failure);
                 Optional<QueryAcceptance> existing;
                 try {
                     existing = journal.findAcceptance(request.principal(), request.idempotencyKeyDigest());
@@ -108,6 +117,22 @@ final class QueryJournalLifecycle
             }
             if (isUniqueConflict(failure)) throw new IdempotencyConflictException();
             throw failure;
+        }
+    }
+
+    private QueryAcceptanceAdmission reconcileFencedAdmission(QueryStateEvent fact, ExecutionAnchor anchor,
+            QueryStateMachine state, JournalWriteException original) {
+        try {
+            var admission = journal.acceptFencedQuerySync(fact, anchor);
+            if (admission.newExecution()) state.retainJournalOwnership();
+            return admission;
+        } catch (JournalWriteException reconciled) {
+            if (reconciled != original) reconciled.addSuppressed(original);
+            if (isUniqueConflict(reconciled)) throw new IdempotencyConflictException();
+            if (reconciled.admissionOutcome() == JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED) {
+                state.retainJournalOwnership();
+            }
+            throw reconciled;
         }
     }
 
@@ -136,27 +161,32 @@ final class QueryJournalLifecycle
             if (audit != null) audit.persistTerminalLineage(context.queryId(), context.state());
             return;
         }
-        journal.appendQueryEventSync(context.state().journalEvent(context.state().getState(),
+        var state = context.state();
+        var grant = state.journalGrant();
+        var terminal = state.getState();
+        var fact = state.journalEvent(terminal,
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
-                        System.currentTimeMillis(), coordinatorId), context.queryId(), null, null,
-                        context.state().getState().name(), audit == null ? null
-                                : audit.terminalFact(context.queryId(), context.state(), context.state().getState()))));
+                        System.currentTimeMillis(), grant == null ? coordinatorId : grant.ownerId()),
+                        context.queryId(), null, null, terminal.name(), audit == null ? null
+                                : audit.terminalFact(context.queryId(), state, terminal),
+                        null, grant == null ? null : terminalOutcome(state.status())));
+        if (grant == null) journal.appendQueryEventSync(fact);
+        else journal.appendOwnedTerminalSync(fact, grant);
+    }
+
+    private static QueryTerminalOutcome terminalOutcome(QueryStateMachine.Status status) {
+        var disposition = status.state() == QueryState.FINISHED
+                && status.disposition() == ResultDisposition.STREAM
+                ? ResultDisposition.UNAVAILABLE
+                : ResultDisposition.NONE;
+        var error = status.state() == QueryState.FAILED ? status.error() : null;
+        return new QueryTerminalOutcome(disposition, error == null ? null
+                : new QueryFailure(error.errorCode(), error.errorType(), error.message()), status.branchSelection());
     }
 
     @Override
-    public void registerListener(String queryId, QueryStateMachine state) {
-        state.setTransitionRecorder((previous, current) -> {
-            if (!state.hasJournalOwnership()) return;
-            if (current == QueryState.PLANNING || current == QueryState.SCHEDULING
-                    || current == QueryState.RUNNING || current == QueryState.FINISHING
-                    || current == QueryState.CANCELLED) {
-                journal.appendQueryEvent(state.journalEvent(current,
-                        () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
-                                System.currentTimeMillis(), coordinatorId), queryId, null, null, current.name(),
-                                current == QueryState.CANCELLED && audit != null
-                                        ? audit.terminalFact(queryId, state, current) : null)));
-            }
-        });
+    public Optional<ReceiptRecovery> recoverReceipt(String queryId, String principal, String ticket) {
+        return journal.recoverReceipt(queryId, principal, ticket);
     }
 
     private static void record(QueryStateMachine state, Runnable append) {

@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.scheduler.placement;
 
+import java.util.List;
+import java.util.Map;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
+
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.v2.StageResourceGrant;
 
@@ -83,6 +87,13 @@ public interface WorkerSelector {
                     "Selected Worker does not satisfy the exact task bindings");
         }
         return selected;
+    }
+
+    /** Selects a scan target using the work of partitions already placed in this issuance window. */
+    default WorkerInfo selectScanWorker(String tenantId, List<String> paths,
+            List<org.pangrova.protocol.v2.OperatorBinding> bindings, long scanWork,
+            Map<WorkerExecutionIdentity, Double> windowWork) {
+        return selectForBindings(tenantId, paths, bindings);
     }
 
     /**

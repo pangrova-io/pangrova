@@ -1,6 +1,8 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
 import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
@@ -10,8 +12,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PangrovaPartitionReadTest {
-    private static final org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition EMPTY =
-            new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(-1, 0, 0, "00".repeat(32));
+    private static final ShufflePartitionPublication EMPTY = ShufflePartitionPublication.newBuilder()
+            .setLastSequence(-1).setTotalBytes(0).setTotalRows(0)
+            .setManifestSha256(ByteString.copyFrom(new byte[32])).build();
 
     @Test
     void publicationChecksumIsImmutableAndHasContentEquality() {

@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -181,8 +182,7 @@ class ResilienceChainTest extends org.pangrova.server.coordinator.testinfra.Sign
         assertThat(bootstrap.getHttpPort()).isGreaterThan(0);
 
         HttpResponse<String> resp = submitQuery(bootstrap.getHttpPort(), "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(bootstrap.getQueryManager(), resp);
     }
 
     /**

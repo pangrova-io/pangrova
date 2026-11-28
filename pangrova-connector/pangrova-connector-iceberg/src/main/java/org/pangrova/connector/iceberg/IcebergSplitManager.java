@@ -12,6 +12,7 @@ import org.pangrova.connector.iceberg.handle.IcebergFileTableSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorSplitManager;
@@ -57,7 +58,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
     private final QuerySnapshotRegistry snapshotRegistry;
     private final IcebergTaskToSplit taskToSplit;
 
-    /** Caches small completed scans by table, snapshot, source identity and selected schema. */
+    /** Caches small completed scans by table, snapshot, source identity, selected schema and range target. */
     private final Cache<String, List<ConnectorSplit>> manifestCache;
 
     public IcebergSplitManager(String catalogName, Catalog catalog,
@@ -125,55 +126,33 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         IcebergTableHandle icebergTable = (IcebergTableHandle) table;
         Table icebergSdkTable = resolveTable(icebergTable);
         IcebergReadBindings.validateSelected(icebergSdkTable, icebergTable);
-        return planBoundSplits(session, icebergTable, icebergSdkTable, constraint);
+        return planBoundSplits(session, icebergTable, icebergSdkTable, constraint, null);
     }
 
     @Override
     public ConnectorSplitSource getBoundSplits(ConnectorTransactionHandle transaction,
             ConnectorSession session, ConnectorMetadata metadata, ConnectorReadBinding binding,
-            DynamicFilter dynamicFilter, Constraint constraint) {
+            DynamicFilter dynamicFilter, Constraint constraint, SplitPlanningBudget budget) {
+        budget.check(0);
         if (binding.state() == org.pangrova.connector.api.enums.ReadSnapshotState.EMPTY
                 || !(binding.handle() instanceof IcebergTableHandle handle)) {
             return ConnectorSplitManager.super.getBoundSplits(
-                    transaction, session, metadata, binding, dynamicFilter, constraint);
+                    transaction, session, metadata, binding, dynamicFilter, constraint, budget);
         }
         Table table = IcebergCatalogTables.resolveTable(catalog, handle);
         IcebergReadBindings.validate(table, handle, binding);
-        return planBoundSplits(session, handle, table, constraint);
+        return planBoundSplits(session, handle, table, constraint, budget);
     }
 
     private ConnectorSplitSource planBoundSplits(ConnectorSession session, IcebergTableHandle handle,
-            Table table, Constraint constraint) {
+            Table table, Constraint constraint, SplitPlanningBudget budget) {
         return switch (handle.readMode()) {
             case IcebergTableHandle.READ_MODE_INCREMENTAL ->
-                    planIncrementalSplits(table, handle, constraint);
+                    planIncrementalSplits(table, handle, constraint, session, budget);
             case IcebergTableHandle.READ_MODE_TIME_TRAVEL ->
-                    planTimeTravelSplits(table, handle, constraint);
-            default -> planFullSplits(table, handle, constraint, session);
+                    planTimeTravelSplits(table, handle, constraint, budget);
+            default -> planFullSplits(table, handle, constraint, session, budget);
         };
-    }
-
-    /**
-     * Returns only the data files appended between two snapshots using
-     * Iceberg's {@link IncrementalAppendScan} API.
-     *
-     * <p>This enables O(delta) refresh for Dynamic Tables instead of
-     * scanning the entire table on every refresh cycle.</p>
-     */
-    @Override
-    public ConnectorSplitSource getIncrementalSplits(
-            ConnectorSession session,
-            ConnectorTableHandle table,
-            long fromSnapshotId,
-            long toSnapshotId,
-            Constraint constraint) {
-        IcebergTableHandle icebergTable = (IcebergTableHandle) table;
-        Table icebergSdkTable = resolveTable(icebergTable);
-        validateSnapshotRange(fromSnapshotId, toSnapshotId);
-        String tableName = sourceId(icebergTable);
-        LOG.debug("event=incremental_splits_start table={}.{} from_snapshot={} to_snapshot={}",
-                icebergTable.schemaName(), tableName, fromSnapshotId, toSnapshotId);
-        return scanIncrementalFiles(icebergSdkTable, tableName, fromSnapshotId, toSnapshotId, constraint);
     }
 
     /**
@@ -200,20 +179,22 @@ public class IcebergSplitManager implements ConnectorSplitManager {
      */
     private ConnectorSplitSource planFullSplits(
             Table table, IcebergTableHandle handle, Constraint constraint,
-            ConnectorSession session) {
+            ConnectorSession session, SplitPlanningBudget budget) {
         Snapshot snapshot = resolveSnapshotWithPin(table, handle, session);
         if (snapshot == null) return new FixedSplitSource(List.of());
         long snapshotId = snapshot.snapshotId();
         boolean cacheable = constraint == null || constraint == Constraint.EMPTY || constraint.getDomains().isEmpty();
         Schema readSchema = IcebergReadSchema.scanSchema(handle, table);
         String tableName = sourceId(handle);
-        String cacheKey = cacheable ? tableName + "|" + snapshotId + "|"
+        long targetSize = rangeTargetSize(handle, budget);
+        String cacheKey = cacheable ? tableName + "|" + snapshotId + "|" + targetSize + "|"
                 + org.pangrova.common.util.DigestUtils.sha256Hex(
                         handle.properties().getOrDefault(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY, "")
                                 + org.apache.iceberg.SchemaParser.toJson(readSchema)) : null;
         if (cacheKey != null) {
             List<ConnectorSplit> cached = manifestCache.getIfPresent(cacheKey);
             if (cached != null) {
+                if (budget != null) budget.check(cached.size());
                 LOG.debug("event=manifest_cache_hit table={} snapshot={} splits={}",
                         tableName, snapshotId, cached.size());
                 return new FixedSplitSource(cached);
@@ -223,8 +204,13 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         List<ColumnMapping> columnMappings = IcebergTaskToSplit.computeColumnMappings(table, readSchema);
         return new IcebergSplitSource(table.name(), scan::planFiles,
                 task -> taskToSplit.convert(task, tableName, "FULL", snapshotId, 0L, 0L, readSchema, columnMappings),
-                MAX_CACHED_SPLITS_PER_SCAN,
+                budget, targetSize, MAX_CACHED_SPLITS_PER_SCAN,
                 cacheKey == null ? null : completed -> manifestCache.put(cacheKey, completed));
+    }
+
+    private static long rangeTargetSize(IcebergTableHandle handle, SplitPlanningBudget budget) {
+        return budget != null && budget.fileGranularity() == SplitPlanningBudget.FileGranularity.BYTE_RANGES
+                ? handle.targetScanRangeBytes() : 0;
     }
 
     /**
@@ -301,48 +287,55 @@ public class IcebergSplitManager implements ConnectorSplitManager {
      *
      * <p>Validates: Requirements R7.1</p>
      */
-    private ConnectorSplitSource planIncrementalSplits(
-            Table table, IcebergTableHandle handle, Constraint constraint) {
+    private ConnectorSplitSource planIncrementalSplits(Table table, IcebergTableHandle handle,
+            Constraint constraint, ConnectorSession session, SplitPlanningBudget budget) {
         long fromSnapshot = handle.fromSnapshotId();
         long toSnapshot = handle.toSnapshotId();
-        validateSnapshotRange(fromSnapshot, toSnapshot);
+        Snapshot target = table.snapshot(toSnapshot);
+        Snapshot base = requireAppendChain(table, target, fromSnapshot);
+        if (fromSnapshot == toSnapshot) return new FixedSplitSource(List.of());
+        pinIfQueryPresent(session, handle, target);
         String tableName = sourceId(handle);
         LOG.debug("event=incremental_scan_start table={}.{} from_snapshot={} to_snapshot={}",
                 handle.schemaName(), handle.tableName(), fromSnapshot, toSnapshot);
 
-        return scanIncrementalFiles(table, tableName, fromSnapshot, toSnapshot, constraint);
+        return scanIncrementalFiles(table, handle, tableName, base, toSnapshot, constraint, budget);
     }
 
-    private static void validateSnapshotRange(long from, long to) {
-        if (from <= 0 || to <= 0) {
-            throw new IllegalArgumentException(
-                    "Incremental read requires valid fromSnapshotId and toSnapshotId, got from="
-                            + from + " to=" + to);
+    private static Snapshot requireAppendChain(Table table, Snapshot target, long from) {
+        Snapshot current = target;
+        while (current != null && current.snapshotId() != from) {
+            if (!org.apache.iceberg.DataOperations.APPEND.equals(current.operation())) {
+                throw new IllegalArgumentException("Iceberg changes require an append-only snapshot range");
+            }
+            Long parent = current.parentId();
+            current = parent == null ? null : table.snapshot(parent);
         }
+        if (current == null) throw new IllegalArgumentException("Iceberg base snapshot is not a retained ancestor");
+        return current;
     }
 
-    private ConnectorSplitSource scanIncrementalFiles(
-            Table table, String qualifiedTableName, long fromSnapshot, long toSnapshot,
-            Constraint constraint) {
+    private ConnectorSplitSource scanIncrementalFiles(Table table, IcebergTableHandle handle,
+            String qualifiedTableName, Snapshot base, long toSnapshot,
+            Constraint constraint, SplitPlanningBudget budget) {
         // Get fromSnapshot's sequence number for defensive filtering.
         // In format v2, each data file carries a dataSequenceNumber; files with
         // sequence <= fromSnapshot's sequence existed at or before fromSnapshot
         // and must be excluded from incremental results.
-        Snapshot fromSnap = table.snapshot(fromSnapshot);
-        long fromSequenceNumber = (fromSnap != null) ? fromSnap.sequenceNumber() : 0L;
-        LOG.debug("event=incremental_scan_debug fromSnapshot={} fromSeqNum={} toSnapshot={} fromSnapNull={}",
-                fromSnapshot, fromSequenceNumber, toSnapshot, fromSnap == null);
+        long fromSnapshot = base.snapshotId();
+        long fromSequenceNumber = base.sequenceNumber();
 
         IncrementalAppendScan scan = applyIncrementalConstraintFilter(table.newIncrementalAppendScan()
                 .fromSnapshotExclusive(fromSnapshot).toSnapshot(toSnapshot), constraint);
-        Schema readSchema = table.schema();
+        Schema readSchema = IcebergReadSchema.scanSchema(handle, table);
         var columnMappings = IcebergTaskToSplit.computeColumnMappings(table, readSchema);
         return new IcebergSplitSource(table.name(), () -> CloseableIterable.filter(scan.planFiles(), task -> {
             // Manifest merges may retain entries already present at the start snapshot.
             Long fileSequence = task.file().dataSequenceNumber();
             return fromSequenceNumber <= 0 || fileSequence == null || fileSequence > fromSequenceNumber;
         }), task -> taskToSplit.convert(task, qualifiedTableName, "INCREMENTAL", toSnapshot,
-                fromSnapshot, toSnapshot, readSchema, columnMappings));
+                fromSnapshot, toSnapshot, readSchema, columnMappings),
+                budget, rangeTargetSize(handle, budget), 0, null);
     }
 
     /**
@@ -376,7 +369,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
      * <p>Validates: Requirements R7.3</p>
      */
     private ConnectorSplitSource planTimeTravelSplits(
-            Table table, IcebergTableHandle handle, Constraint constraint) {
+            Table table, IcebergTableHandle handle, Constraint constraint, SplitPlanningBudget budget) {
         long snapshotId = handle.snapshotId()
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Time-travel read requires a snapshotId on the table handle"));
@@ -390,7 +383,8 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         var columnMappings = IcebergTaskToSplit.computeColumnMappings(table, readSchema);
         return new IcebergSplitSource(table.name(), scan::planFiles,
                 task -> taskToSplit.convert(task, tableName, "TIME_TRAVEL", snapshotId,
-                        0L, 0L, readSchema, columnMappings));
+                        0L, 0L, readSchema, columnMappings),
+                budget, rangeTargetSize(handle, budget), 0, null);
     }
 
     private static void validateSnapshotExists(Table table, long snapshotId) {

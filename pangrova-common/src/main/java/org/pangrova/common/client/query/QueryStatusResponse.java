@@ -11,7 +11,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * Immutable response body for querying the status of a submitted query.
  *
  * <p>The version and drain evidence describe the live owner projection.
- * Historical journal state does not carry either fact.
+ * Diagnostic history has neither fact. A recovered terminal receipt has durable drain evidence
+ * and no live version or stream endpoint.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record QueryStatusResponse(
@@ -22,13 +23,14 @@ public record QueryStatusResponse(
     @JsonProperty("result_disposition") ResultDisposition resultDisposition,
     @JsonProperty("result_endpoint") ResultEndpoint resultEndpoint,
     @JsonProperty("version") Long version,
-    @JsonProperty("drained") Boolean drained
+    @JsonProperty("drained") Boolean drained,
+    @JsonProperty("branch_selection") BranchSelection branchSelection
 ) {
     public static final long MAX_WAIT_MILLIS = 5_000;
 
     public QueryStatusResponse(String queryId, String state, ErrorDetail error, QueryStats stats,
                                ResultDisposition resultDisposition, ResultEndpoint resultEndpoint) {
-        this(queryId, state, error, stats, requireLiveDisposition(resultDisposition), resultEndpoint, null, null);
+        this(queryId, state, error, stats, requireLiveDisposition(resultDisposition), resultEndpoint, null, null, null);
     }
 
     /** Compact constructor enforcing the result disposition and endpoint invariant. */
@@ -37,12 +39,23 @@ public record QueryStatusResponse(
             throw new IllegalArgumentException("queryId must not be null or blank");
         }
         state = requireCanonicalState(state);
+        if (branchSelection != null && (!"FINISHED".equals(state) || resultDisposition != ResultDisposition.NONE)) {
+            throw new IllegalArgumentException("Branch selection requires successful resultless completion");
+        }
         if (resultDisposition == null) {
             if (error != null || stats != null || version != null || drained != null || resultEndpoint != null) {
                 throw new IllegalArgumentException("Historical status must contain only query_id and state");
             }
         } else {
             resultDisposition.validateEndpoint(resultEndpoint);
+            boolean recovered = version == null && Boolean.TRUE.equals(drained);
+            if ((recovered && (!isTerminalState(state) || resultEndpoint != null
+                            || resultDisposition == ResultDisposition.PENDING
+                            || (error != null && !"FAILED".equals(state))))
+                    || (resultDisposition == ResultDisposition.UNAVAILABLE && (!recovered || !"FINISHED".equals(state)))
+                    || (version == null && Boolean.FALSE.equals(drained))) {
+                throw new IllegalArgumentException("Recovered status requires a drained terminal outcome");
+            }
             if (resultDisposition == ResultDisposition.PENDING && isTerminalState(state)) {
                 throw new IllegalArgumentException("PENDING must not survive terminal completion");
             }
@@ -57,9 +70,22 @@ public record QueryStatusResponse(
                 requireLiveDisposition(resultDisposition), resultEndpoint);
     }
 
+    /** Returns an immutable outcome after durable physical retirement. */
+    public static QueryStatusResponse recovered(
+            String queryId, String state, ErrorDetail error, ResultDisposition disposition,
+            BranchSelection branchSelection) {
+        return new QueryStatusResponse(queryId, state, error, null,
+                requireLiveDisposition(disposition), null, null, true, branchSelection);
+    }
+
+    /** Whether the response proves durable retirement without a live projection version. */
+    public boolean recovered() {
+        return version == null && Boolean.TRUE.equals(drained);
+    }
+
     /** Factory for durable diagnostic state without live result or drain authority. */
     public static QueryStatusResponse historical(String queryId, String state) {
-        return new QueryStatusResponse(queryId, state, null, null, null, null, null, null);
+        return new QueryStatusResponse(queryId, state, null, null, null, null, null, null, null);
     }
 
     /** Factory for status with statistics and an explicit result disposition. */

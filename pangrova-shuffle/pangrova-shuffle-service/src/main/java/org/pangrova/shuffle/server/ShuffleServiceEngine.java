@@ -25,6 +25,7 @@ import org.pangrova.protocol.v2.shuffle.FinalizeShuffleResponse;
 import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
 import org.pangrova.protocol.v2.shuffle.PartitionFinalizationSummary;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleResponse;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
@@ -41,7 +42,6 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationShape;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.BatchIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CommitCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CommitResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
@@ -168,17 +168,19 @@ final class ShuffleServiceEngine implements AutoCloseable {
         var owner = attempt.getExecutionOwner();
         long startedNanos = System.nanoTime();
         long startedMillis = clock.millis();
+        ReadRange range = request.hasReadRange() ? ShuffleReadRanges.fromProtocol(request.getReadRange()) : null;
         var read = lifecycle.openRead(queryId, owner, request.getShuffleId(),
-                request.getPartitionId(), request.getStartSequence(), readUntil,
+                request.getPartitionId(), request.getStartSequence(), range, readUntil,
                 config.objectStorage().apiCallTimeout().toMillis());
-        return new ReadResult(request.getShuffleId(), read.published(), request.getStartSequence(),
+        return new ReadResult(request.getShuffleId(), read.published(), request.getStartSequence(), range,
                 request.getDeadlineEpochMs(), capabilityExpiry,
                 new ShuffleReadLease(lifecycle, queryId, owner, read.pin(), clock, startedNanos, startedMillis));
     }
 
     List<ReadBatch> readPage(ReadResult result, long offset) {
         requireReadAuthority(result);
-        return result.manifest().page(offset, objects::get, () -> requireReadAuthority(result));
+        return result.manifest().page(offset, result.endSequenceExclusive(), objects::get,
+                () -> requireReadAuthority(result));
     }
 
     byte[] readPayload(ReadResult result, ReadBatch batch) {
@@ -211,15 +213,14 @@ final class ShuffleServiceEngine implements AutoCloseable {
     CleanupResponse cleanup(CleanupRequest request) {
         capabilities.verify(request.getAccessCapability(), CapabilityScope.forQuery(
                 request.getQueryId(), request.getExecutionOwner()), clock.millis());
-        var plan = cleanup.cleanup(
-                new CleanupCommand(request.getQueryId(), request.getExecutionOwner()));
-        if (plan.isEmpty()) {
-            return CleanupResponse.getDefaultInstance();
-        }
-        CleanupPlan claimed = plan.orElseThrow();
+        var receipt = cleanup.cleanup(new CleanupCommand(request.getQueryId(), request.getExecutionOwner()));
         return CleanupResponse.newBuilder()
-                .setPartitionsCleaned(claimed.partitionCount())
-                .setBytesFreed(claimed.bytes()).build();
+                .setQueryId(receipt.queryId())
+                .setExecutionOwner(request.getExecutionOwner())
+                .setRevocationGeneration(receipt.revocationGeneration())
+                .setScopeConvergedAtEpochMillis(receipt.convergedAtMs())
+                .setUncertainWriteHandoff(receipt.uncertainWriteHandoff())
+                .build();
     }
 
     RenewAccessResponse renewAccess(RenewAccessRequest request, boolean coordinatorPeer) {
@@ -359,11 +360,13 @@ final class ShuffleServiceEngine implements AutoCloseable {
                         result.producerSetChecksum()))
                 .setTotalBytes(result.totalBytes()).setTotalRows(result.totalRows());
         for (FinalizedPartition partition : result.partitions()) {
-            response.addPartitions(PartitionFinalizationSummary.newBuilder()
+            var summary = PartitionFinalizationSummary.newBuilder()
                     .setPartitionId(partition.partitionId())
                     .setTotalBytes(partition.totalBytes()).setTotalRows(partition.totalRows())
                     .setCommittedLastSequence(partition.committedLastSequence())
-                    .setOutputChecksum(ShuffleChecksums.protocol(partition.checksum())));
+                    .setOutputChecksum(ShuffleChecksums.protocol(partition.checksum()));
+            partition.readRanges().forEach(range -> summary.addReadRanges(ShuffleReadRanges.toProtocol(range)));
+            response.addPartitions(summary);
         }
         return response.build();
     }
@@ -423,6 +426,7 @@ final class ShuffleServiceEngine implements AutoCloseable {
             int committedProducerCount,
             byte[] producerSetChecksum,
             long startSequence,
+            ReadRange range,
             long deadlineEpochMs,
             long capabilityExpiresAtMs,
             ShuffleReadLease lease,
@@ -433,10 +437,20 @@ final class ShuffleServiceEngine implements AutoCloseable {
 
         ReadResult(String shuffleId, PublishedPartition published, long startSequence,
                 long deadlineEpochMs, long capabilityExpiresAtMs, ShuffleReadLease lease) {
+            this(shuffleId, published, startSequence, null, deadlineEpochMs, capabilityExpiresAtMs, lease);
+        }
+
+        ReadResult(String shuffleId, PublishedPartition published, long startSequence, ReadRange range,
+                long deadlineEpochMs, long capabilityExpiresAtMs, ShuffleReadLease lease) {
             this(published.partition(), published.planEpoch(), published.committedProducerCount(),
-                    published.producerSetChecksum(), startSequence, deadlineEpochMs, capabilityExpiresAtMs, lease,
+                    published.producerSetChecksum(), startSequence, range, deadlineEpochMs,
+                        capabilityExpiresAtMs, lease,
                     new ShufflePartitionManifest.Reader(shuffleId, published.partition().partitionId(),
                             published.partition().committedLastSequence(), published.publication().manifestRoot()));
+        }
+
+        long endSequenceExclusive() {
+            return range == null ? Math.addExact(partition.committedLastSequence(), 1) : range.endSequenceExclusive();
         }
 
         @Override

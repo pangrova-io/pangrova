@@ -8,10 +8,6 @@ import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots;
-import org.pangrova.persistence.coordination.postgresql.admission.JdbcClusterConcurrencySlots;
-import org.pangrova.scheduler.admission.TenantQuotaAdmissionController;
-import org.pangrova.scheduler.api.quota.GlobalTenantUsageView;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.authorization.TableReadPolicySource;
 import org.slf4j.Logger;
@@ -144,23 +140,5 @@ final class SecurityBootstrap {
             return true; // security disabled = healthy by definition
         }
         return authenticationManager != null && accessControl != null;
-    }
-
-    /**
-     * P1-5b: builds the cluster-wide tenant admission controller that enforces per-tenant budget
-     * limits on the query submission path, using the heartbeat-fed global usage view aggregated by
-     * {@code ClusterTenantUsageAggregator}.
-     *
-     * <p>A-ADMISSION-01: with a shared metadata store, cluster-wide concurrency is enforced via
-     * atomic slot reservation, which eliminates the oversell the lagged heartbeat view permits.
-     * Without a shared database (dev / in-memory) the slot store stays null and the controller
-     * falls back to the view alone.</p>
-     *
-     */
-    static TenantQuotaAdmissionController createClusterAdmissionController(
-            GlobalTenantUsageView usageView, DataSource metadataDataSource) {
-        ClusterConcurrencySlots clusterSlots = metadataDataSource != null
-                ? new JdbcClusterConcurrencySlots(metadataDataSource) : null;
-        return new TenantQuotaAdmissionController(usageView, clusterSlots);
     }
 }

@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
+import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.apache.paimon.table.FileStoreTable;
-import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 
 import java.util.Map;
@@ -12,28 +12,26 @@ import java.util.Map;
  */
 public class PaimonPageSink extends AbstractPaimonPageSink {
 
-    PaimonPageSink(Table table, String schemaName, String tableName, String tempDir) {
-        super(new PaimonPageSinkContext(resolveWriteBuilder(table),
-                new PaimonRowConverter(table.rowType()),
-                schemaName, tableName, tempDir,
+    PaimonPageSink(FileStoreTable table, PaimonOutputTableHandle output, String tempDir) {
+        super(new PaimonPageSinkContext(table, output, resolveWriteBuilder(table), tempDir,
                 isDynamicBucket(table) || isPostponeBucket(table)));
     }
 
-    private static BatchWriteBuilder resolveWriteBuilder(Table table) {
-        if (isPostponeBucket(table) && table instanceof FileStoreTable fst) {
+    private static BatchWriteBuilder resolveWriteBuilder(FileStoreTable table) {
+        if (isPostponeBucket(table)) {
             // PostponeBucketFileStoreWrite forces AVRO format internally.
             // The native reader (Velox) cannot read AVRO. Override to
             // fixed bucket so writes use the table's configured format.
-            return fst.copy(Map.of("bucket", "1")).newBatchWriteBuilder();
+            return table.copy(Map.of("bucket", "1")).newBatchWriteBuilder();
         }
         return table.newBatchWriteBuilder();
     }
 
-    private static boolean isDynamicBucket(Table table) {
+    private static boolean isDynamicBucket(FileStoreTable table) {
         return "-1".equals(table.options().get("bucket"));
     }
 
-    private static boolean isPostponeBucket(Table table) {
+    private static boolean isPostponeBucket(FileStoreTable table) {
         return "-2".equals(table.options().get("bucket"));
     }
 }

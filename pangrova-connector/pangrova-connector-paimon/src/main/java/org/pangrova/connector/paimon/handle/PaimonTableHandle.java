@@ -173,7 +173,7 @@ public record PaimonTableHandle(
         selectedProperties.remove(SOURCE_IDENTITY_PROPERTY);
         return new PaimonTableHandle(
                 schemaName, tableName, tableLocation, tableUuid, schemaFingerprint,
-                Optional.empty(), rowTypeJson,
+                Optional.of(range.toInclusive()), rowTypeJson,
                 primaryKeys, partitionKeys, selectedProperties, pushedLimit, Optional.of(range));
     }
 

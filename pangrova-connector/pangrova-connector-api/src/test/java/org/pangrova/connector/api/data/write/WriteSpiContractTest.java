@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>{@link ConnectorPageSink} is the canonical connector-level write SPI with
  * two-phase commit (appendPage / finishWithMetadata / abort / close). The former
  * single-shot batch-write hierarchy had no production factory, consumer or
- * close owner: the CDC runtime writes through CdcWriteSink and
- * ConnectorPageSinkCdcWriter, and SQL writes use the same connector sinks.</p>
+ * close owner. The CDC runtime stages ordered row mutations and publishes their
+ * fragments through a journaled catalog commit.</p>
  */
 class WriteSpiContractTest {
 

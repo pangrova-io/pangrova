@@ -69,6 +69,14 @@ public final class RecursiveCteExpander {
         return expand(cte);
     }
 
+    /** Reuses a parsed statement and parses only the generated recursive levels. */
+    public Statement expand(Statement statement) {
+        if (statement instanceof CteQuery cte && cte.recursive()) {
+            return parserFactory.parseToAst(expand(cte));
+        }
+        return statement;
+    }
+
     private static boolean containsRecursiveKeyword(String sql) {
         return sql.toUpperCase(Locale.ROOT).contains("RECURSIVE");
     }
@@ -117,6 +125,10 @@ public final class RecursiveCteExpander {
         if (setQuery.operators().get(0) != SetOperatorType.UNION_ALL) {
             throw unsupported("recursive CTE '" + definition.name()
                     + "' requires UNION ALL; UNION DISTINCT recursion changes the working table");
+        }
+        if (!setQuery.orderBy().isEmpty() || setQuery.limit().isPresent() || setQuery.offset().isPresent()) {
+            throw unsupported("apply ORDER BY, LIMIT or OFFSET in the query consuming recursive CTE '"
+                    + definition.name() + "'");
         }
     }
 

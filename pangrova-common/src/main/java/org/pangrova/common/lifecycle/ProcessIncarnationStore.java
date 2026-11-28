@@ -172,6 +172,12 @@ public final class ProcessIncarnationStore {
                 && retired.contains(target.incarnationId());
     }
 
+    /** Returns the immutable history from the currently owned local directory. */
+    public Set<String> retiredIncarnations() {
+        requireOwned();
+        return retired;
+    }
+
     /**
      * Runs the real shutdown join before releasing the exclusive lock. A failed join retains
      * ownership and can be retried. This is intentionally not AutoCloseable: generic resource

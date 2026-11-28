@@ -3,6 +3,7 @@ package org.pangrova.query.api.submission;
 import java.util.List;
 import java.util.Objects;
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.common.client.result.ResultEndpoint;
@@ -18,16 +19,20 @@ import org.pangrova.common.client.result.ResultEndpoint;
 public record QuerySubmissionResult(
         String queryId, QueryState state, ResultDisposition resultDisposition,
         ResultEndpoint resultEndpoint, List<String> columnNames,
-        org.pangrova.query.api.session.BranchSelection branchSelection) {
+        org.pangrova.query.api.session.BranchSelection branchSelection,
+        QueryOwnerEndpoint ownerEndpoint) {
     public QuerySubmissionResult(String queryId, QueryState state, ResultDisposition resultDisposition,
             ResultEndpoint resultEndpoint, List<String> columnNames) {
-        this(queryId, state, resultDisposition, resultEndpoint, columnNames, null);
+        this(queryId, state, resultDisposition, resultEndpoint, columnNames, null, null);
     }
 
     public QuerySubmissionResult {
         Objects.requireNonNull(queryId, "queryId");
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(resultDisposition, "resultDisposition");
+        if (resultDisposition == ResultDisposition.UNAVAILABLE) {
+            throw new IllegalArgumentException("Submission cannot contain a recovered disposition");
+        }
         resultDisposition.validateEndpoint(resultEndpoint);
         if (resultDisposition == ResultDisposition.PENDING && isTerminal(state)) {
             throw new IllegalArgumentException("PENDING must not survive terminal completion");

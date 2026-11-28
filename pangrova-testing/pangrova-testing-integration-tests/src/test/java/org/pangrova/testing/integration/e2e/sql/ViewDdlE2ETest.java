@@ -76,6 +76,27 @@ class ViewDdlE2ETest extends PangrovaE2ETestBase {
         executeDdl("DROP VIEW IF EXISTS " + view);
     }
 
+    @Test
+    void nestedQuotedViewPreservesAliasesAndLiterals() {
+        String inner = FQN_PREFIX + "\"" + tableName + ".inner\"";
+        String outer = fqn() + "_outer";
+        executeDdl("CREATE VIEW " + inner + " AS SELECT 42 AS id");
+        try {
+            executeDdl("CREATE VIEW " + outer
+                    + " AS SELECT i.id, CAST('汉字😀' AS VARCHAR) AS label FROM " + inner + " AS i");
+            try {
+                var row = executeQuery("WITH source AS (SELECT v.id, v.label FROM " + outer + " v) "
+                        + "SELECT id, '😀 " + outer + "' AS literal_text FROM source WHERE label = '汉字😀'").get(0);
+                assertThat(row.getLong("id")).isEqualTo(42L);
+                assertThat(row.getString("literal_text")).isEqualTo("😀 " + outer);
+            } finally {
+                executeDdl("DROP VIEW " + outer);
+            }
+        } finally {
+            executeDdl("DROP VIEW " + inner);
+        }
+    }
+
     @Nested
     @DisplayName("CREATE VIEW")
     class CreateView {

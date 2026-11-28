@@ -1195,38 +1195,25 @@ class MemoryReclaimer:
 
 The Worker reports real-time resource state to the Coordinator via heartbeats, forming a scheduling-resource closed loop. The Coordinator makes scheduling decisions based on this feedback, avoiding assigning new tasks to high-pressure Workers.
 
-### 14.1 HeartbeatRequest Extension
+### 14.1 Worker Heartbeat Fields
 
-```protobuf
-message HeartbeatRequest {
-    string worker_id = 1;
-    WorkerStatus status = 2;
-    // Resource feedback fields
-    MemoryPressureLevel memory_pressure = 3;   // Current memory pressure level
-    int32 running_task_count = 4;              // Number of tasks currently executing
-    int64 available_memory_bytes = 5;          // Available memory quota in bytes
-    double cpu_usage = 6;                      // CPU utilization ratio (0.0 - 1.0)
-    int64 spill_disk_available_bytes = 7;      // Remaining spill disk space in bytes
-}
+The Worker posts a JSON `HeartbeatRequest` to `/v1/worker/heartbeat`. The
+Worker and Coordinator share the same wire model.
 
-enum MemoryPressureLevel {
-    NONE = 0;       // < 50% usage, normal operation — maps to Java MemoryPressure.NONE (§3)
-    LOW = 1;        // 50-70% usage, monitoring — maps to Java MemoryPressure.LOW (§3)
-    MEDIUM = 2;     // 70-85% usage, spill triggered — maps to Java MemoryPressure.MEDIUM (§3)
-    HIGH = 3;       // 85-95% usage, aggressive spill — maps to Java MemoryPressure.HIGH (§3)
-    CRITICAL = 4;   // > 95% usage, rejecting new tasks — maps to Java MemoryPressure.CRITICAL (§3)
-}
-```
+| Field | Description |
+|---|---|
+| `worker_id`, `worker_execution_identity` | Registered Worker and exact process incarnation. |
+| `memory_pressure` | Current Worker memory pressure tier. |
+| `available_memory_bytes` | Tighter of the Java arbitrator's available budget and the Native node pool's free bytes when configured. |
+| `in_flight_task_count` | Exact attempt reservations with physical work still outstanding, including preparation and terminal cleanup. |
+| `cpu_utilization` | CPU utilization ratio, currently zero in the standard sender. |
+| `cached_file_paths` | The current cache locality sample. |
+| `tenant_usage` | One memory and active-query sample per tenant. |
 
-**Field Descriptions:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `memory_pressure` | MemoryPressureLevel | Maps to `ResourceManager.MemoryPressure` (Section 3), reflects real-time memory utilization tier |
-| `running_task_count` | int32 | Number of active tasks on this Worker, used by Coordinator to balance load |
-| `available_memory_bytes` | int64 | Remaining allocatable memory from Root Memory Arbitrator (Section 2), represents actual scheduling capacity |
-| `cpu_usage` | double | CPU utilization ratio (0.0–1.0), sampled at heartbeat time |
-| `spill_disk_available_bytes` | int64 | Remaining spill disk space, critical for tasks that may require spill (Section 6) |
+The admission registry increments the count on the first reservation for an
+attempt. It decrements the count after confirmed rollback or physical release.
+A repeated request, a repeated drain receipt, or a retained admission seal
+does not affect it. The heartbeat reads the count directly.
 
 ### 14.2 Feedback Latency Budget
 

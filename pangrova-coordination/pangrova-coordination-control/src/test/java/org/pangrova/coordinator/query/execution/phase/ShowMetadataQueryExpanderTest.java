@@ -58,9 +58,10 @@ class ShowMetadataQueryExpanderTest {
         var session = new QuerySession("listing", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var query = new MetadataTableQuery(List.of("lake", "db", "orders"),
                 new MetadataTableListing(MetadataTableKind.REFS, Map.of("type", "TAG")));
-        var context = QueryExecutionContext.initial(new QueryStateMachine(), sql, session, null)
-                .withMetadataQuery(query).withCompiler(null).withTimeTravelResult(sql, Map.of())
-                .withCompiledPlan("plan", List.of("name")).withCacheKey("key").withStrippedSql(sql, "key");
+        var compiler = new org.pangrova.planner.analysis.SqlCompiler();
+        var plan = compiler.compileToPlannedQuery("SELECT 1 AS name");
+        var context = QueryExecutionContext.initial(new QueryStateMachine(), sql, session, compiler)
+                .withMetadataQuery(query).withCompilation(compiler, plan, List.of("name"), null, Map.of());
         assertThat(context.metadataQuery()).isSameAs(query);
         assertThat(context.sql()).isEqualTo(sql);
         assertThat(context.originalSql()).isEqualTo(sql);

@@ -28,10 +28,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.result.CoordinatorResultTestAccess.streamedRoot;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -55,7 +55,7 @@ class CoordinatorResultServiceTest {
         buffer = new CoordinatorResultBuffer(executor, 60_000L);
         allocator = new RootAllocator();
         writer = new CoordinatorResultWriter(allocator);
-        service = new CoordinatorResultService(buffer, writer, TRANSPORT_ENDPOINT);
+        service = new CoordinatorResultService(buffer, writer, TRANSPORT_ENDPOINT, ignored -> () -> { });
     }
 
     @AfterEach
@@ -71,23 +71,20 @@ class CoordinatorResultServiceTest {
     void rejectedBufferAdmissionDoesNotPublishFinished() {
         buffer.close();
         buffer = new CoordinatorResultBuffer(executor, 60_000L, 1, 1);
-        service = new CoordinatorResultService(buffer, writer, TRANSPORT_ENDPOINT);
-        AtomicBoolean finished = new AtomicBoolean();
-
-        assertThatThrownBy(() -> service.dispatchControlPlaneRows(
-                QUERY_ID, List.of(), List.of(), () -> finished.set(true)))
+        service = new CoordinatorResultService(buffer, writer, TRANSPORT_ENDPOINT, ignored -> () -> { });
+        var state = new QueryStateMachine();
+        assertThatThrownBy(() -> publishStatement(state, List.of(TypedRow.builder().putInt("ack", 1).build()),
+                List.of("ack")))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(finished).isFalse();
-        assertThat(buffer.get(QUERY_ID)).isNull();
+        assertThat(state.isTerminal()).isFalse();
+        assertThat(buffer.contains(QUERY_ID)).isFalse();
         assertThat(buffer.bufferedBytes()).isZero();
     }
 
     @Test
     void dispatchControlPlaneRowsReturnsCoordinatorEndpoint() {
-        QueryStateMachine sm = new QueryStateMachine();
-
         DispatchResult result = service.dispatchControlPlaneRows(
-                QUERY_ID, List.of(), List.of(), sm.toFinisher());
+                QUERY_ID, List.of(), List.of());
 
         assertThat(result).isNotNull();
         assertThat(result.workerHost()).isEqualTo("coordinator-control");
@@ -95,15 +92,14 @@ class CoordinatorResultServiceTest {
         assertThat(result.resultEndpoint().host()).isEqualTo("localhost");
         assertThat(result.resultEndpoint().port()).isEqualTo(9091);
         assertThat(result.resultEndpoint().ticket()).isEqualTo(QUERY_ID);
-        assertThat(buffer.get(QUERY_ID)).isNotEmpty();
+        assertThat(buffer.contains(QUERY_ID)).isTrue();
     }
 
     @Test
     void dispatchControlPlaneRowsTransitionsStateMachineToFinished() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        service.dispatchControlPlaneRows(
-                QUERY_ID, List.of(), List.of(), sm.toFinisher());
+        publishStatement(sm, List.of(), List.of("ack"));
 
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
         assertThat(sm.isTerminal()).isTrue();
@@ -116,13 +112,14 @@ class CoordinatorResultServiceTest {
         List<String> columnNames = List.of("result");
         QueryStateMachine sm = new QueryStateMachine();
 
-        DispatchResult result = service.dispatchControlPlaneRows(
-                QUERY_ID, rows, columnNames, sm.toFinisher());
+        DispatchResult result = publishStatement(sm, rows, columnNames);
 
         assertThat(result).isNotNull();
         assertThat(result.workerHost()).isEqualTo("coordinator-control");
-        assertThat(buffer.get(QUERY_ID)).isNotNull();
-        assertThat(buffer.get(QUERY_ID).length).isGreaterThan(0);
+        assertThat(buffer.contains(QUERY_ID)).isTrue();
+        try (var resultLease = buffer.claim(QUERY_ID)) {
+            assertThat(streamedRoot(resultLease::streamTo).getVector("result").getObject(0)).isEqualTo(42);
+        }
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }
 
@@ -135,11 +132,10 @@ class CoordinatorResultServiceTest {
         List<String> columnNames = List.of("id", "name");
         QueryStateMachine sm = new QueryStateMachine();
 
-        DispatchResult result = service.dispatchControlPlaneRows(
-                "multi-col-q", List.of(row), columnNames, sm.toFinisher());
+        DispatchResult result = publishStatement(sm, List.of(row), columnNames);
 
         assertThat(result).isNotNull();
-        assertThat(buffer.get("multi-col-q")).isNotNull();
+        assertThat(buffer.contains(QUERY_ID)).isTrue();
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }
 
@@ -147,11 +143,12 @@ class CoordinatorResultServiceTest {
     void dispatchControlPlaneRowsHandlesEmptyRows() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        DispatchResult result = service.dispatchControlPlaneRows(
-                "empty-q", List.of(), List.of(), sm.toFinisher());
+        DispatchResult result = publishStatement(sm, List.of(), List.of("ack"));
 
         assertThat(result).isNotNull();
-        assertThat(buffer.get("empty-q")).isNotNull();
+        try (var lease = buffer.claim(QUERY_ID)) {
+            assertThat(streamedRoot(lease::streamTo).getRowCount()).isZero();
+        }
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }
 
@@ -173,7 +170,7 @@ class CoordinatorResultServiceTest {
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
         assertThat(sm.status().disposition()).isEqualTo(ResultDisposition.NONE);
         assertThat(sm.status().endpoint()).isNull();
-        assertThat(buffer.get(QUERY_ID)).isNull();
+        assertThat(buffer.contains(QUERY_ID)).isFalse();
     }
 
     @Test
@@ -190,7 +187,7 @@ class CoordinatorResultServiceTest {
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
         assertThat(sm.status().disposition()).isEqualTo(ResultDisposition.STREAM);
         assertThat(sm.status().endpoint()).isEqualTo(result.resultEndpoint());
-        assertThat(buffer.get(QUERY_ID)).isNotEmpty();
+        assertThat(buffer.contains(QUERY_ID)).isTrue();
     }
 
     @Test
@@ -215,6 +212,12 @@ class CoordinatorResultServiceTest {
         assertThat(sm.status().endpoint()).isEqualTo(result.resultEndpoint());
     }
 
+    private DispatchResult publishStatement(QueryStateMachine state, List<TypedRow> rows, List<String> columns) {
+        return dispatcher((stmt, context) -> new StatementResult(rows, columns, null, StatementCategory.DDL))
+                .executeDirect(new DropTableStatement(Identifier.of("catalog", "schema", "table"), false),
+                        state, QUERY_ID, session());
+    }
+
     private StatementDispatcher dispatcher(MetadataTask<Statement> task) {
         var tasks = new HashMap<Class<? extends Statement>, MetadataTask<?>>();
         tasks.put(DropTableStatement.class, task);
@@ -231,20 +234,17 @@ class CoordinatorResultServiceTest {
     @Test
     void resultEndpointUsesQueryIdAsTicket() {
         String queryId = "ticket-check-q";
-        QueryStateMachine sm = new QueryStateMachine();
 
         DispatchResult result = service.dispatchControlPlaneRows(
-                queryId, List.of(), List.of(), sm.toFinisher());
+                queryId, List.of(), List.of());
 
         assertThat(result.resultEndpoint().ticket()).isEqualTo(queryId);
     }
 
     @Test
     void resultEndpointPreservesProtocol() {
-        QueryStateMachine sm = new QueryStateMachine();
-
         DispatchResult result = service.dispatchControlPlaneRows(
-                QUERY_ID, List.of(), List.of(), sm.toFinisher());
+                QUERY_ID, List.of(), List.of());
 
         assertThat(result.resultEndpoint().protocol()).isEqualTo("grpc");
     }
@@ -253,8 +253,7 @@ class CoordinatorResultServiceTest {
     void dispatchControlPlaneTransitionsThroughAllStatesToFinished() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        DispatchResult result = service.dispatchControlPlaneRows(
-                QUERY_ID, List.of(), List.of(), sm.toFinisher());
+        DispatchResult result = publishStatement(sm, List.of(), List.of("ack"));
 
         assertThat(result).isNotNull();
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
@@ -266,11 +265,12 @@ class CoordinatorResultServiceTest {
         QueryStateMachine sm = new QueryStateMachine();
         sm.tryTransition(QueryState.FAILED);
 
-        assertThatThrownBy(() -> service.dispatchControlPlaneRows(
-                QUERY_ID, List.of(), List.of(), sm.toFinisher()))
+        assertThatThrownBy(() -> publishStatement(sm, List.of(), List.of("ack")))
                 .isInstanceOf(PangrovaException.class)
-                .hasMessageContaining("Cannot transition query to FINISHED")
+                .hasMessageContaining("Cannot publish a control result for a terminal query")
                 .hasMessageContaining("FAILED");
+        assertThat(buffer.size()).isZero();
+        assertThat(allocator.getAllocatedMemory()).isZero();
     }
 
     @Test
@@ -278,10 +278,11 @@ class CoordinatorResultServiceTest {
         QueryStateMachine sm = new QueryStateMachine();
         sm.tryTransition(QueryState.CANCELLED);
 
-        assertThatThrownBy(() -> service.dispatchControlPlaneRows(
-                QUERY_ID, List.of(), List.of(), sm.toFinisher()))
+        assertThatThrownBy(() -> publishStatement(sm, List.of(), List.of("ack")))
                 .isInstanceOf(PangrovaException.class)
-                .hasMessageContaining("Cannot transition query to FINISHED")
+                .hasMessageContaining("Cannot publish a control result for a terminal query")
                 .hasMessageContaining("CANCELLED");
+        assertThat(buffer.size()).isZero();
+        assertThat(allocator.getAllocatedMemory()).isZero();
     }
 }

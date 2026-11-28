@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query.audit;
 
 import org.pangrova.query.audit.QueryAuditEmitter;
+import org.pangrova.query.api.audit.QueryAuditRecord;
+import org.pangrova.query.api.enums.QueryState;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore;
@@ -9,6 +11,7 @@ import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.security.api.enums.AuditEventType;
 
+import java.time.Instant;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -22,8 +25,9 @@ class QueryAuditEmitterTest {
         var events = new java.util.ArrayList<AuditEvent>();
         var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
         var emitter = new QueryAuditEmitter(events::add, service);
-        var subject = new QueryAuditEmitter.AuditSubject("alice", "tenant-a");
-        emitter.emitQueryCancelled("cancelled-query", 41, subject, "SELECT 42");
+        var audit = QueryAuditRecord.wallTimeOnly(
+                "cancelled-query", "alice", "SELECT 42", "tenant-a", 41, Instant.now(), false);
+        emitter.emitQueryTerminal(QueryState.CANCELLED, audit, null);
         assertThat(events).singleElement().satisfies(event -> {
             assertThat(event.eventType()).isEqualTo(AuditEventType.QUERY_CANCELLED);
             assertThat(event.principal()).isEqualTo("alice");
@@ -31,6 +35,7 @@ class QueryAuditEmitterTest {
             assertThat(event.errorMessage()).isNull();
         });
         var record = service.findByQueryId("cancelled-query", "alice").orElseThrow();
+        assertThat(record).isSameAs(audit);
         assertThat(record.success()).isFalse();
         assertThat(record.tenantId()).isEqualTo("tenant-a");
         assertThat(record.wallTimeMs()).isEqualTo(41);
@@ -41,8 +46,7 @@ class QueryAuditEmitterTest {
     void completedRecordKeepsTheSubmittingIdentityWithoutAnEventBackend() {
         var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
         var emitter = new QueryAuditEmitter(null, service);
-        emitter.emitQueryCompleted("completed-query", 17,
-                new QueryAuditEmitter.AuditSubject("alice", "tenant-a"));
+        emitter.emitQueryTerminal(QueryState.FINISHED, record("completed-query", "alice", "tenant-a", 17, true), null);
 
         var record = service.findByQueryId("completed-query", "alice").orElseThrow();
         assertThat(record.userId()).isEqualTo("alice");
@@ -55,10 +59,8 @@ class QueryAuditEmitterTest {
     void failedRecordKeepsItsOwnIdentityAfterAnotherTenantCompletes() {
         var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
         var emitter = new QueryAuditEmitter(null, service);
-        emitter.emitQueryCompleted("alice-query", 17,
-                new QueryAuditEmitter.AuditSubject("alice", "tenant-a"));
-        emitter.emitQueryFailed("bob-query", "denied", 23,
-                new QueryAuditEmitter.AuditSubject("bob", "tenant-b"));
+        emitter.emitQueryTerminal(QueryState.FINISHED, record("alice-query", "alice", "tenant-a", 17, true), null);
+        emitter.emitQueryTerminal(QueryState.FAILED, record("bob-query", "bob", "tenant-b", 23, false), "denied");
 
         var record = service.findByQueryId("bob-query", "bob").orElseThrow();
         assertThat(record.userId()).isEqualTo("bob");
@@ -72,8 +74,7 @@ class QueryAuditEmitterTest {
     void anonymousRejectionDoesNotInventAPersistedTenant() {
         var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
         var emitter = new QueryAuditEmitter(null, service);
-        emitter.emitQueryFailed("anonymous-query", "rejected", 7,
-                new QueryAuditEmitter.AuditSubject("anonymous", null));
+        emitter.emitQueryTerminal(QueryState.FAILED, record("anonymous-query", "anonymous", null, 7, false), "rejected");
 
         var record = service.findByQueryId("anonymous-query", "anonymous").orElseThrow();
         assertThat(record.userId()).isEqualTo("anonymous");
@@ -87,10 +88,8 @@ class QueryAuditEmitterTest {
         var backend = new AuditEventEmitter(events::add);
         try {
             var emitter = new QueryAuditEmitter(backend::emit, null);
-            emitter.emitQueryCompleted("alice-query", 17,
-                    new QueryAuditEmitter.AuditSubject("alice", "tenant-a"));
-            emitter.emitQueryFailed("bob-query", "denied", 23,
-                    new QueryAuditEmitter.AuditSubject("bob", "tenant-b"));
+            emitter.emitQueryTerminal(QueryState.FINISHED, record("alice-query", "alice", "tenant-a", 17, true), null);
+            emitter.emitQueryTerminal(QueryState.FAILED, record("bob-query", "bob", "tenant-b", 23, false), "denied");
             org.awaitility.Awaitility.await().atMost(3, TimeUnit.SECONDS)
                     .untilAsserted(() -> assertThat(events).hasSize(2));
             assertThat(events.get(0).eventType()).isEqualTo(AuditEventType.QUERY_COMPLETED);
@@ -114,8 +113,8 @@ class QueryAuditEmitterTest {
         try {
             var emitter = new QueryAuditEmitter(backend::emit, null);
             emitter.emitQuerySubmitted("anonymous-query", "SELECT 1", null);
-            emitter.emitQueryFailed("anonymous-query", "anonymous rejected", 7,
-                    new QueryAuditEmitter.AuditSubject("anonymous", null));
+            emitter.emitQueryTerminal(QueryState.FAILED, record("anonymous-query", "anonymous", null, 7, false),
+                    "anonymous rejected");
             org.awaitility.Awaitility.await().atMost(3, TimeUnit.SECONDS)
                     .untilAsserted(() -> assertThat(events).hasSize(2));
             assertThat(events).allSatisfy(event -> {
@@ -130,11 +129,16 @@ class QueryAuditEmitterTest {
     @Test
     void attributionIsMandatoryEvenWithoutBackends() {
         var emitter = QueryAuditEmitter.noOp();
-        assertThatThrownBy(() -> new QueryAuditEmitter.AuditSubject(null, "tenant"))
+        assertThatThrownBy(() -> record("query", null, "tenant", 0, false))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("principal");
-        assertThatThrownBy(() -> emitter.emitQueryCompleted("query", 0, null))
-                .isInstanceOf(NullPointerException.class).hasMessageContaining("subject");
-        assertThatThrownBy(() -> emitter.emitQueryFailed("query", "denied", 0, null))
-                .isInstanceOf(NullPointerException.class).hasMessageContaining("subject");
+        assertThatThrownBy(() -> emitter.emitQueryTerminal(QueryState.FINISHED, null, null))
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("record");
+        assertThatThrownBy(() -> emitter.emitQueryTerminal(QueryState.FAILED, null, "denied"))
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("record");
+    }
+
+    private static QueryAuditRecord record(String queryId, String principal, String tenant, long millis,
+            boolean success) {
+        return QueryAuditRecord.wallTimeOnly(queryId, principal, null, tenant, millis, Instant.now(), success);
     }
 }

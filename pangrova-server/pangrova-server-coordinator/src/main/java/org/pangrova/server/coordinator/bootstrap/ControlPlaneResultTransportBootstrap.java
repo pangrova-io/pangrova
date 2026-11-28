@@ -2,6 +2,9 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Function;
+
+import org.pangrova.query.api.lifecycle.QueryOperation;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -27,7 +30,7 @@ final class ControlPlaneResultTransportBootstrap {
     private ControlPlaneResultTransportBootstrap() {}
 
     static Started start(CoordinatorBootstrapConfig config, TracingProvider tracing,
-                         ScheduledExecutorService scheduler) {
+            ScheduledExecutorService scheduler, Function<String, QueryOperation> retainOperation) {
         CoordinatorPreflightChecks.validateAdvertisedHost(config);
         BufferAllocator allocator = new RootAllocator(
                 config.coordinatorTransportAllocatorLimitBytes());
@@ -35,9 +38,9 @@ final class ControlPlaneResultTransportBootstrap {
                 scheduler, CoordinatorResultBuffer.DEFAULT_RETENTION_MS);
         TransportServerLifecycle server = null;
         try {
-            server = createServer(config, tracing, buffer);
+            server = createServer(config, tracing, buffer, allocator);
             server.start();
-            return new Started(createService(config, buffer, server, allocator),
+            return new Started(createService(config, buffer, server, allocator, retainOperation),
                     server, allocator, buffer);
         } catch (RuntimeException failure) {
             closeAfterFailure(server, allocator, buffer, failure);
@@ -47,7 +50,7 @@ final class ControlPlaneResultTransportBootstrap {
 
     private static TransportServerLifecycle createServer(
             CoordinatorBootstrapConfig config, TracingProvider tracing,
-            CoordinatorResultBuffer buffer) {
+            CoordinatorResultBuffer buffer, BufferAllocator allocator) {
         List<io.grpc.ServerInterceptor> interceptors = tracing == null
                 ? List.of()
                 : List.of(new org.pangrova.observability.sdk.tracing.grpc.FlightSpanInterceptor(tracing));
@@ -57,19 +60,20 @@ final class ControlPlaneResultTransportBootstrap {
                 tls == null ? null : tls.privateKey().toString(),
                 tls == null ? null : tls.rootCa().toString(), tls != null,
                 config.coordinatorTransportAllocatorLimitBytes());
-        return new TransportServer(new CoordinatorDataProducer(buffer), serverConfig, null, interceptors);
+        return new TransportServer(new CoordinatorDataProducer(buffer), serverConfig, allocator, interceptors);
     }
 
     private static CoordinatorResultService createService(
             CoordinatorBootstrapConfig config, CoordinatorResultBuffer buffer,
-            TransportServerLifecycle server, BufferAllocator allocator) {
+            TransportServerLifecycle server, BufferAllocator allocator,
+            Function<String, QueryOperation> retainOperation) {
         ResultEndpoint endpoint = new ResultEndpoint(
                 config.coordinatorTransportAdvertisedHost(), server.getPort(), "",
                 (config.shuffleTlsConfig() == null ? ResultProtocol.GRPC : ResultProtocol.GRPC_TLS).value());
         LOG.info("event=control_plane_result_transport_started port={} advertisedHost={}",
                 server.getPort(), config.coordinatorTransportAdvertisedHost());
         return new CoordinatorResultService(buffer,
-                new CoordinatorResultWriter(allocator), endpoint);
+                new CoordinatorResultWriter(allocator), endpoint, retainOperation);
     }
 
     private static void closeAfterFailure(

@@ -54,9 +54,14 @@ public interface ConnectorSplit {
                 connectorProps.isEmpty() ? Map.of() : Map.copyOf(connectorProps));
     }
 
-    /** Estimates bytes read by this split for scheduling. Zero represents an unknown estimate. */
+    /** Estimates data and auxiliary bytes read by this split. Zero represents an unknown estimate. */
     default long estimatedScanBytes() {
         return Math.max(0L, typedSplitProperties().length());
+    }
+
+    /** Estimates rows decoded by this split from planning metadata. Zero is used when unavailable. */
+    default long estimatedScanRows() {
+        return 0L;
     }
 
     /**

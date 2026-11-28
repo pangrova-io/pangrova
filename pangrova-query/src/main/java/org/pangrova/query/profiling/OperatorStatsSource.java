@@ -19,7 +19,7 @@ public interface OperatorStatsSource {
 
     record ExecutionGraph(List<Stage> stages, List<Exchange> exchanges, List<StageTransition> transitions,
             List<SelectedAttempt> selectedAttempts, List<DownstreamPreparation> downstreamPreparations,
-            List<StageDispatchWork> stageDispatchWork, RuntimeFilterWait runtimeFilterWait) {
+            List<StageDispatchWork> stageDispatchWork, List<RuntimeFilterWait> runtimeFilterWaits) {
         public ExecutionGraph {
             stages = List.copyOf(stages);
             exchanges = List.copyOf(exchanges);
@@ -27,6 +27,7 @@ public interface OperatorStatsSource {
             selectedAttempts = List.copyOf(selectedAttempts);
             downstreamPreparations = List.copyOf(downstreamPreparations);
             stageDispatchWork = List.copyOf(stageDispatchWork);
+            runtimeFilterWaits = List.copyOf(runtimeFilterWaits);
         }
     }
 
@@ -50,7 +51,7 @@ public interface OperatorStatsSource {
     record StageDispatchWork(int stageId, int generation, DispatchPhase phase, long startedNanos,
             long finishedNanos, Integer itemCount, boolean successful) {}
 
-    /** Outcome of the sole cross-stage build gate used before enumerating this probe. */
+    /** Outcome of a cross-stage build gate used before enumerating its probe. */
     record RuntimeFilterWait(int buildStageId, int probeStageId, int probeGeneration,
             long startedNanos, long finishedNanos, RuntimeFilterOutcome outcome, int rangeCount) {}
 
@@ -67,11 +68,22 @@ public interface OperatorStatsSource {
             long elapsedTimeMs,
             long cpuTimeMs,
             long backpressureWaitMs,
-            List<Metric> operators) {
+            List<Metric> operators,
+            ObjectReads nativeObjectReads,
+            ResultDelivery nativeResultDelivery) {
         public Attempt {
             operators = List.copyOf(operators);
         }
     }
+
+    /** Native adapter work and S3 SDK transfer observations for one attempt. */
+    record ObjectReads(long requestedBytes, long returnedBytes, long payloadCalls,
+            long metadataCalls, long failedCalls, long s3SdkAttempts, long s3SdkRetries,
+            long s3ResponseBodyBytes) {}
+
+    /** Monotonic offsets from opening the exact Native Flight reader. */
+    record ResultDelivery(long payloadBatches, Long firstPayloadNanos,
+            long producerEofNanos, long transportCompleteNanos) {}
 
     /** One operator in the named attempt. Wait counters accumulate across its Velox drivers. */
     record Metric(

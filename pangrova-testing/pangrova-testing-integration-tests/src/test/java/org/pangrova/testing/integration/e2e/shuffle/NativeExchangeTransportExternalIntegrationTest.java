@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.shuffle;
 
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -7,8 +8,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.ErrorClass;
+import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
@@ -27,6 +30,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -123,12 +127,60 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         assertThat(grouped.stream().mapToLong(Long::longValue).sum()).isEqualTo(45L + 66L + 78L);
     }
 
+    @Test void consumesCertifiedSubrangeBetweenWholePartitionsInOneNativeInput() throws Exception {
+        var producer = service.registerProducer();
+        var attempt = producer.request().getAttempt();
+        int prefixRows = 1 << 20;
+        byte[] prefix = ActualExternalShuffleTask.arrowBatch(prefixRows);
+        try (var egress = new RemoteShuffleByteEgress(service.clientPool())) {
+            assertThat(egress.installTask(producer.request())).isTrue();
+            egress.onPartitionBatch(attempt.getQueryOrJobId(), attempt.getTaskId(), 0,
+                    2, ByteBuffer.wrap(ActualExternalShuffleTask.arrowBatch(2)));
+            // Fill the first 64 MiB certified interval with reusable valid Arrow batches.
+            for (int batch = 0; batch < 8; batch++) {
+                egress.onPartitionBatch(attempt.getQueryOrJobId(), attempt.getTaskId(), 1,
+                        prefixRows, ByteBuffer.wrap(prefix));
+            }
+            egress.onPartitionBatch(attempt.getQueryOrJobId(), attempt.getTaskId(), 1,
+                    3, ByteBuffer.wrap(ActualExternalShuffleTask.arrowBatch(3)));
+            egress.onPartitionBatch(attempt.getQueryOrJobId(), attempt.getTaskId(), 2,
+                    4, ByteBuffer.wrap(ActualExternalShuffleTask.arrowBatch(4)));
+            egress.onTaskCompleted(attempt.getQueryOrJobId(), attempt.getTaskId());
+        }
+        var ranges = service.finalizeProducer(producer).partitions().get(1).readRanges();
+        assertThat(ranges).hasSize(2);
+        var selected = ranges.get(1);
+        assertThat(selected.startSequence()).isEqualTo(8);
+        assertThat(selected.endSequenceExclusive()).isEqualTo(9);
+
+        var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer, 4));
+        var binding = service.delegateRead(producer, request, 0, 3).input().toBuilder()
+                .setPublications(1, ShufflePartitionPublication.newBuilder()
+                        .setStartSequence(selected.startSequence())
+                        .setLastSequence(selected.endSequenceExclusive() - 1)
+                        .setTotalBytes(selected.bytes()).setTotalRows(selected.rows())
+                        .setManifestSha256(ByteString.copyFrom(HexFormat.of().parseHex(selected.manifestSha256()))))
+                .build();
+        assertThat(consume(request, input(binding))).containsExactlyInAnyOrder(0L, 1L,
+                0L, 1L, 2L, 0L, 1L, 2L, 3L);
+        assertThat(service.wire(0).requests.stream().map(frame -> frame.message())
+                .filter(ReadPartitionRequest.class::isInstance).map(ReadPartitionRequest.class::cast)
+                .filter(ReadPartitionRequest::hasReadRange).toList()).singleElement().satisfies(read -> {
+                    assertThat(read.getPartitionId()).isEqualTo(1);
+                    assertThat(read.getStartSequence()).isEqualTo(8);
+                    assertThat(read.getReadRange().getEndSequenceExclusive()).isEqualTo(9);
+                });
+    }
+
     private List<Long> readRange(ActualShuffleService.AdmittedProducer producer,
                                  int taskPartition, int start, int end, long consumerEpoch) throws Exception {
         var base = ActualExternalShuffleTask.consumer(producer, 4);
         var request = nativeRuntime.bindWorker(base.toBuilder().setAttempt(base.getAttempt().toBuilder()
                 .setPartitionId(taskPartition).setPlanEpoch(consumerEpoch)).build());
-        var binding = input(service.delegateRead(producer, request, start, end).input());
+        return consume(request, input(service.delegateRead(producer, request, start, end).input()));
+    }
+
+    private List<Long> consume(TaskRequest request, ExchangeInputBinding binding) throws Exception {
         var admitted = request.toBuilder().addExchangeInputs(binding).build();
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(admitted);
         long handle = nativeRuntime.createPending(admitted);

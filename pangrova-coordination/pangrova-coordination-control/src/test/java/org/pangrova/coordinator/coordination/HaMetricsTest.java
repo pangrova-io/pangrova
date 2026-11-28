@@ -5,12 +5,20 @@ import org.pangrova.coordination.api.enums.CoordinatorRole;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
+import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainOutcome;
+import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
+import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
@@ -19,6 +27,7 @@ import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -150,6 +159,53 @@ class HaMetricsTest {
             // No exception = pass
         } finally {
             svc.close();
+        }
+    }
+
+    @Test
+    @Tag("integration")
+    void countsOnlyAcknowledgedDurableRetirementByTheLocalOwnerOrSuccessor() throws Exception {
+        String metric = "pangrova.coordinator.queries.terminal_cleanup.durable_retirements";
+        var source = (org.postgresql.ds.PGSimpleDataSource)
+                SharedPostgresContainer.migratedDataSource("durable_retirement_metrics");
+        var store = new JdbcExecutionAnchorStore(source);
+        var config = HighAvailabilityCoordinationService.CoordinationConfig.defaults();
+        var lease = new InMemoryDistributedLease();
+        try (var journal = new JdbcQueryStateJournal(source,
+                    new StateJournalConfig("JDBC", source.getURL(), 50, 20, 24, 100));
+             var owner = new HighAvailabilityCoordinationService(lease, config, store, metricsProvider);
+             var successor = new HighAvailabilityCoordinationService(lease, config, store, metricsProvider)) {
+            owner.start("owner");
+            successor.start("successor");
+
+            var local = owner.acquireQueryOwnership("local", "owner", "limited", OptionalInt.of(1))
+                    .orElseThrow().anchor();
+            assertThat(successor.releaseLocallyDrainedQuery(local, journal.durableRetirement())).isFalse();
+            assertThat(metricsProvider.counter(metric)).isZero();
+            assertThat(owner.releaseLocallyDrainedQuery(local, journal.durableRetirement())).isTrue();
+            assertThat(owner.isQueryRetired(local.executionId())).isTrue();
+            assertThat(owner.releaseLocallyDrainedQuery(local, journal.durableRetirement())).isFalse();
+            assertThat(metricsProvider.counterWithAttr(metric, "path", "local")).isEqualTo(1);
+
+            var predecessor = owner.acquireQueryOwnership("recovered", "owner", "limited", OptionalInt.of(1))
+                    .orElseThrow().anchor();
+            journal.appendFencedAdmissionSync(new QueryStateEvent(
+                    JournalEventContext.create(System.currentTimeMillis(), "owner"),
+                    predecessor.executionId(), "SELECT 1", "{}", "QUEUED"), predecessor);
+            assertThat(owner.yieldExecution(predecessor)).isTrue();
+            var claims = successor.claimExpiredExecutions(1);
+            assertThat(claims).hasSize(1);
+            var claim = claims.get(0);
+            assertThat(owner.releaseLocallyDrainedQuery(predecessor, journal.durableRetirement())).isFalse();
+            assertThat(successor.releaseDrainedRecoveryClaim(claim, false)).isFalse();
+            assertThat(metricsProvider.counter(metric)).isEqualTo(1);
+            assertThat(journal.confirmRecoveredTaskDrains(claim)).isEqualTo(DrainOutcome.CONFIRMED);
+            assertThat(metricsProvider.counter(metric)).isEqualTo(1);
+            assertThat(successor.releaseDrainedRecoveryClaim(claim, false)).isTrue();
+            assertThat(owner.isQueryRetired(predecessor.executionId())).isTrue();
+            assertThat(successor.releaseDrainedRecoveryClaim(claim, false)).isFalse();
+            assertThat(metricsProvider.counterWithAttr(metric, "path", "recovery")).isEqualTo(1);
+            assertThat(metricsProvider.counter(metric)).isEqualTo(2);
         }
     }
 

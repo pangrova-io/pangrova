@@ -2,6 +2,8 @@ package org.pangrova.planner.type;
 
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.sql.SqlCollation;
+import org.apache.calcite.sql.SqlCollation.Coercibility;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.type.SqlTypeMappingRule;
 
@@ -11,8 +13,13 @@ import java.util.List;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.LogicalType;
 
-/** Canonical planner type factory: invalid decimal declarations must never be clamped. */
+/** Canonical planner types for the UTF-8 execution boundary and exact numeric declarations. */
 public final class PlannerTypeFactory extends JavaTypeFactoryImpl {
+
+    private static final SqlCollation UTF8_IMPLICIT = new SqlCollation(
+            Coercibility.IMPLICIT, SqlCollation.IMPLICIT.getLocale(), StandardCharsets.UTF_8, "primary");
+    private static final SqlCollation UTF8_COERCIBLE = new SqlCollation(
+            Coercibility.COERCIBLE, SqlCollation.COERCIBLE.getLocale(), StandardCharsets.UTF_8, "primary");
 
     public PlannerTypeFactory() {
         super(PlannerTypeSystem.INSTANCE);
@@ -21,6 +28,19 @@ public final class PlannerTypeFactory extends JavaTypeFactoryImpl {
     @Override
     public Charset getDefaultCharset() {
         return StandardCharsets.UTF_8;
+    }
+
+    @Override
+    public RelDataType createTypeWithCharsetAndCollation(RelDataType type, Charset charset, SqlCollation collation) {
+        // Calcite supplies its default collations independently of the type factory's charset.
+        if (StandardCharsets.UTF_8.equals(charset)) {
+            if (collation == SqlCollation.IMPLICIT) {
+                collation = UTF8_IMPLICIT;
+            } else if (collation == SqlCollation.COERCIBLE) {
+                collation = UTF8_COERCIBLE;
+            }
+        }
+        return super.createTypeWithCharsetAndCollation(type, charset, collation);
     }
 
     /** Projects the sole canonical VECTOR declaration into a distinct SQL collection type. */

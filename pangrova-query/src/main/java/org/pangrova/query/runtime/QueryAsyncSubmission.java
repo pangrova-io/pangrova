@@ -19,14 +19,18 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.observability.logging.LogContext;
+import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.lifecycle.QueryExecutionPort;
 import org.pangrova.query.lifecycle.QueryDispatchOutcome;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
+import org.pangrova.query.runtime.QueryLifecycleMetrics.AdmissionRejection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,57 +41,71 @@ final class QueryAsyncSubmission {
     private final AsyncSubmitConfig config;
     private final ExecutorService executor;
     private final ScheduledExecutorService deadlines;
+    private final QueryLifecycleMetrics metrics;
     private final FailureHandler failureHandler;
     private final ResultHandler resultHandler;
 
     QueryAsyncSubmission(QueryExecutionPort dispatcher, AsyncSubmitConfig config, ExecutorService executor,
-            ScheduledExecutorService deadlines, FailureHandler failureHandler, ResultHandler resultHandler) {
+            ScheduledExecutorService deadlines, QueryLifecycleMetrics metrics,
+            FailureHandler failureHandler, ResultHandler resultHandler) {
         this.dispatcher = dispatcher;
         this.config = config;
         this.executor = executor;
         this.deadlines = deadlines;
+        this.metrics = metrics;
         this.failureHandler = failureHandler;
         this.resultHandler = resultHandler;
     }
 
     Pending start(String queryId, String sql, QuerySession session, QueryStateMachine state) {
-        Context context = new Context(queryId, sql, session, state, new CompletableFuture<>(), new AtomicReference<>());
-        Future<?> dispatch = submit(context);
+        var context = new Context(queryId, sql, session, state);
+        var observation = new Readiness(new CompletableFuture<>(), new AtomicReference<>());
+        long queuedAt = metrics.dispatchEnqueuedAt();
+        Future<?> dispatch;
+        try {
+            dispatch = executor.submit(() -> {
+                metrics.recordDispatchStarted(queuedAt);
+                dispatch(context, (result, failure) -> finish(context, observation, result, failure));
+            });
+        } catch (RejectedExecutionException overloaded) {
+            throw rejectDispatch(context);
+        }
         var endpoint = state.resultEndpointReady();
         var write = state.writeDispatchReady();
         var terminal = state.terminalStateReady();
-        endpoint.thenRun(() -> context.ready().complete(SubmissionReadiness.READY));
-        write.thenRun(() -> context.ready().complete(SubmissionReadiness.READY));
+        endpoint.thenRun(() -> observation.ready().complete(SubmissionReadiness.READY));
+        write.thenRun(() -> observation.ready().complete(SubmissionReadiness.READY));
         terminal.thenAccept(current -> {
             if ((current == QueryState.FAILED && state.getError().isPresent())
                     || current == QueryState.CANCELLED
                     || current == QueryState.FINISHED
                         && state.status().disposition() == ResultDisposition.NONE) {
-                context.ready().complete(SubmissionReadiness.READY);
+                observation.ready().complete(SubmissionReadiness.READY);
             }
         });
-        context.ready().whenComplete((ready, failure) -> {
+        observation.ready().whenComplete((ready, failure) -> {
             endpoint.cancel(false);
             write.cancel(false);
             terminal.cancel(false);
         });
         try {
-            var timeout = context.ready().isDone() ? null : deadlines.schedule(
-                    () -> { context.ready().complete(SubmissionReadiness.TIMED_OUT); },
+            var timeout = observation.ready().isDone() ? null : deadlines.schedule(
+                    () -> { observation.ready().complete(SubmissionReadiness.TIMED_OUT); },
                     config.submitTimeoutMs(), TimeUnit.MILLISECONDS);
-            var receipt = context.ready().thenApply(readiness -> {
+            var receipt = observation.ready().thenApply(readiness -> {
                 if (timeout != null) timeout.cancel(false);
-                return buildReceipt(context, dispatch, readiness);
+                return buildReceipt(context, dispatch, readiness, observation.failure().get());
             });
-            return new Pending(receipt, () -> context.ready().complete(SubmissionReadiness.INTERRUPTED));
+            return new Pending(receipt, () -> observation.ready().complete(SubmissionReadiness.INTERRUPTED));
         } catch (RejectedExecutionException stopping) {
             dispatch.cancel(true);
-            context.ready().completeExceptionally(stopping);
+            observation.ready().completeExceptionally(stopping);
             throw new QueryRejectedException("Coordinator query submission is stopping");
         }
     }
 
-    private QuerySubmissionResult buildReceipt(Context context, Future<?> dispatch, SubmissionReadiness readiness) {
+    private QuerySubmissionResult buildReceipt(Context context, Future<?> dispatch, SubmissionReadiness readiness,
+            Throwable executionFailure) {
         if (readiness == SubmissionReadiness.TIMED_OUT) {
             try {
                 fail(context, "QUERY_TIMEOUT", "ASYNC_SUBMIT_TIMEOUT",
@@ -108,63 +126,111 @@ final class QueryAsyncSubmission {
             }
             throw new QueryRejectedException("Query submission was interrupted");
         }
-        requireResult(context);
+        requireResult(context, executionFailure);
         var state = context.state();
         var status = state.status();
         return new QuerySubmissionResult(context.queryId(), status.state(), status.disposition(),
-                status.endpoint(), dispatcher.removeColumnNames(context.queryId()), state.branchSelection());
+                status.endpoint(), dispatcher.removeColumnNames(context.queryId()), state.branchSelection(), null);
     }
 
-    private Future<?> submit(Context context) {
+    /** Enqueues accepted work without creating a second, readiness-based receipt. */
+    void startAccepted(String queryId, String sql, QuerySession session, QueryStateMachine state,
+            BiConsumer<QueryOperation, Throwable> exited) {
+        var context = new Context(queryId, sql, session, state);
+        long queuedAt = metrics.dispatchEnqueuedAt();
         try {
-            return executor.submit(() -> start(context));
+            executor.execute(() -> {
+                metrics.recordDispatchStarted(queuedAt);
+                dispatchAccepted(context, exited);
+            });
         } catch (RejectedExecutionException overloaded) {
-            fail(context, "RESOURCE_EXHAUSTED", "ASYNC_SUBMIT_QUEUE_FULL",
-                    "Coordinator query dispatch queue is full", "async_submit_overloaded");
-            throw new QueryRejectedException("Coordinator query dispatch queue is full");
+            throw rejectDispatch(context);
         }
     }
 
-    private void start(Context context) {
+    private QueryRejectedException rejectDispatch(Context context) {
+        if (executor.isShutdown()) {
+            metrics.recordRejection(AdmissionRejection.EXECUTOR_STOPPING);
+            String message = "Coordinator query dispatch is stopping";
+            fail(context, PangrovaErrorCode.COORDINATOR_QUERY_REJECTED.getCode(), "ASYNC_SUBMIT_STOPPING",
+                    message, "async_submit_stopping");
+            return new QueryRejectedException(message);
+        }
+        metrics.recordRejection(AdmissionRejection.QUEUE_FULL);
+        fail(context, "RESOURCE_EXHAUSTED", "ASYNC_SUBMIT_QUEUE_FULL",
+                "Coordinator query dispatch queue is full", "async_submit_overloaded");
+        return new QueryRejectedException("Coordinator query dispatch queue is full");
+    }
+
+    private void dispatchAccepted(Context context, BiConsumer<QueryOperation, Throwable> exited) {
+        if (context.state().isTerminal()) return;
+        QueryOperation operation;
+        try {
+            operation = dispatcher.enterQueryOperation(context.queryId());
+        } catch (RuntimeException | Error failure) {
+            if (!(failure instanceof IllegalStateException && context.state().isTerminal())) {
+                reportFailure(context, null, failure);
+            }
+            return;
+        }
+        if (context.state().isTerminal()) {
+            exited.accept(operation, null);
+            return;
+        }
+        dispatch(context, (result, failure) -> {
+            try {
+                finish(context, null, result, failure);
+            } finally {
+                ResourceCloser.closeAll(failure,
+                        () -> dispatcher.removeColumnNames(context.queryId()),
+                        () -> exited.accept(operation, failure));
+            }
+        });
+    }
+
+    private void dispatch(Context context, BiConsumer<QueryDispatchOutcome, Throwable> onComplete) {
         CompletionStage<QueryDispatchOutcome> completion;
         var previousLogContext = LogContext.snapshot();
         try (var scope = context.session().traceContext().makeCurrent()) {
             setLogContext(context);
             completion = dispatcher.dispatchAsync(context.state(), context.sql(), context.session());
         } catch (RuntimeException | Error failure) {
-            finish(context, null, failure);
+            onComplete.accept(null, failure);
             return;
         } finally {
             LogContext.restore(previousLogContext);
         }
-        completion.whenComplete((result, failure) -> finish(context, result, failure));
+        completion.whenComplete(onComplete);
     }
 
-    private void finish(Context context, QueryDispatchOutcome result, Throwable failure) {
+    private void finish(Context context, Readiness observation, QueryDispatchOutcome result, Throwable failure) {
         var previousLogContext = LogContext.snapshot();
         try (var scope = context.session().traceContext().makeCurrent()) {
             setLogContext(context);
             if (failure == null) {
                 resultHandler.accept(context.queryId(), context.state(), result);
+                if (observation == null && !context.state().isTerminal()) {
+                    validateDispatchResult(context, context.state().status());
+                }
             } else {
-                reportFailure(context, unwrap(failure));
+                reportFailure(context, observation, unwrap(failure));
             }
         } catch (RuntimeException | Error callbackFailure) {
             if (failure == null) {
-                reportFailure(context, callbackFailure);
+                reportFailure(context, observation, callbackFailure);
             } else {
                 LOG.error("event=async_query_failure_publication_failed queryId={}",
                         context.queryId(), callbackFailure);
             }
         } finally {
             LogContext.restore(previousLogContext);
-            context.ready().complete(SubmissionReadiness.READY);
+            if (observation != null) observation.ready().complete(SubmissionReadiness.READY);
         }
     }
 
-    private void reportFailure(Context context, Throwable failure) {
+    private void reportFailure(Context context, Readiness observation, Throwable failure) {
         if (failure instanceof CancellationException && context.state().isTerminal()) return;
-        context.failure().set(failure);
+        if (observation != null) observation.failure().set(failure);
         LOG.error("event=async_query_execution_failed queryId={}", context.queryId(), failure);
         String code = failure instanceof PangrovaException known
                 ? known.getErrorCode().getCode() : "INTERNAL_ERROR";
@@ -187,8 +253,7 @@ final class QueryAsyncSubmission {
         LogContext.setQueryId(context.queryId());
     }
 
-    private void requireResult(Context context) {
-        Throwable failure = context.failure().get();
+    private void requireResult(Context context, Throwable failure) {
         if (failure instanceof Error fatal) {
             throw fatal;
         }
@@ -202,8 +267,13 @@ final class QueryAsyncSubmission {
                     context.state().getError().map(QueryFailure::message)
                             .orElse("Query ended before its result disposition was ready"));
         }
+        validateDispatchResult(context, status);
+    }
+
+    private void validateDispatchResult(Context context, QueryStateMachine.Status status) {
         boolean pendingWriteDispatch = status.disposition() == ResultDisposition.PENDING
                 && context.state().isWriteDispatchReady();
+        var state = status.state();
         if (status.disposition() == ResultDisposition.PENDING && !pendingWriteDispatch
                 || state != QueryState.RUNNING && state != QueryState.FINISHING
                     && state != QueryState.FINISHED) {
@@ -237,7 +307,7 @@ final class QueryAsyncSubmission {
         }
     }
 
-    private record Context(
-            String queryId, String sql, QuerySession session, QueryStateMachine state,
-            CompletableFuture<SubmissionReadiness> ready, AtomicReference<Throwable> failure) { }
+    private record Context(String queryId, String sql, QuerySession session, QueryStateMachine state) { }
+
+    private record Readiness(CompletableFuture<SubmissionReadiness> ready, AtomicReference<Throwable> failure) { }
 }

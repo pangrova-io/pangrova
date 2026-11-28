@@ -57,7 +57,8 @@ class InMemoryCoordinatorRegistryTest {
     @Test
     void heartbeatUpdatesTimestamp() {
         long now = System.currentTimeMillis();
-        CoordinatorSnapshot c = new CoordinatorSnapshot("c1", "host-a", 8080, "STANDBY", 5L, now - 5000, now - 60_000);
+        CoordinatorSnapshot c = new CoordinatorSnapshot(
+                "c1", "host-a", 8080, "STANDBY", 5L, now - 5000, now - 60_000, -1L, "instance-c1");
         registry.register(c);
 
         registry.heartbeat("c1");
@@ -72,6 +73,7 @@ class InMemoryCoordinatorRegistryTest {
         assertThat(updated.role()).isEqualTo("STANDBY");
         assertThat(updated.epoch()).isEqualTo(5L);
         assertThat(updated.registeredAtMs()).isEqualTo(now - 60_000);
+        assertThat(updated.incarnation()).isEqualTo("instance-c1");
     }
 
     @Test

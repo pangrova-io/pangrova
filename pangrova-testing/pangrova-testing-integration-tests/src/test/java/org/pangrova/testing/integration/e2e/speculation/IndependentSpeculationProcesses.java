@@ -2,10 +2,11 @@ package org.pangrova.testing.integration.e2e.speculation;
 
 import org.pangrova.common.enums.ResultDisposition;
 import com.fasterxml.jackson.databind.JsonNode;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.enums.ResultDisposition;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
 import java.io.IOException;
@@ -116,12 +117,12 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
         return local.replayReport(actual);
     }
 
-    CompletableFuture<SqlOutput> query(String sql, ResultDisposition expectedDisposition) {
+    CompletableFuture<SqlOutput> execute(String sql, ResultDisposition expected) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 var result = local.executeSql(sql, ResultProtocol.GRPC_TLS);
                 if (result.exitCode() == 0) {
-                    local.requireSuccessfulQuery(result, expectedDisposition, ResultProtocol.GRPC_TLS);
+                    local.requireSuccessfulExecution(result, expected, ResultProtocol.GRPC_TLS);
                 }
                 return new SqlOutput(result.exitCode(), Objects.requireNonNullElse(result.output(), ""),
                         result.exitCode() == 0 ? "" : result.errors());

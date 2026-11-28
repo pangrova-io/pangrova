@@ -7,7 +7,6 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
@@ -24,7 +23,6 @@ public record DAGDispatchContext(
         LineageEventEmitter lineageEmitter,
         CatalogRegistry catalogRegistry,
         long taskTimeoutSeconds,
-        AdaptiveQueryExecutor adaptiveQueryExecutor,
         AdaptiveQueryConfig adaptiveQueryConfig,
         SpeculativeStageHandler speculativeStageHandler,
         PipelineConfig pipelineConfig,
