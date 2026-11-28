@@ -44,6 +44,7 @@ import org.pangrova.shuffle.api.coordinator.ShuffleTaskAccess;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleTaskGrantBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
+import org.pangrova.coordinator.query.stage.ShuffleInputLayout;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry;
@@ -66,7 +67,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     private final LeafStageDispatcher leafStageDispatcher;
     private final DAGStagePlanBinder stagePlanBinder;
     private final StageSplitFetcher stageSplitFetcher;
-    private final CoalescedShuffleInputs coalescedShuffleInputs;
+    private final AdaptiveShuffleInputs adaptiveShuffleInputs;
     private final DownstreamStageScheduler downstreamStageScheduler;
     private final LateProbeFilterDelivery lateProbeFilters;
     private final ScheduledExecutorService deadlines = ManagedExecutorFactory.newScheduledThreadPool(
@@ -95,7 +96,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         this.stagePlanBinder = new DAGStagePlanBinder(new RetrievalGenerationResolver(artifactResolver),
                 generatedValueReads);
         this.stageSplitFetcher = new StageSplitFetcher(dependencies.catalogRegistry(), splitFetcher);
-        this.coalescedShuffleInputs = new CoalescedShuffleInputs(dependencies.adaptiveQueryConfig());
+        this.adaptiveShuffleInputs = new AdaptiveShuffleInputs(dependencies.adaptiveQueryConfig());
         this.downstreamStageScheduler = new DownstreamStageScheduler(dependencies.taskTracker());
         this.lateProbeFilters = new LateProbeFilterDelivery(dependencies.dispatcher(), dependencies.taskTracker());
         this.lifecycle = new DAGLifecycleController(
@@ -439,15 +440,25 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
 
     private void freezePhysicalInputs(Stage stage, DAGExecutionState state) {
         var context = lifecycle.queryContext(state.queryId());
-        if (state.durable() == null && !isLiveRelationalRead(context)) return;
-        var candidate = coalescedShuffleInputs.select(stage, state.dag());
-        var inputs = state.durable() == null ? candidate
-                : state.durable().freezeInputRanges(stage, state.dag(), candidate);
-        stage.freezeCoalescedInputs(inputs);
-        if (inputs.isCoalesced()) {
-            LOG.info("event=shuffle_input_coalesced queryId={} stageId={} sourcePartitions={} consumers={} inputs={}",
-                    state.queryId(), stage.stageId(), inputs.originalCount(), inputs.coalescedCount(),
-                    state.dag().edges().getOrDefault(stage.stageId(), List.of()).size());
+        if (state.durable() == null && (stage.hasFrozenShuffleInputs() || !isLiveRelationalRead(context))) return;
+        var candidate = adaptiveShuffleInputs.select(stage, state.dag());
+        var inputs = state.durable() == null ? candidate.layout()
+                : ShuffleInputLayout.coalesced(
+                        state.durable().freezeInputRanges(stage, state.dag(), candidate.coalesced()));
+        stage.freezeShuffleInputs(inputs);
+        if (!inputs.consumers().isEmpty()) {
+            long splitConsumers = inputs.consumers().stream().filter(consumer -> !consumer.ranges().isEmpty()).count();
+            if (splitConsumers == 0) {
+                LOG.info("event=shuffle_input_coalesced queryId={} stageId={} sourcePartitions={}"
+                                + " consumers={} inputs={}",
+                        state.queryId(), stage.stageId(), inputs.originalCount(), inputs.consumers().size(),
+                        state.dag().edges().getOrDefault(stage.stageId(), List.of()).size());
+            } else {
+                LOG.info("event=shuffle_input_skew_split queryId={} stageId={} sourcePartitions={}"
+                                + " consumers={} splitConsumers={}",
+                        state.queryId(), stage.stageId(), inputs.originalCount(), inputs.consumers().size(),
+                        splitConsumers);
+            }
         }
     }
 

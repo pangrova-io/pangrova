@@ -20,6 +20,7 @@ import org.pangrova.planner.enums.DistributionType;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Proves the narrow streaming map semantics rather than guessing from table names. */
 final class PartitionLocalPlanInspector {
@@ -44,26 +45,34 @@ final class PartitionLocalPlanInspector {
     }
 
     /** Proves that every possible match is already assigned to the same original bucket on both inputs. */
-    static boolean supportsCoalescedHashJoin(RelNode plan, Map<String, List<Integer>> exchanges, int partitions) {
-        if (exchanges.size() != 2) return false;
+    static Optional<PlanFragment.AlignedHashJoin> alignedHashJoin(
+            RelNode plan, Map<String, List<Integer>> exchanges, int partitions) {
+        if (exchanges.size() != 2) return Optional.empty();
         RelNode input = plan instanceof PangrovaExchange exchange ? exchange.getInput() : plan;
         while (input instanceof Project || input instanceof Filter) {
-            if (!localExpressions(input)) return false;
+            if (!localExpressions(input)) return Optional.empty();
             input = input.getInput(0);
         }
-        return input instanceof Join join && isAlignedJoin(join, exchanges, partitions);
-    }
-
-    private static boolean isAlignedJoin(Join join, Map<String, List<Integer>> exchanges, int partitions) {
-        if (!(join.getLeft() instanceof PangrovaExchangeInput left)
+        if (!(input instanceof Join join)
+                || !(join.getLeft() instanceof PangrovaExchangeInput left)
                 || !(join.getRight() instanceof PangrovaExchangeInput right)
                 || left.exchangeId().equals(right.exchangeId())) {
-            return false;
+            return Optional.empty();
         }
         var keys = join.analyzeCondition();
-        return supportsHashPartitioning(join, keys)
-                && matchesJoinExchange(left, exchanges.get(left.exchangeId()), keys.leftKeys, partitions)
-                && matchesJoinExchange(right, exchanges.get(right.exchangeId()), keys.rightKeys, partitions);
+        if (!supportsHashPartitioning(join, keys)
+                || !matchesJoinExchange(left, exchanges.get(left.exchangeId()), keys.leftKeys, partitions)
+                || !matchesJoinExchange(right, exchanges.get(right.exchangeId()), keys.rightKeys, partitions)) {
+            return Optional.empty();
+        }
+        var proof = switch (join.getJoinType()) {
+            case INNER -> new PlanFragment.AlignedHashJoin(left.exchangeId(), right.exchangeId(), true, true);
+            case LEFT, SEMI -> new PlanFragment.AlignedHashJoin(left.exchangeId(), right.exchangeId(), true, false);
+            case RIGHT -> new PlanFragment.AlignedHashJoin(left.exchangeId(), right.exchangeId(), false, true);
+            case FULL -> new PlanFragment.AlignedHashJoin(left.exchangeId(), right.exchangeId(), false, false);
+            default -> throw new IllegalStateException("Unexpected aligned hash join type " + join.getJoinType());
+        };
+        return Optional.of(proof);
     }
 
     static boolean supportsHashPartitioning(Join join, JoinInfo keys) {

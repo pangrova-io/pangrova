@@ -29,8 +29,8 @@ public final class ExchangeInputTestAccess {
         return IntStream.range(0, tasks).mapToObj(partition -> prepared.bind(partition, null).get(0)).toList();
     }
 
-    public static void freezeCoalescedInputs(org.pangrova.coordinator.query.stage.Stage stage, StageDAG dag) {
-        var selector = new CoalescedShuffleInputs(org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED);
-        stage.freezeCoalescedInputs(selector.select(stage, dag));
+    public static void freezeAdaptiveInputs(org.pangrova.coordinator.query.stage.Stage stage, StageDAG dag) {
+        var selector = new AdaptiveShuffleInputs(org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED);
+        stage.freezeShuffleInputs(selector.select(stage, dag).layout());
     }
 }

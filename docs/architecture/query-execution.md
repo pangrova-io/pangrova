@@ -1582,6 +1582,25 @@ the JNI input. Native admission calculates the expected batch count from each
 selected interval. Durable recovery still validates whole source partitions
 against the frozen exchange receipt.
 
+For an aligned live HASH join, the Planner provides the exchange order and
+the sides eligible for splitting. INNER can split either or both sides. LEFT
+and LEFT SEMI split only the left side, RIGHT only the right side, and FULL
+uses whole partitions. The Coordinator evaluates certified intervals from the
+finalized receipts. A side must exceed the fixed minimum, the coalescing
+target and the configured multiple of its median partition bytes. A candidate
+must cut peak input bytes per task by at least 25 percent. It can at most
+double the bucket's input bytes and create 32 tasks per original bucket.
+Stage-wide extra tasks are capped at the larger of 31 and the original
+partition count, with the largest buckets receiving the budget first.
+
+The Coordinator freezes one ordered input layout before allocating this
+stage's output and reuses it on retry. Workers get the exact certificate
+for each split input and the corresponding whole receipt for any replicated
+input. Consumer task IDs stay contiguous, separate from original partition
+IDs. Placement uses the selected input bytes and no new database read is
+needed to select the layout. Durable jobs continue to freeze whole-partition
+groups.
+
 In remote Shuffle mode, logical terminal transition uses the original execution
 grant to seal admission. The live DAG reports its outcome without deleting
 Shuffle. Physical cleanup starts after local operations, report publication and
@@ -2441,7 +2460,7 @@ Query execution emits the following spans (see [14 §4](./observability.md) for 
 ### 17.3 Log Events
 
 - Query lifecycle transitions: QUEUED → PLANNING → SCHEDULING → RUNNING → FINISHED/FAILED (INFO)
-- Committed Shuffle totals and applied range coalescing (INFO)
+- Committed Shuffle totals, range coalescing and certified skew splits (INFO)
 - Dynamic filter generation and application events (DEBUG)
 - Write path commit/abort events (INFO)
 

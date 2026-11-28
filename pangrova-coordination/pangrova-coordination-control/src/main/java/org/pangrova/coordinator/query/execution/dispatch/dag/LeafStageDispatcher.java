@@ -26,6 +26,7 @@ import org.pangrova.generation.publication.read.PublishedGenerationBindingResolv
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.query.stage.Stage;
+import org.pangrova.coordinator.query.stage.ShuffleInputLayout.Consumer;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
@@ -184,11 +185,14 @@ final class LeafStageDispatcher {
         var partitionFilePaths = assigned.stream()
                 .map(partition -> partition.stream().flatMap(split -> split.filePaths().stream()).toList())
                 .toList();
+        var stage = input.dag().findStage(plan.stageId());
+        var consumers = stage == null ? List.<Consumer>of() : stage.shuffleInputs().consumers();
+        var work = consumers.isEmpty() ? assigned.stream().map(LeafStageDispatcher::placementWork).toList()
+                : consumers.stream().map(consumer -> consumer.partitions().totalBytes()).toList();
         return new PreparedDispatch(new TaskRequestFactory.FrozenStagePlan(input.boundPlan().planBytes()),
                 ExchangeSourceBuilder.prepare(plan, input.dag(), input.dispatched()),
                 input.workerSelector().bindStagePlacement(input.session().tenantId()),
-                shuffleConfig, partitionedSplits, partitionFilePaths,
-                assigned.stream().map(LeafStageDispatcher::placementWork).toList(), hasArtifactBindings, taskCount);
+                shuffleConfig, partitionedSplits, partitionFilePaths, work, hasArtifactBindings, taskCount);
     }
 
     private int taskCount(
@@ -206,7 +210,7 @@ final class LeafStageDispatcher {
         int clusterCap = workerCount > Integer.MAX_VALUE / WorkerSelector.MAX_TASKS_PER_WORKER
                 ? Integer.MAX_VALUE : workerCount * WorkerSelector.MAX_TASKS_PER_WORKER;
         var stage = input.dag().findStage(input.plan().stageId());
-        int taskCount = stage != null && !stage.coalescedInputRanges().isEmpty()
+        int taskCount = stage != null && !stage.shuffleInputs().consumers().isEmpty()
                 ? stage.physicalTaskCount()
                 : taskCountForGraph(input.plan(), input.dag(), remoteShuffle, rawParallelism, clusterCap);
         if (hasArtifactBindings) taskCount = artifactTaskCount(input, artifactSourceCount, taskCount);

@@ -54,7 +54,7 @@ public final class Stage {
     private volatile long shufflePlanEpoch;
     private volatile ShuffleCommitReceipt shuffleReceipt;
     private volatile org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner;
-    private volatile org.pangrova.planner.api.adaptive.CoalesceResult coalescedInputs;
+    private volatile ShuffleInputLayout shuffleInputs;
 
     /** Per-task retry counters for task-level retry before stage-level retry. */
     private final ConcurrentHashMap<String, AtomicInteger> taskRetryCounters =
@@ -80,24 +80,28 @@ public final class Stage {
     }
 
     /** Freeze the physical cohort before allocating its shuffle output or issuing any task. */
-    public synchronized void freezeCoalescedInputs(org.pangrova.planner.api.adaptive.CoalesceResult inputs) {
-        if (inputs.isCoalesced() && inputs.originalCount() != plan.parallelism()) {
-            throw new IllegalArgumentException("Coalesced inputs must cover the original stage partitions");
+    public synchronized void freezeShuffleInputs(ShuffleInputLayout inputs) {
+        if (!inputs.consumers().isEmpty() && inputs.originalCount() != plan.parallelism()) {
+            throw new IllegalArgumentException("Adaptive inputs must cover the original stage partitions");
         }
-        if (coalescedInputs != null && !coalescedInputs.equals(inputs)) {
+        if (shuffleInputs != null && !shuffleInputs.equals(inputs)) {
             throw new IllegalStateException("A stage retry cannot change its admitted input ranges");
         }
-        coalescedInputs = inputs;
+        shuffleInputs = inputs;
     }
 
-    public java.util.List<org.pangrova.planner.api.adaptive.PartitionGroup> coalescedInputRanges() {
-        var inputs = coalescedInputs;
-        return inputs == null ? java.util.List.of() : inputs.groups();
+    public boolean hasFrozenShuffleInputs() {
+        return shuffleInputs != null;
+    }
+
+    public ShuffleInputLayout shuffleInputs() {
+        var inputs = shuffleInputs;
+        return inputs == null ? ShuffleInputLayout.DEFAULT : inputs;
     }
 
     public int physicalTaskCount() {
-        var inputs = coalescedInputs;
-        return inputs == null || !inputs.isCoalesced() ? plan.parallelism() : inputs.coalescedCount();
+        var consumers = shuffleInputs().consumers();
+        return consumers.isEmpty() ? plan.parallelism() : consumers.size();
     }
 
     /** A client can already hold this endpoint; transparent retries cannot redirect a Flight stream. */

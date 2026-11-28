@@ -108,7 +108,16 @@ public final class PlanFragment implements StagePlanAccess {
 
     /** Checks the ordered key, type and partition alignment of a live hash join's exchange leaves. */
     public boolean supportsCoalescedHashJoin(java.util.Map<String, List<Integer>> exchanges, int partitions) {
-        return PartitionLocalPlanInspector.supportsCoalescedHashJoin(planNode, exchanges, partitions);
+        return alignedHashJoin(exchanges, partitions).isPresent();
+    }
+
+    /** The aligned exchange leaves in join order and the inputs eligible for independent splitting. */
+    public record AlignedHashJoin(String leftExchangeId, String rightExchangeId,
+                                  boolean splitLeft, boolean splitRight) {}
+
+    /** Returns the join's partition alignment and the sides whose counterparts may be replicated. */
+    public Optional<AlignedHashJoin> alignedHashJoin(java.util.Map<String, List<Integer>> exchanges, int partitions) {
+        return PartitionLocalPlanInspector.alignedHashJoin(planNode, exchanges, partitions);
     }
 
     private static boolean hasWindow(RelNode node) {

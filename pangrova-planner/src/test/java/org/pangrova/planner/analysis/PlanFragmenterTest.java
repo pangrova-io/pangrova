@@ -244,6 +244,21 @@ class PlanFragmenterTest {
         assertThat(mismatched.supportsCoalescedHashJoin(Map.of("left", keys, "right", keys), 8)).isFalse();
     }
 
+    @ParameterizedTest
+    @EnumSource(value = JoinRelType.class, names = {"INNER", "LEFT", "RIGHT", "FULL", "SEMI"})
+    void skewSplittingOnlyReplicatesSidesThatCannotProduceDuplicateUnmatchedRows(JoinRelType type) {
+        var keys = List.of(0);
+        var rowType = values().getRowType();
+        var left = joinExchange("left", 1, rowType, keys);
+        var right = joinExchange("right", 2, rowType, keys);
+        var fragment = new PlanFragment(hashJoin(left, right, type, keys), 0, 0);
+
+        assertThat(fragment.alignedHashJoin(Map.of("right", keys, "left", keys), 8)).hasValue(
+                new PlanFragment.AlignedHashJoin("left", "right",
+                        type == JoinRelType.INNER || type == JoinRelType.LEFT || type == JoinRelType.SEMI,
+                        type == JoinRelType.INNER || type == JoinRelType.RIGHT));
+    }
+
     private PangrovaExchangeInput joinExchange(String id, int source, RelDataType type, List<Integer> keys) {
         var distribution = PangrovaDistribution.hash(keys);
         return new PangrovaExchangeInput(cluster, cluster.traitSet().replace(distribution), type,

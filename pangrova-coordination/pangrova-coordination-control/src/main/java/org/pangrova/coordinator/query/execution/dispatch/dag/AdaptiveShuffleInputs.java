@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
+import org.pangrova.coordinator.query.stage.ShuffleInputLayout;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.PartitionCoalescer;
 import org.pangrova.planner.api.adaptive.CoalesceResult;
@@ -12,37 +13,44 @@ import org.pangrova.coordinator.generation.template.PersistedStagePlan;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
 /** Selects ranges exclusively from the finalized inputs of a partition-local stage. */
-final class CoalescedShuffleInputs {
+final class AdaptiveShuffleInputs {
     private final AdaptiveQueryConfig config;
     private final PartitionCoalescer coalescer = new PartitionCoalescer();
 
-    CoalescedShuffleInputs(AdaptiveQueryConfig config) {
+    AdaptiveShuffleInputs(AdaptiveQueryConfig config) {
         this.config = config;
     }
 
-    CoalesceResult select(Stage stage, StageDAG dag) {
+    record Selection(CoalesceResult coalesced, ShuffleInputLayout layout) {
+        static Selection coalesced(CoalesceResult result) {
+            return new Selection(result, ShuffleInputLayout.coalesced(result));
+        }
+    }
+
+    private static final Selection NO_OP = Selection.coalesced(CoalesceResult.NO_OP);
+
+    Selection select(Stage stage, StageDAG dag) {
         var plan = stage.plan();
         if (config == null || !config.enabled()
                 || !plan.taskType().equals("COMPUTE") || plan.parallelism() < 2
                 || (plan.stagePlan().mode() != StagePlanMode.LIVE_QUERY
                     && !(plan.stagePlan() instanceof PersistedStagePlan))) {
-            return CoalesceResult.NO_OP;
+            return NO_OP;
         }
         var output = dag.findDownstreamEdge(stage.stageId());
         if (output == null || (output.shuffleType() != ShuffleType.HASH
                 && output.shuffleType() != ShuffleType.ROUND_ROBIN && output.shuffleType() != ShuffleType.SINGLETON)) {
-            return CoalesceResult.NO_OP;
+            return NO_OP;
         }
         var upstream = dag.edges().getOrDefault(stage.stageId(), List.of());
         if (upstream.size() == 1) {
-            return selectSingle(stage, dag, upstream.get(0));
+            return Selection.coalesced(selectSingle(stage, dag, upstream.get(0)));
         }
-        return upstream.size() == 2 ? selectJoin(stage, dag, upstream) : CoalesceResult.NO_OP;
+        return upstream.size() == 2 ? selectJoin(stage, dag, upstream) : NO_OP;
     }
 
     private CoalesceResult selectSingle(Stage stage, StageDAG dag, int producerId) {
@@ -55,21 +63,33 @@ final class CoalescedShuffleInputs {
                 CanonicalTaskRequests.MAX_EXTERNAL_PARTITIONS_PER_INPUT);
     }
 
-    private CoalesceResult selectJoin(Stage stage, StageDAG dag, List<Integer> upstream) {
+    private Selection selectJoin(Stage stage, StageDAG dag, List<Integer> upstream) {
         var exchanges = new HashMap<String, List<Integer>>();
-        var receipts = new ArrayList<ShuffleCommitReceipt>(upstream.size());
+        var receipts = new HashMap<String, ShuffleCommitReceipt>();
         for (int producerId : upstream) {
             var producer = dag.findStage(producerId);
             var edge = eligibleInput(stage, dag, producer);
             if (edge == null || exchanges.put(edge.exchangeId(), edge.distributionKeys()) != null) {
-                return CoalesceResult.NO_OP;
+                return NO_OP;
             }
-            receipts.add(producer.requireShuffleReceipt());
+            receipts.put(edge.exchangeId(), producer.requireShuffleReceipt());
         }
         int partitions = stage.plan().parallelism();
-        if (!isSafeJoin(stage, exchanges, partitions)) {
-            return CoalesceResult.NO_OP;
+        if (receipts.values().stream().anyMatch(receipt -> receipt.partitions().size() != partitions)) return NO_OP;
+        var stagePlan = stage.plan().stagePlan();
+        if (stagePlan instanceof PersistedStagePlan persisted) {
+            return persisted.stage().coalescibleHashInputs()
+                    ? Selection.coalesced(coalesceJoin(List.copyOf(receipts.values()), partitions)) : NO_OP;
         }
+        var proof = stagePlan.requireLiveFragment().alignedHashJoin(exchanges, partitions).orElse(null);
+        if (proof == null) return NO_OP;
+        var left = receipts.get(proof.leftExchangeId());
+        var right = receipts.get(proof.rightExchangeId());
+        var coalesced = coalesceJoin(List.of(left, right), partitions);
+        return new Selection(coalesced, SkewedHashJoinInputs.select(proof, left, right, coalesced, config));
+    }
+
+    private CoalesceResult coalesceJoin(List<ShuffleCommitReceipt> receipts, int partitions) {
         return coalescer.evaluateAligned(receipts, partitions, config,
                 CanonicalTaskRequests.MAX_EXTERNAL_PARTITIONS_PER_INPUT);
     }
@@ -78,12 +98,6 @@ final class CoalescedShuffleInputs {
         var plan = stage.plan().stagePlan();
         return plan instanceof PersistedStagePlan persisted ? persisted.stage().coalescibleHashInputs()
                 : plan.requireLiveFragment().supportsCoalescedHashInput(edge.exchangeId(), edge.distributionKeys());
-    }
-
-    private static boolean isSafeJoin(Stage stage, java.util.Map<String, List<Integer>> exchanges, int partitions) {
-        var plan = stage.plan().stagePlan();
-        return plan instanceof PersistedStagePlan persisted ? persisted.stage().coalescibleHashInputs()
-                : plan.requireLiveFragment().supportsCoalescedHashJoin(exchanges, partitions);
     }
 
     private static StageEdge eligibleInput(Stage consumer, StageDAG dag, Stage producer) {
