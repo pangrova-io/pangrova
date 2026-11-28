@@ -127,15 +127,16 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
             boolean speculation, ShuffleMode shuffleMode, String cdcKafkaBootstrap, boolean indexing) throws Exception {
-        this(functions, speculation, shuffleMode, cdcKafkaBootstrap, indexing, null);
+        this(functions, speculation, shuffleMode, cdcKafkaBootstrap, indexing, null, null);
     }
 
     private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
             boolean speculation, ShuffleMode shuffleMode, String cdcKafkaBootstrap, boolean indexing,
-            ProcessSecurityAuthority sharedSecurity) throws Exception {
+            ProcessSecurityAuthority sharedSecurity, TestTlsAuthority sharedTls) throws Exception {
         ownsSecurity = sharedSecurity == null;
         nodeName = ownsSecurity ? "local" : "peer";
         securityClosed = !ownsSecurity;
+        tlsClosed = !ownsSecurity;
         this.cdcKafkaBootstrap = cdcKafkaBootstrap;
         this.indexing = indexing;
         this.shuffleMode = shuffleMode;
@@ -171,16 +172,17 @@ final class IndependentLocalProcesses implements AutoCloseable {
                         SharedTestContainers.NETWORK, shuffleMode == ShuffleMode.REMOTE);
             }
             createdReports = new ProcessStatusReportRelay();
-            createdTls = new TestTlsAuthority(workspace);
-            createdClient = createdTls.issue(nodeName + "-client", "localhost", false);
+            if (ownsSecurity) createdTls = new TestTlsAuthority(workspace);
+            var certificateAuthority = ownsSecurity ? createdTls : sharedTls;
+            createdClient = certificateAuthority.issue(nodeName + "-client", "localhost", false);
             String coordinatorDns = shuffleMode == ShuffleMode.REMOTE
                     ? ProcessRemoteShuffle.COORDINATOR_IDENTITY : "localhost";
-            createdCoordinator = createdTls.issueForMappedEndpoint(nodeName + "-coordinator",
+            createdCoordinator = certificateAuthority.issueForMappedEndpoint(nodeName + "-coordinator",
                     coordinatorDns, InetAddress.getByName(COORDINATOR_HOST));
             workerIdentities.put(workerId(1),
-                    createdTls.issue(workerId(1), advertisedAddress, false));
+                    certificateAuthority.issue(workerId(1), advertisedAddress, false));
             workerIdentities.put(workerId(2),
-                    createdTls.issue(workerId(2), advertisedAddress, false));
+                    certificateAuthority.issue(workerId(2), advertisedAddress, false));
             chosenPort = availablePort();
         } catch (Exception | Error failure) {
             for (AutoCloseable owner : new AutoCloseable[] {
@@ -199,7 +201,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
         warehouse = createdWarehouse;
         security = ownsSecurity ? createdSecurity : sharedSecurity;
         reports = createdReports;
-        tls = createdTls;
+        tls = ownsSecurity ? createdTls : sharedTls;
         clientIdentity = createdClient;
         coordinatorIdentity = createdCoordinator;
         coordinatorPort = chosenPort;
@@ -216,7 +218,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     IndependentLocalProcesses startPeer() throws Exception {
-        var peer = new IndependentLocalProcesses(functions, false, ShuffleMode.NATIVE, null, false, security);
+        var peer = new IndependentLocalProcesses(functions, false, ShuffleMode.NATIVE, null, false, security, tls);
         try {
             peer.startCoordinatorAndFirstWorker();
             return peer;
