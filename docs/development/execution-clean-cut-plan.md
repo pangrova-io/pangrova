@@ -69,7 +69,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 | B3 | callback 隔离、query-order/admission、阶段准备和 durable commit 容量 | 真实 PostgreSQL 回归已验证阻塞提交时保持容量占用和释放后的恢复。固定到达率叠加阻塞目录、慢对象存储和终态报告压力待验收 |
 | B4 | identity projection 移除、local aggregate reduction | 6 项 Planner 回归通过。真实聚合 CPU、首批/完成时延和跨 Worker benchmark 待验收 |
 | B5 | 实时单输入与对齐双输入 AQE 的实际范围映射已验证。43 项 PostgreSQL 持久交换回归通过，含单侧拆分和双侧配对扩容及接管 | 不同 Join、NULL、重复键、重试和混合负载的阈值与尾时延校准待验收 |
-| B6 | Native result ownership、byte credit、explicit EOF/drain、early-close failure；Flight 每批撤权检查不再读取带锁的完整所有权快照。成功关闭出口时将读取者首批、生产端 EOF 和传输结束写入精确 OUTPUT Profile。本地 `BackpressureE2ETest.verifyAbruptFlightDisconnect` 覆盖意外断连。已加入空结果、正常结果、异常退出、协议验证及真实双 Worker SQL 断言 | 待统一运行回归，再补跨主机吞吐、soak、完整 ASan/UBSan、客户端消费与全资源排空分段验收 |
+| B6 | Native result ownership、byte credit、explicit EOF/drain、early-close failure；Flight 每批撤权检查不再读取带锁的完整所有权快照。成功关闭出口时将读取者首批、生产端 EOF 和传输结束写入精确 OUTPUT Profile。本地 `BackpressureE2ETest.verifyAbruptFlightDisconnect` 覆盖意外断连。已加入空结果、正常结果、异常退出、协议验证及真实双 Worker SQL 断言 | 66 项 Java Profile 与 Native 回报合同回归通过。当前 Native 候选的实际 Flight 回归、跨主机吞吐、soak、完整 ASan/UBSan、客户端消费与全资源排空分段待验收 |
 | B7 | Shuffle read/write window、atomic bounded publication、零逐 batch 授权 SQL | 40 项本地 PostgreSQL/MinIO 回归通过，覆盖读窗口续租与关闭的 SQL 次数、写窗口和精确范围、owner 切换、晚到 PUT 与对象清理。跨主机热点并发和尾时延待验收 |
 | B8 | fenced write journal、intent-before-catalog、ambiguous reconciliation | 23 项真实 PostgreSQL 写入回归通过，覆盖未知提交、并发发布与终止、旧 owner fencing、CDC checkpoint 和回执退役。跨格式高并发、故障组合和跨引擎结果待验收 |
 | B9 | 固定到达率混合样本和阶段事件 | 仓库专用 runner 数为 0，最近五次受控 nightly 均跳过。待配备同源 Linux runner、共享 SF100/SF1000、三组有效窗口及 Trino/Spark 参考结果 |
