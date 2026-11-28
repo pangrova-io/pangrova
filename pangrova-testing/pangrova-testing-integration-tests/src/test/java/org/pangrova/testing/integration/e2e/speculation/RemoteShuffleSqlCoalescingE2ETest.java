@@ -3,6 +3,8 @@ package org.pangrova.testing.integration.e2e.speculation;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
@@ -51,11 +53,12 @@ class RemoteShuffleSqlCoalescingE2ETest extends ContainerTestBase {
         }
     }
 
-    @Test
-    void selectiveBuildUsesHashExchangeWithRemoteShuffle() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"BIGINT", "INTEGER"})
+    void selectiveBuildUsesHashExchangeWithRemoteShuffle(String keyType) throws Exception {
         try (var processes = IndependentLocalProcesses.remoteShuffle()) {
             try {
-                verifySelectiveBuild(processes);
+                verifySelectiveBuild(processes, keyType);
             } catch (Exception | Error failure) {
                 failure.addSuppressed(new IllegalStateException(
                         "Local process diagnostics retained at " + processes.retainDiagnostics()));
@@ -64,30 +67,39 @@ class RemoteShuffleSqlCoalescingE2ETest extends ContainerTestBase {
         }
     }
 
-    private static void verifySelectiveBuild(IndependentLocalProcesses processes) throws Exception {
+    private static void verifySelectiveBuild(IndependentLocalProcesses processes, String keyType) throws Exception {
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();
         String probe = "spec_catalog.default.remote_selective_probe";
         String build = "spec_catalog.default.remote_selective_build";
         var protocol = ResultProtocol.GRPC_TLS;
-        processes.command("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)", protocol);
-        processes.command("CREATE TABLE " + build + " (id BIGINT)", protocol);
-        var rows = IntStream.range(0, 40).mapToObj(id -> "(" + id + "," + (100 + id) + ")")
+        processes.command("CREATE TABLE " + probe + " (id " + keyType + ", payload BIGINT) PARTITIONED BY (id)", protocol);
+        processes.command("CREATE TABLE " + build + " (id " + keyType + ")", protocol);
+        var rows = IntStream.range(-20, 20).mapToObj(id -> "(" + id + "," + (100 + id) + ")")
                 .collect(Collectors.joining(","));
         processes.command("INSERT INTO " + probe + " VALUES " + rows, protocol);
-        processes.command("INSERT INTO " + build + " VALUES (2),(2),(35),(NULL)", protocol);
+        processes.command("INSERT INTO " + build + " VALUES (-19),(-19),(15),(NULL)", protocol);
         processes.startSecondWorker();
 
         var result = processes.query("SELECT p.id, p.payload FROM " + probe + " p JOIN " + build
                 + " b ON p.id = b.id ORDER BY p.id", protocol);
-        assertThat(resultRows(result.output())).containsExactly(List.of("2", "102"), List.of("2", "102"),
-                List.of("35", "135"));
+        assertThat(resultRows(result.output())).containsExactly(List.of("-19", "81"), List.of("-19", "81"),
+                List.of("15", "115"));
         Awaitility.await("remote selective join fully drains").atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
             assertThat(processes.status(result.queryId()).drained()).isTrue();
             assertThat(releasedWorkers(processes, result.queryId())).isNotEmpty();
             assertThat(processes.activeTenantReservations()).isZero();
             assertThat(processes.remoteShuffleObjectsReleased()).isTrue();
         });
+        var ranges = processes.reports().deliveries().stream()
+                .filter(delivery -> result.queryId().equals(delivery.report().queryId()))
+                .map(delivery -> delivery.report().terminalEvidence())
+                .filter(java.util.Objects::nonNull)
+                .flatMap(evidence -> evidence.report().getNativeTaskStats().getBuildKeySummariesList().stream())
+                .flatMap(summary -> summary.getRangesList().stream())
+                .distinct().toList();
+        assertThat(ranges).hasSize(2).allMatch(range -> range.getMinimum() == range.getMaximum());
+        assertThat(ranges).extracting(range -> range.getMinimum()).containsExactlyInAnyOrder(-19L, 15L);
         assertThat(processes.reports().forwardingFailures()).isEmpty();
     }
 

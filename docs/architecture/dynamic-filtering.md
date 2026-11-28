@@ -12,7 +12,7 @@ Pangrova applies static and runtime Join predicates at different points in query
 |---|---|---|
 | Native hash Join | Velox build operator and probe scan in the same native task | When the complete build hash table is available, HashProbe can push an exact domain or bounded Bloom filter through the Velox driver to the corresponding scan ordinal. `ColumnAssignmentDataSource` evaluates the received filter on projected rows, including aliased columns, across source formats. Velox checks Join type and spill state before publishing. Scan output rows and producer plan node IDs identify the effect. Underlying file reads can still occur. |
 | Explicit filter binding | A caller supplies a typed `RuntimeFilterBinding` and an exact target plan node | The native task parser validates initial bindings. The same typed binding works at startup and while a task runs. The sole-scan selector requires precisely one Native table scan. A named selector must match a Native scan ID. |
-| Coordinator-generated cross-stage pruning | A bounded INNER Join build with eligible BIGINT equalities and a pinned Iceberg probe scan | The Coordinator uses the elected Native build receipts and committed Exchange when enumerating the probe. The probe uses the original constraints when build evidence is unavailable at enumeration. |
+| Coordinator-generated cross-stage pruning | A bounded INNER Join build with eligible INTEGER or BIGINT equalities and a pinned Iceberg probe scan | The Coordinator uses the elected Native build receipts and committed Exchange when enumerating the probe. The probe uses the original constraints when build evidence is unavailable at enumeration. |
 
 ## Planning and execution
 
@@ -43,14 +43,16 @@ join keys, and the hash join retains the complete original condition.
 ## Pruning a probe scan in another stage
 
 `PlanFragmenter` selects a bounded build on the physical right side of an
-eligible INNER Join. It can use up to four required BIGINT equalities from
-one conjunction when the probe operands resolve to distinct physical fields
-of the same Iceberg scan. The binding identifies the build stage, its Exchange,
+eligible INNER Join. It can use up to four required equalities from one
+conjunction when both operands use the same INTEGER or BIGINT type and the
+probe operands resolve to distinct physical fields of the same Iceberg scan. The binding identifies the build stage, its Exchange,
 the sorted build output ordinals and the selected Iceberg snapshot and schema.
 Stable connector field IDs identify the probe fields.
 
 Each successful elected Native build task reports up to 16 disjoint inclusive
-ranges per requested output ordinal. A completed ordinal with only NULL keys
+ranges per requested output ordinal. Native widens signed INTEGER keys to
+64-bit range endpoints, which preserve their exact values on the existing
+wire. A completed ordinal with only NULL keys
 has an empty domain. The Coordinator can activate up to four independent stage
 pairs per live query, prioritizing the estimated bytes and file count of each
 probe. The pairs share one 200 ms window after initial source scheduling. Each

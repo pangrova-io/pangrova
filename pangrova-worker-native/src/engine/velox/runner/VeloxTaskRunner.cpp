@@ -52,6 +52,18 @@ namespace pangrova::velox {
 
 namespace {
 
+template <typename Integer>
+void collectSignedBuildKeys(
+    const facebook::velox::DecodedVector& key,
+    facebook::velox::vector_size_t row_count,
+    BuildKeyRanges& ranges) {
+  for (facebook::velox::vector_size_t index = 0; index < row_count; ++index) {
+    if (!key.isNullAt(index)) {
+      ranges.add(static_cast<int64_t>(key.valueAt<Integer>(index)));
+    }
+  }
+}
+
 // Collect leaf node IDs that require splits, with their table names
 // for precise split routing.
 struct SplitLeafNode {
@@ -205,9 +217,12 @@ void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
     throw std::invalid_argument("Too many runtime-filter build keys");
   }
   for (const auto ordinal : config_.build_key_ordinals) {
-    if (!config_.is_shuffle_task || ordinal >= plan_->outputType()->size() ||
-        plan_->outputType()->childAt(ordinal)->kind() != facebook::velox::TypeKind::BIGINT) {
-      throw std::invalid_argument("Runtime-filter build keys require BIGINT shuffle output columns");
+    if (!config_.is_shuffle_task || ordinal >= plan_->outputType()->size()) {
+      throw std::invalid_argument("Runtime-filter build keys require shuffle output columns");
+    }
+    const auto& type = plan_->outputType()->childAt(ordinal);
+    if (!type->isInteger() && !type->isBigint()) {
+      throw std::invalid_argument("Runtime-filter build keys require INTEGER or BIGINT shuffle output columns");
     }
   }
   build_key_ranges_.resize(config_.build_key_ordinals.size());
@@ -1172,9 +1187,12 @@ void VeloxTaskRunner::collectBuildKeyRanges(const facebook::velox::RowVector& ro
   std::array<BuildKeyRanges, executor::TaskExecutorConfig::kMaximumBuildKeyColumns> batch;
   bool containsKey = false;
   for (size_t channel = 0; channel < count; ++channel) {
-    facebook::velox::DecodedVector key(*rows.childAt(config_.build_key_ordinals[channel]));
-    for (facebook::velox::vector_size_t index = 0; index < rows.size(); ++index) {
-      if (!key.isNullAt(index)) batch[channel].add(key.valueAt<int64_t>(index));
+    const auto& column = rows.childAt(config_.build_key_ordinals[channel]);
+    facebook::velox::DecodedVector key(*column);
+    if (column->type()->isInteger()) {
+      collectSignedBuildKeys<int32_t>(key, rows.size(), batch[channel]);
+    } else {
+      collectSignedBuildKeys<int64_t>(key, rows.size(), batch[channel]);
     }
     containsKey |= !batch[channel].ranges().empty();
   }

@@ -865,15 +865,18 @@ final class PlanFragmenter {
                 if (!(conjunct instanceof RexCall equality)
                         || equality.getKind() != SqlKind.EQUALS
                         || !(equality.operands.get(0) instanceof RexInputRef first)
-                        || !(equality.operands.get(1) instanceof RexInputRef second)
-                        || first.getType().getSqlTypeName() != SqlTypeName.BIGINT
-                        || second.getType().getSqlTypeName() != SqlTypeName.BIGINT) {
+                        || !(equality.operands.get(1) instanceof RexInputRef second)) {
+                    continue;
+                }
+                SqlTypeName type = first.getType().getSqlTypeName();
+                if ((type != SqlTypeName.INTEGER && type != SqlTypeName.BIGINT)
+                        || second.getType().getSqlTypeName() != type) {
                     continue;
                 }
                 int probeOrdinal = Math.min(first.getIndex(), second.getIndex());
                 int buildOrdinal = Math.max(first.getIndex(), second.getIndex()) - leftCount;
                 if (probeOrdinal < leftCount && buildOrdinal >= 0) {
-                    var probe = directProbeColumn(probeInput, probeOrdinal).orElse(null);
+                    var probe = directProbeColumn(probeInput, probeOrdinal, type).orElse(null);
                     if (probe != null && keys.stream().noneMatch(key -> key.probe().fieldId() == probe.fieldId())) {
                         keys.add(new RuntimeFilterKey(buildOrdinal, probe));
                         if (keys.size() == limit) break;
@@ -898,14 +901,13 @@ final class PlanFragmenter {
         private record ProbeColumn(org.pangrova.connector.api.metadata.table.ConnectorReadBinding read,
                                    int fieldId, String name) {}
 
-        private static Optional<ProbeColumn> directProbeColumn(RelNode node, int ordinal) {
+        private static Optional<ProbeColumn> directProbeColumn(RelNode node, int ordinal, SqlTypeName type) {
             if (node instanceof Project project && project.getProjects().get(ordinal) instanceof RexInputRef ref) {
-                return directProbeColumn(project.getInput(), ref.getIndex());
+                return directProbeColumn(project.getInput(), ref.getIndex(), type);
             }
-            if (node instanceof Filter filter) return directProbeColumn(filter.getInput(), ordinal);
+            if (node instanceof Filter filter) return directProbeColumn(filter.getInput(), ordinal, type);
             if (!(node instanceof TableScan scan)
-                    || scan.getRowType().getFieldList().get(ordinal).getType().getSqlTypeName()
-                            != SqlTypeName.BIGINT) {
+                    || scan.getRowType().getFieldList().get(ordinal).getType().getSqlTypeName() != type) {
                 return Optional.empty();
             }
             String name = scan.getRowType().getFieldNames().get(ordinal);
