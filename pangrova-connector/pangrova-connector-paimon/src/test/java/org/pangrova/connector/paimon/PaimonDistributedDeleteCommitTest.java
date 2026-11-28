@@ -144,6 +144,37 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     }
 
     @Test
+    void stagedSdkDataFilesUseTheAllocationFromTheDispatchedHandle() throws Exception {
+        createTable(false, false, Map.of("data-file.prefix", "custom-data-"));
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var first = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var second = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var codec = new org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec();
+        var restored = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                codec.deserialize(codec.codecVersion(), codec.serialize(first));
+        assertThat(restored.stagedFileNames()).isEqualTo(first.stagedFileNames());
+        assertThat(second.stagedFileNames().allocationId()).isNotEqualTo(first.stagedFileNames().allocationId());
+        assertThat(first.stagedFileNames().dataPrefix()).startsWith("custom-data-");
+        assertThat(second.stagedFileNames().dataPrefix()).isNotEqualTo(first.stagedFileNames().dataPrefix());
+        assertThatThrownBy(() -> codec.deserialize(4, codec.serialize(first)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
+
+        byte[] receipt = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, restored),
+                SURVIVOR);
+        var prepared = PaimonDistributedWriteFinisher.deserialize(List.of(receipt), restored);
+        assertThat(prepared.messages()).singleElement().satisfies(message -> {
+            var increment = ((org.apache.paimon.table.sink.CommitMessageImpl) message).newFilesIncrement();
+            assertThat(increment.newFiles()).singleElement().satisfies(file -> {
+                assertThat(file.fileName()).startsWith(first.stagedFileNames().dataPrefix());
+                assertThat(file.fileName()).doesNotStartWith(second.stagedFileNames().dataPrefix());
+            });
+        });
+        assertThat(snapshotId()).isEqualTo(-1L);
+    }
+
+    @Test
     void durableCommitReplayDoesNotPublishDuplicateRowsOrSnapshots() throws Exception {
         createTable(false, false);
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());

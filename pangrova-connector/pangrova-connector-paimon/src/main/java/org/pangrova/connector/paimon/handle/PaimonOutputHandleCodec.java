@@ -15,12 +15,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.UUID;
 
 /** Deterministic bounded codec for {@link PaimonOutputTableHandle}. */
 public final class PaimonOutputHandleCodec implements ConnectorOutputHandleCodec {
 
     public static final String TYPE_URL = "pangrova.io/connector/paimon/output-handle";
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
     private static final int MAX_STRING_BYTES = 16 * 1024 * 1024;
     private static final int MAX_ENTRIES = 100_000;
     private static final int MAX_ALLOCATION_BYTES = 32 * 1024 * 1024;
@@ -50,6 +51,11 @@ public final class PaimonOutputHandleCodec implements ConnectorOutputHandleCodec
             writeMap(out, paimon.overwritePartition());
             writeString(out, paimon.mode());
             out.writeLong(paimon.baseSnapshotId());
+            var staged = paimon.stagedFileNames();
+            out.writeLong(staged.allocationId().getMostSignificantBits());
+            out.writeLong(staged.allocationId().getLeastSignificantBits());
+            writeString(out, staged.dataPrefix());
+            writeString(out, staged.changelogPrefix());
             var allocation = paimon.nativePhysicalWriteAllocation();
             out.writeBoolean(allocation.isPresent());
             if (allocation.isPresent()) {
@@ -79,7 +85,10 @@ public final class PaimonOutputHandleCodec implements ConnectorOutputHandleCodec
                     readString(in),
                     new PaimonOutputTableHandle.Layout(readList(in), readList(in)),
                     new PaimonOutputTableHandle.WriteSemantics(
-                            readMap(in), readString(in), in.readLong(), Optional.empty()));
+                            readMap(in), readString(in), in.readLong(),
+                            new PaimonOutputTableHandle.StagedFileNames(
+                                    new UUID(in.readLong(), in.readLong()), readString(in), readString(in)),
+                            Optional.empty()));
             if (in.readBoolean()) {
                 int length = in.readInt();
                 if (length < 1 || length > MAX_ALLOCATION_BYTES || length > in.available()) {

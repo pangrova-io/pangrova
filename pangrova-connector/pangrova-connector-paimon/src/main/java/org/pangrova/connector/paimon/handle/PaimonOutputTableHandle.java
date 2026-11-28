@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.UUID;
 
 import static org.pangrova.common.util.Preconditions.requireText;
 
@@ -66,10 +67,29 @@ public record PaimonOutputTableHandle(
         }
     }
 
-    public record WriteSemantics(Map<String, String> overwritePartition, String mode,
-                                 long baseSnapshotId, Optional<NativePhysicalWriteAllocation> physicalAllocation) {
+    /** Exclusive prefixes for files staged by this SDK allocation across all dispatched attempts. */
+    public record StagedFileNames(UUID allocationId, String dataPrefix, String changelogPrefix) {
+        public StagedFileNames {
+            java.util.Objects.requireNonNull(allocationId, "allocationId");
+            requireAllocatedPrefix(dataPrefix, allocationId);
+            requireAllocatedPrefix(changelogPrefix, allocationId);
+        }
+
+        private static void requireAllocatedPrefix(String prefix, UUID allocation) {
+            requireText(prefix, "staged file prefix");
+            if (!prefix.endsWith("pg-" + allocation + "-") || prefix.indexOf('/') >= 0
+                    || prefix.indexOf('\\') >= 0 || prefix.indexOf(':') >= 0 || prefix.indexOf('?') >= 0
+                    || prefix.indexOf('#') >= 0 || prefix.chars().anyMatch(Character::isISOControl)) {
+                throw new IllegalArgumentException("Invalid Paimon staged file prefix");
+            }
+        }
+    }
+
+    public record WriteSemantics(Map<String, String> overwritePartition, String mode, long baseSnapshotId,
+                                 StagedFileNames stagedFileNames, Optional<NativePhysicalWriteAllocation> physicalAllocation) {
         public WriteSemantics {
             overwritePartition = Map.copyOf(overwritePartition);
+            java.util.Objects.requireNonNull(stagedFileNames, "stagedFileNames");
             physicalAllocation = java.util.Objects.requireNonNull(physicalAllocation, "physicalAllocation");
             if (!List.of("INSERT", "OVERWRITE", "DELETE", "MERGE").contains(mode)
                     || baseSnapshotId < -1) {
@@ -83,6 +103,7 @@ public record PaimonOutputTableHandle(
     public Map<String, String> overwritePartition() { return write.overwritePartition(); }
     public String mode() { return write.mode(); }
     public long baseSnapshotId() { return write.baseSnapshotId(); }
+    public StagedFileNames stagedFileNames() { return write.stagedFileNames(); }
 
     @Override
     public Optional<SchemaTableName> targetTable() {
@@ -122,7 +143,7 @@ public record PaimonOutputTableHandle(
         }
         return new PaimonOutputTableHandle(schemaName, tableName, tableLocation, tableUuid,
                 schemaFingerprint, rowTypeJson, layout,
-                new WriteSemantics(overwritePartition(), mode(), baseSnapshotId(), Optional.of(allocation)));
+                new WriteSemantics(overwritePartition(), mode(), baseSnapshotId(), stagedFileNames(), Optional.of(allocation)));
     }
 
     /** Rebinds the handle to the base snapshot confirmed by the commit recovery path. */
@@ -130,7 +151,7 @@ public record PaimonOutputTableHandle(
         return new PaimonOutputTableHandle(schemaName, tableName, tableLocation, tableUuid,
                 schemaFingerprint, rowTypeJson, layout,
                 new WriteSemantics(overwritePartition(), mode(),
-                        originalBaseSnapshotId, write.physicalAllocation()));
+                        originalBaseSnapshotId, stagedFileNames(), write.physicalAllocation()));
     }
 
     /**

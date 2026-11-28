@@ -9,9 +9,12 @@ import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.data.ConnectorPageSink;
 import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.Table;
+
+import java.util.Map;
 
 /**
  * Creates PaimonPageSink instances for writing data to Paimon tables.
@@ -91,7 +94,10 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found for write: " + id, e);
         }
-        return PaimonTableIdentity.requireSame(fresh, handle.tableUuid(), handle.tableLocation(),
+        var table = PaimonTableIdentity.requireSame(fresh, handle.tableUuid(), handle.tableLocation(),
                 handle.schemaFingerprint(), "Paimon write");
+        var staged = handle.stagedFileNames();
+        return table.copy(Map.of(CoreOptions.DATA_FILE_PREFIX.key(), staged.dataPrefix(),
+                CoreOptions.CHANGELOG_FILE_PREFIX.key(), staged.changelogPrefix()));
     }
 }

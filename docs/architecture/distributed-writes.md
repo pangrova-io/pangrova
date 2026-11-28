@@ -158,6 +158,13 @@ same observed snapshot marker. Verified closed-file receipts become Paimon
 SDK commit messages directly. The existing Worker SDK fragment format is
 decoded at its original boundary.
 
+Paimon output handle version 5 binds a distinct SDK staging allocation. The
+handle preserves the catalog's data and changelog filename prefixes with an
+allocation-specific suffix. Each INSERT, OVERWRITE, DELETE, and CDC SDK
+sink uses those exact names from its dispatched handle. Physical deletion
+also requires a durable absence decision, writer exit evidence, and an exact
+object set.
+
 ### Problem Statement
 
 There is an inherently ambiguous boundary between an external catalog commit and the coordinator
