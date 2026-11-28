@@ -136,6 +136,40 @@ echo "libevent ${TEST_LIBEVENT_VERSION:-2.1.12}"
         self.assertFalse((self.root / "velox/_build/release/temporary.o").exists())
         self.assertFalse((self.root / "velox/archive-cache").exists())
 
+    def test_cached_sdk_reuses_matching_dependencies_across_revisions_and_runs(self):
+        self.prepare(sdk=True)
+        self.assert_ok(self.run_stage("pack", "sdk"))
+        self.fresh()
+        self.assert_ok(self.run_stage("restore-cached", "sdk", GITHUB_RUN_ID="42", GITHUB_SHA="b" * 40))
+        self.assertTrue((self.root / "velox/_build/release/lib/libvelox.a").is_file())
+
+    def test_cached_sdk_rejects_runner_image_and_toolchain_changes_before_extraction(self):
+        self.prepare(sdk=True)
+        self.assert_ok(self.run_stage("pack", "sdk"))
+        self.fresh()
+        for overrides in ({"ImageVersion": "different-image"}, {"TEST_CLANG_VERSION": "19.1.0"},
+                          {"TEST_LIBEVENT_VERSION": "2.1.13"}, {"TEST_ARCH": "x86_64"}):
+            with self.subTest(overrides=overrides):
+                result = self.run_stage("restore-cached", "sdk", **overrides)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("dependency inputs, runner image or toolchain do not match", result.stderr)
+                self.assertFalse(self.root.exists())
+
+    def test_sdk_cache_key_tracks_dependencies_without_using_the_source_revision(self):
+        workspace = self.temp / "workspace"
+        dependency = workspace / "pangrova-worker-native/dependency-versions.txt"
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text("VELox=original\n")
+        subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+        subprocess.run(["git", "-C", str(workspace), "add", str(dependency)], check=True)
+        command = ["bash", str(STAGE), "cache-key", "sdk"]
+        env = dict(self.env, GITHUB_WORKSPACE=str(workspace))
+        original = subprocess.check_output(command, env=env)
+        self.assertRegex(original.decode().strip(), "^[0-9a-f]{64}$")
+        self.assertEqual(original, subprocess.check_output(command, env=dict(env, GITHUB_SHA="b" * 40)))
+        dependency.write_text("VELox=changed\n")
+        self.assertNotEqual(original, subprocess.check_output(command, env=env))
+
     def test_missing_output_refuses_to_package(self):
         self.prepare(sdk=True)
         (self.root / "velox/_build/release/lib/libvelox.a.pangrova-provenance").unlink()

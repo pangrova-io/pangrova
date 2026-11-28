@@ -79,7 +79,7 @@ class GitGateTest(unittest.TestCase):
         result = self.selection()
         self.assertEqual(result.returncode, 0, result.stderr)
         outputs = dict(line.split('=', 1) for line in result.stdout.splitlines())
-        matrix = json.loads(outputs['native_matrix'])
+        matrix = [json.loads(outputs['linux_native']), *json.loads(outputs['native_matrix'])]
         self.assertEqual(len(matrix), 4 if outputs['native'] == 'true' else 1)
         return {name: outputs[name] for name in ['runtime', 'performance']}
 
@@ -418,6 +418,19 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('target = "builder"', target)
         self.assertIn('output = ["type=cacheonly"]', target)
 
+    def test_java_jobs_only_wait_for_the_native_platform_that_produces_their_fixtures(self):
+        workflow = (WORKFLOWS / 'ci.yml').read_text()
+        jobs = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)',
+                               workflow.split('\njobs:\n', 1)[1], re.MULTILINE | re.DOTALL))
+        self.assertIn("needs.change-scope.outputs.linux_native", jobs['linux-native'])
+        self.assertIn("needs.change-scope.outputs.native == 'true'", jobs['native-build'])
+        self.assertIn('needs: [linux-native, iceberg-sdk]', jobs['java-build'])
+        regression = jobs['production-regression']
+        self.assertIn('needs: [change-scope, iceberg-sdk, linux-native, production-image]', regression)
+        self.assertIn("needs.linux-native.result == 'success'", regression)
+        self.assertNotIn('needs.native-sanitizers', regression)
+        self.assertIn("'native-build', 'native-sanitizers'", jobs['validation'])
+
     def test_local_file_acceptance_runs_in_its_own_native_process(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         production = workflow.split('  production-regression:\n', 1)[1].split(
@@ -475,7 +488,7 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertEqual(outputs['runtime'], 'true')
         self.assertEqual(outputs['native'], 'true')
         self.assertEqual(outputs['performance'], 'false')
-        matrix = json.loads(outputs['native_matrix'])
+        matrix = [json.loads(outputs['linux_native']), *json.loads(outputs['native_matrix'])]
         self.assertEqual({item['classifier'] for item in matrix},
                          {'linux-x86_64', 'linux-aarch_64', 'osx-x86_64', 'osx-aarch_64'})
         self.assertEqual(matrix[0]['name'], 'linux-x86_64')
@@ -512,7 +525,7 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertEqual(workflow.count('uses: ./.github/actions/setup-iceberg-sdk'), 1)
         self.assertIn('name: pinned-iceberg-sdk', producer)
         self.assertIn('if-no-files-found: error', producer)
-        for name in ('native-build', 'native-sanitizers', 'java-build', 'static-analysis',
+        for name in ('linux-native', 'native-build', 'native-sanitizers', 'java-build', 'static-analysis',
                      'production-image', 'production-regression', 'jmh-benchmarks', 'validation'):
             with self.subTest(name=name):
                 self.assertIn('iceberg-sdk', re.search(r'^    needs: .*', jobs[name], re.MULTILINE)[0])
@@ -641,7 +654,7 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('needs: macos-native-core', sdk)
         self.assertLess(sdk.index('restore core'), sdk.index('SKIP_DEPS=1 PANGROVA_NATIVE_BUILD_PHASE=prepared-velox'))
         self.assertIn('macos-native-stage.sh pack sdk', sdk)
-        self.assertIn('needs: macos-native-sdk', native)
+        self.assertIn('needs: [macos-native-core, macos-native-sdk]', native)
         self.assertIn("fromJSON(inputs.platform).os == 'linux'", native)
         self.assertIn("needs.macos-native-sdk.result == 'success'", native)
         self.assertLess(native.index('restore sdk'), native.index('export SKIP_DEPS=1 SKIP_VELOX=1'))
@@ -653,6 +666,27 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn("!cancelled() && hashFiles('pangrova-worker-native/build/test-results.xml') != ''", native)
         self.assertIn('fail-on-error: true', native)
         self.assertNotIn('continue-on-error', native)
+
+    def test_macos_warm_sdk_requires_matching_inputs_and_a_trusted_artifact(self):
+        workflow = (WORKFLOWS / 'native-platform.yml').read_text()
+        core, tail = workflow.split('  macos-native-sdk:\n', 1)
+        sdk, native = tail.split('  native-build:\n', 1)
+        self.assertIn('macos-native-stage.sh cache-key sdk', core)
+        self.assertIn('.workflow_run.repository_id == .workflow_run.head_repository_id', core)
+        self.assertIn('.workflow_run.head_branch == "main"', core)
+        self.assertIn('.github/workflows/ci.yml|.github/workflows/native-deps-baseline.yml', core)
+        self.assertIn("steps.cached-sdk.outputs.run == ''", core)
+        self.assertIn("needs.macos-native-core.outputs.cached-sdk-run == ''", sdk)
+        self.assertIn('name=macos-sdk-index-$PLATFORM-$key', sdk)
+        self.assertIn("if: github.ref == 'refs/heads/main'", sdk)
+        self.assertIn("needs.macos-native-core.result == 'success'", native)
+        self.assertIn('macos-native-stage.sh restore-cached sdk', native)
+        self.assertIn('digest-mismatch: error', native)
+
+        platform_gate = native.split('  native-validation:\n', 1)[1]
+        self.assertIn('needs: native-build', platform_gate)
+        self.assertIn('!cancelled() && !inputs.sdk-only', platform_gate)
+        self.assertIn('[[ "$NATIVE_RESULT" != success ]]', platform_gate)
 
     def test_macos_docker_boots_before_installing_the_verified_engine(self):
         script = (SCRIPTS / 'setup-macos-native-test-docker.sh').read_text()
@@ -700,8 +734,7 @@ class RuntimeScopeTest(unittest.TestCase):
     def test_dependency_baseline_consumers_are_opt_in(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
-        # macOS now requires this run's SDK handoff, never an optional
-        # last-successful artifact. Linux keeps the existing opt-in image.
+        # Linux keeps its opt-in prefix and macOS verifies the selected SDK.
         self.assertNotIn("vars.PANGROVA_NATIVE_DEPS_ARTIFACT == 'true'", native)
         self.assertIn("vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'", native)
         self.assertIn('name: macos-sdk-${{ fromJSON(inputs.platform).name }}', native)
@@ -825,7 +858,7 @@ class WorkflowPolicyTest(unittest.TestCase):
         program = textwrap.dedent(final_job.split("python3 - <<'PY'\n", 1)[1].rsplit('          PY', 1)[0])
         jobs = {name: {'result': 'success'} for name in
                 ['change-scope', 'lint', 'doc-consistency', 'dead-stub-detection',
-                 'iceberg-sdk', 'static-analysis', 'native-build', 'java-build', 'native-sanitizers',
+                 'iceberg-sdk', 'static-analysis', 'linux-native', 'native-build', 'java-build', 'native-sanitizers',
                  'production-image', 'production-regression', 'tpch-performance', 'jmh-benchmarks']}
         jobs['change-scope']['outputs'] = {'runtime': runtime, 'performance': performance,
                                          'native': runtime if native is None else native}
@@ -836,14 +869,14 @@ class WorkflowPolicyTest(unittest.TestCase):
                                               'PR_EVENT': str(pr).lower()})
 
     def test_docs_can_skip_only_unselected_checks(self):
-        result = self.result(overrides={'iceberg-sdk': 'skipped', 'native-build': 'skipped',
+        result = self.result(overrides={'iceberg-sdk': 'skipped', 'linux-native': 'skipped', 'native-build': 'skipped',
                                        'java-build': 'skipped', 'production-image': 'skipped',
                                        'production-regression': 'skipped'})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotEqual(self.result(overrides={'lint': 'skipped'}).returncode, 0)
 
     def test_selected_checks_cannot_fail_cancel_or_disappear(self):
-        for name in ['iceberg-sdk', 'native-build', 'java-build', 'native-sanitizers',
+        for name in ['iceberg-sdk', 'linux-native', 'native-build', 'java-build', 'native-sanitizers',
                      'production-image', 'production-regression']:
             for outcome in ['failure', 'cancelled', 'skipped']:
                 with self.subTest(name=name, outcome=outcome):
@@ -861,7 +894,7 @@ class WorkflowPolicyTest(unittest.TestCase):
 
     def test_java_only_changes_may_skip_standalone_native_sanitizers(self):
         result = self.result(runtime='true', native='false',
-                             overrides={'native-sanitizers': 'skipped'})
+                             overrides={'native-sanitizers': 'skipped', 'native-build': 'skipped'})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotEqual(self.result(runtime='true', native='false',
                                        overrides={'production-regression': 'skipped'}).returncode, 0)

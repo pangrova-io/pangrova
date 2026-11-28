@@ -3,12 +3,16 @@
 set -euo pipefail
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-[[ $# == 3 ]] || die "Usage: $0 pack|restore core|sdk BUNDLE_DIR"
-operation="$1"
-stage="$2"
-bundle="$3"
+operation="${1:-}"
+stage="${2:-}"
+bundle="${3:-}"
 root="${PANGROVA_HOME:-$HOME/.pangrova}"
-case "$operation" in pack|restore) ;; *) die "Unknown operation: $operation";; esac
+case "$operation" in
+    pack|restore) [[ $# == 3 ]] || die "Usage: $0 $operation core|sdk BUNDLE_DIR" ;;
+    restore-cached) [[ $# == 3 && "$stage" == sdk ]] || die "Usage: $0 restore-cached sdk BUNDLE_DIR" ;;
+    cache-key) [[ $# == 2 && "$stage" == sdk ]] || die "Usage: $0 cache-key sdk" ;;
+    *) die "Unknown operation: $operation" ;;
+esac
 case "$stage" in core|sdk) ;; *) die "Unknown stage: $stage";; esac
 [[ "$(uname -s)" == Darwin ]] || die "Native stage bundles are macOS only"
 : "${GITHUB_RUN_ID:?missing GitHub run identity}"
@@ -18,16 +22,9 @@ case "$stage" in core|sdk) ;; *) die "Unknown stage: $stage";; esac
 : "${SDKROOT:?missing selected macOS SDK}"
 : "${MACOSX_DEPLOYMENT_TARGET:?missing macOS deployment target}"
 
-printf 'macOS Native stage %s %s on runner image %s\n' \
-    "$stage" "$operation" "${ImageVersion:-unknown}"
-
-fingerprint() {
-    # Hosted runners can serve different image builds during a rollout.
-    printf '%s\n' 'pangrova-macos-native-stage-v3' "stage=$stage" \
-        "run=$GITHUB_RUN_ID" "revision=$GITHUB_SHA" "workspace=$GITHUB_WORKSPACE" \
-        "prefix=$root" "architecture=$(uname -m)" \
-        "sdk=$SDKROOT" "compiler=$PANGROVA_LLVM_PREFIX" \
-        "deployment=$MACOSX_DEPLOYMENT_TARGET"
+toolchain_identity() {
+    printf '%s\n' "workspace=$GITHUB_WORKSPACE" "prefix=$root" "architecture=$(uname -m)" \
+        "sdk=$SDKROOT" "compiler=$PANGROVA_LLVM_PREFIX" "deployment=$MACOSX_DEPLOYMENT_TARGET"
     sw_vers -buildVersion
     xcodebuild -version
     "$PANGROVA_LLVM_PREFIX/bin/clang++" --version
@@ -35,6 +32,41 @@ fingerprint() {
     xcrun --sdk macosx --show-sdk-version
     brew list --versions openssl@3 libevent
 }
+
+same_run_identity() {
+    printf '%s\n' 'pangrova-macos-native-stage-v3' "stage=$stage" \
+        "run=$GITHUB_RUN_ID" "revision=$GITHUB_SHA"
+    toolchain_identity
+}
+
+cache_identity() (
+    export LC_ALL=C
+    printf '%s\n' 'pangrova-macos-sdk-cache-v1' "runner-image=${ImageVersion:-unknown}"
+    toolchain_identity
+    cd "$GITHUB_WORKSPACE"
+    git ls-files -z -- .pangrova/scripts/macos-native-stage.sh \
+        .github/actions/setup-native-build .github/actions/setup-macos-native-cache \
+        pangrova-worker-native/dependency-versions.txt pangrova-worker-native/arrow_unexported_symbols_macos.list \
+        pangrova-worker-native/patch_flight_types.py pangrova-worker-native/patches \
+        pangrova-worker-native/bin/setup-native-build-env.sh \
+        pangrova-worker-native/bin/apply-velox-patches.sh \
+        pangrova-worker-native/bin/isolate-arrow-macos-exports.py \
+        pangrova-worker-native/bin/record-function-provenance.sh \
+        pangrova-worker-native/bin/resolve-darwin-libevent.sh \
+        pangrova-worker-native/bin/resolve-darwin-openssl.sh \
+        pangrova-worker-native/bin/prepare-aws-sdk-source.sh \
+        pangrova-worker-native/cmake/dependency-checks pangrova-worker-native/tools/function-contracts \
+        pangrova-protocol/tools/function-contracts \
+        pangrova-protocol/src/main/resources/function-contracts/execution-selection.json \
+        | xargs -0 shasum -a 256
+)
+
+if [[ "$operation" == cache-key ]]; then
+    cache_identity | shasum -a 256 | cut -d' ' -f1
+    exit
+fi
+
+printf 'macOS Native stage %s %s on runner image %s\n' "$stage" "$operation" "${ImageVersion:-unknown}"
 
 require_file() {
     [[ -f "$root/$1" && -s "$root/$1" ]] || die "Stage $stage lacks required output: $1"
@@ -81,7 +113,10 @@ verify_outputs() {
 if [[ "$operation" == pack ]]; then
     verify_outputs
     mkdir -p "$bundle"
-    fingerprint > "$bundle/identity.txt"
+    same_run_identity > "$bundle/identity.txt"
+    if [[ "$stage" == sdk ]]; then
+        cache_identity > "$bundle/cache-identity.txt"
+    fi
     exclusions=(--exclude='*.o' --exclude='*.obj')
     # The scheduled baseline publishes its source archive cache for diagnostics.
     # Ordinary SDK and test consumers require only installed and generated files.
@@ -95,7 +130,12 @@ if [[ "$operation" == pack ]]; then
     du -h "$bundle/prefix.tar.gz"
 else
     [[ -f "$bundle/identity.txt" ]] || die "Stage $stage lacks its identity receipt"
-    if ! fingerprint | diff -u "$bundle/identity.txt" - >&2; then
+    if [[ "$operation" == restore-cached ]]; then
+        [[ -s "$bundle/cache-identity.txt" ]] || die "Cached SDK lacks its dependency identity"
+        if ! cache_identity | diff -u "$bundle/cache-identity.txt" - >&2; then
+            die "Cached SDK dependency inputs, runner image or toolchain do not match"
+        fi
+    elif ! same_run_identity | diff -u "$bundle/identity.txt" - >&2; then
         die "Stage $stage revision, run, architecture or toolchain does not match"
     fi
     (cd "$bundle" && shasum -a 256 -c prefix.sha256)

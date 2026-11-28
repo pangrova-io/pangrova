@@ -300,25 +300,24 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   baseline workflow uses the same two macOS SDK build stages as CI and
   publishes the macOS dependency archive for diagnostics and separate
   qualification.
-- Hosted macOS CI separates canonical and Velox prerequisite packages,
-  Velox/Arrow Flight SDK construction and the Native build/test into three
-  jobs per selected architecture using a per-platform reusable workflow.
-  Linux platform builds have no macOS-stage dependency. The six-hour
-  **per-job** limit must not put cold dependency builds and Native tests in
-  the same time budget. Each consumer
-  checks the workflow run, source revision, architecture, macOS build,
-  compiler, SDK and linked Homebrew versions. It records the runner image
-  and verifies the archive checksum and required outputs before using it. The SDK artifact retains the source provenance checkout,
-  headers, generated configuration and libraries, but excludes object files
-  and download archives. Artifacts are short-lived, not cross-run dependency
-  caches; partitioning adds transfer overhead. macOS no longer restores an
-  optional last-successful baseline artifact in CI.
+- A cold macOS run builds prerequisite packages, the Velox and Arrow Flight
+  SDK, and the Native tests in three jobs per architecture. Each job gets its
+  own six-hour hosted runner limit. The same-run handoff verifies the run,
+  revision, architecture, macOS build, compiler, SDK and linked Homebrew
+  versions. SDK archives retain generated headers, the provenance checkout and
+  libraries. They exclude object files and downloaded source archives.
 - The production image job imports the Linux x86-64 dependency layers from a
   repository-owned OCI cache. The separate cache workflow builds the dependency
   stage from the same Dockerfile on main. BuildKit validates layer inputs and
   compiles from those inputs on a cache miss. Pull requests can read this cache.
   The final runtime image is still built, labeled and tested for the selected
   revision.
+
+- macOS first looks for a retained SDK from a trusted default-branch build.
+  Reuse requires the same dependency inputs, runner image, architecture,
+  SDK, compiler and linked system libraries. The Native test job independently
+  verifies the archive and the running toolchain before building and running
+  the complete test list. A cold run still builds both dependency stages.
 
 - macOS explicitly installs and verifies ccache and exports its compiler
   launchers to every CMake invocation. Stage-specific compiler cache keys

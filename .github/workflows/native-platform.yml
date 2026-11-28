@@ -25,6 +25,11 @@ jobs:
     name: macOS Native prerequisites
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     if: fromJSON(inputs.platform).os == 'osx'
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      cached-sdk-run: ${{ steps.cached-sdk.outputs.run }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -32,7 +37,44 @@ jobs:
           python-version: '3.12'
       - uses: ./.github/actions/setup-native-build
       - uses: ./.github/actions/setup-macos-native-cache
+      - name: Find a compatible SDK from the default branch
+        id: cached-sdk
+        if: '!inputs.sdk-only'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ fromJSON(inputs.platform).name }}
+        run: |
+          key=$(bash .pangrova/scripts/macos-native-stage.sh cache-key sdk)
+          index="macos-sdk-index-$PLATFORM-$key"
+          runs=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts" \
+            -f name="$index" -f per_page=30 \
+            --jq '.artifacts | sort_by(.created_at) | reverse | .[] |
+              select(.expired == false and .workflow_run.head_branch == "main" and
+                     .workflow_run.repository_id != null and
+                     .workflow_run.repository_id == .workflow_run.head_repository_id) |
+              .workflow_run.id')
+          for run in $runs; do
+            path=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" \
+              --jq 'select(.head_branch == "main" and (.event == "push" or .event == "schedule" or
+                     .event == "workflow_dispatch")) | .path')
+            case "$path" in
+              .github/workflows/ci.yml|.github/workflows/native-deps-baseline.yml) ;;
+              *) continue ;;
+            esac
+            archive=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+              --jq ".artifacts[] | select(.expired == false and .name == \"macos-sdk-$PLATFORM\" and
+                       (.expires_at | fromdateiso8601) > (now + 86400)) | .id")
+            if [[ "$archive" =~ ^[0-9]+$ ]]; then
+              echo "run=$run" >> "$GITHUB_OUTPUT"
+              echo "SDK inputs and toolchain match the retained artifact from run $run."
+              exit 0
+            fi
+          done
+          echo "No compatible SDK is retained. Build the pinned dependencies on this runner."
+
       - name: Cache macOS prerequisite compiler results
+        if: steps.cached-sdk.outputs.run == ''
         id: core-compiler-cache
         uses: actions/cache/restore@v6
         with:
@@ -41,27 +83,31 @@ jobs:
           restore-keys: |
             pangrova-macos-core-ccache-v1-${{ runner.arch }}-
       - name: Cache macOS prerequisite source archives
+        if: steps.cached-sdk.outputs.run == ''
         uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
       - name: Build canonical prerequisite packages
+        if: steps.cached-sdk.outputs.run == ''
         uses: ./.github/actions/run-native-step
         with:
           log: macos-native-core
           title: macOS Native prerequisite build failed
           command: PANGROVA_NATIVE_BUILD_PHASE=dependencies bash pangrova-worker-native/bin/setup-native-build-env.sh
       - name: Save completed macOS prerequisite compiler results
-        if: steps.core-compiler-cache.outputs.cache-hit != 'true'
+        if: steps.cached-sdk.outputs.run == '' && steps.core-compiler-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
           key: ${{ steps.core-compiler-cache.outputs.cache-primary-key }}
       - name: Package same-run prerequisite outputs
+        if: steps.cached-sdk.outputs.run == ''
         env:
           PANGROVA_MACOS_STAGE_ARCHIVES: ${{ inputs.sdk-only && '1' || '0' }}
         run: bash .pangrova/scripts/macos-native-stage.sh pack core "$RUNNER_TEMP/macos-core"
       - name: Upload macOS prerequisite outputs
+        if: steps.cached-sdk.outputs.run == ''
         uses: actions/upload-artifact@v7
         with:
           name: macos-core-${{ fromJSON(inputs.platform).name }}
@@ -75,7 +121,7 @@ jobs:
     name: macOS Native SDK
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     needs: macos-native-core
-    if: fromJSON(inputs.platform).os == 'osx'
+    if: fromJSON(inputs.platform).os == 'osx' && needs.macos-native-core.outputs.cached-sdk-run == ''
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -116,11 +162,9 @@ jobs:
         with:
           path: ~/.cache/ccache
           key: ${{ steps.sdk-compiler-cache.outputs.cache-primary-key }}
-      - name: Package same-run Native SDK outputs
-        if: '!inputs.sdk-only'
+      - name: Package the Native SDK
         run: bash .pangrova/scripts/macos-native-stage.sh pack sdk "$RUNNER_TEMP/macos-sdk"
       - name: Upload macOS Native SDK outputs
-        if: '!inputs.sdk-only'
         uses: actions/upload-artifact@v7
         with:
           name: macos-sdk-${{ fromJSON(inputs.platform).name }}
@@ -128,7 +172,27 @@ jobs:
           overwrite: true
           if-no-files-found: error
           compression-level: 0
-          retention-days: 1
+          retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 1 }}
+
+      - name: Record the reusable SDK input fingerprint
+        if: github.ref == 'refs/heads/main'
+        id: sdk-index
+        shell: bash
+        env:
+          PLATFORM: ${{ fromJSON(inputs.platform).name }}
+        run: |
+          key=$(shasum -a 256 "$RUNNER_TEMP/macos-sdk/cache-identity.txt" | cut -d' ' -f1)
+          echo "name=macos-sdk-index-$PLATFORM-$key" >> "$GITHUB_OUTPUT"
+
+      - name: Index the retained SDK for compatible runs
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.sdk-index.outputs.name }}
+          path: ${{ runner.temp }}/macos-sdk/cache-identity.txt
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Package dependency baseline (macOS)
         if: inputs.sdk-only
@@ -156,10 +220,11 @@ jobs:
   native-build:
     name: Build and test
     runs-on: ${{ fromJSON(inputs.platform).runner }}
-    needs: macos-native-sdk
+    needs: [macos-native-core, macos-native-sdk]
     if: >-
       ${{ !cancelled() && !inputs.sdk-only && (fromJSON(inputs.platform).os == 'linux' ||
-      needs.macos-native-sdk.result == 'success') }}
+      needs.macos-native-sdk.result == 'success' ||
+      (needs.macos-native-core.result == 'success' && needs.macos-native-core.outputs.cached-sdk-run != '')) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -254,16 +319,27 @@ jobs:
         if: runner.os == 'macOS'
         uses: ./.github/actions/setup-macos-native-cache
 
-      - name: Download same-run Native SDK outputs
+      - name: Download the selected Native SDK
         if: runner.os == 'macOS'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: macos-sdk-${{ fromJSON(inputs.platform).name }}
           path: ${{ runner.temp }}/macos-sdk
+          github-token: ${{ needs.macos-native-core.outputs.cached-sdk-run != '' && github.token || '' }}
+          run-id: ${{ needs.macos-native-core.outputs.cached-sdk-run || github.run_id }}
+          digest-mismatch: error
 
-      - name: Verify and restore same-run Native SDK outputs
+      - name: Verify and restore the Native SDK
         if: runner.os == 'macOS'
-        run: bash .pangrova/scripts/macos-native-stage.sh restore sdk "$RUNNER_TEMP/macos-sdk"
+        shell: bash
+        env:
+          CACHED_SDK_RUN: ${{ needs.macos-native-core.outputs.cached-sdk-run }}
+        run: |
+          if [[ -n "$CACHED_SDK_RUN" ]]; then
+            bash .pangrova/scripts/macos-native-stage.sh restore-cached sdk "$RUNNER_TEMP/macos-sdk"
+          else
+            bash .pangrova/scripts/macos-native-stage.sh restore sdk "$RUNNER_TEMP/macos-sdk"
+          fi
 
       - name: Setup native build environment
         run: |
@@ -413,6 +489,7 @@ jobs:
           name: Native Tests (${{ fromJSON(inputs.platform).name }})
           path: pangrova-worker-native/build/test-results.xml
           reporter: java-junit
+          only-summary: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
           fail-on-error: true
 
       - name: Verify native library
@@ -468,3 +545,18 @@ jobs:
           name: native-bundle-${{ fromJSON(inputs.platform).classifier }}
           path: pangrova-native-bundle/target/pangrova-native-bundle-*-${{ fromJSON(inputs.platform).classifier }}.jar
           retention-days: 1
+
+  native-validation:
+    name: Require Native build and tests
+    if: ${{ !cancelled() && !inputs.sdk-only }}
+    needs: native-build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the platform test job to succeed
+        env:
+          NATIVE_RESULT: ${{ needs.native-build.result }}
+        run: |
+          if [[ "$NATIVE_RESULT" != success ]]; then
+            echo "::error::Native build and tests did not complete successfully ($NATIVE_RESULT)"
+            exit 1
+          fi

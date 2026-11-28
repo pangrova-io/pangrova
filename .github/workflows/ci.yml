@@ -24,6 +24,7 @@ jobs:
     outputs:
       runtime: ${{ steps.scope.outputs.runtime || steps.full.outputs.runtime }}
       native: ${{ steps.scope.outputs.native || steps.full.outputs.native }}
+      linux_native: ${{ steps.scope.outputs.linux_native || steps.full.outputs.linux_native }}
       native_matrix: ${{ steps.scope.outputs.native_matrix || steps.full.outputs.native_matrix }}
       performance: ${{ steps.scope.outputs.performance || steps.full.outputs.performance }}
     steps:
@@ -61,10 +62,26 @@ jobs:
           overwrite: true
           retention-days: 30
 
-  native-build:
-    name: Native Build (${{ matrix.platform.name }})
+  linux-native:
+    name: Native Build (linux-x86_64)
+    permissions:
+      actions: read
+      checks: write
+      contents: read
     needs: [change-scope, iceberg-sdk]
     if: needs.change-scope.outputs.runtime == 'true'
+    uses: ./.github/workflows/native-platform.yml
+    with:
+      platform: ${{ needs.change-scope.outputs.linux_native }}
+
+  native-build:
+    name: Native Build (${{ matrix.platform.name }})
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+    needs: [change-scope, iceberg-sdk]
+    if: needs.change-scope.outputs.native == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -76,7 +93,7 @@ jobs:
   java-build:
     name: Java Build (JDK ${{ matrix.java }})
     runs-on: ubuntu-24.04
-    needs: [native-build, iceberg-sdk]
+    needs: [linux-native, iceberg-sdk]
     strategy:
       fail-fast: false
       matrix:
@@ -213,13 +230,11 @@ jobs:
   production-regression:
     name: Production full regression (JDK 17)
     runs-on: ubuntu-24.04
-    needs: [change-scope, iceberg-sdk, native-build, native-sanitizers, production-image]
+    needs: [change-scope, iceberg-sdk, linux-native, production-image]
     if: >-
       always() && !cancelled() && needs.change-scope.outputs.runtime == 'true' &&
-      needs.iceberg-sdk.result == 'success' && needs.native-build.result == 'success' &&
-      needs.production-image.result == 'success' &&
-      (needs.native-sanitizers.result == 'success' ||
-       (needs.change-scope.outputs.native == 'false' && needs.native-sanitizers.result == 'skipped'))
+      needs.iceberg-sdk.result == 'success' && needs.linux-native.result == 'success' &&
+      needs.production-image.result == 'success'
     env:
       PANGROVA_E2E_IMAGE: ${{ needs.production-image.outputs.image }}
     steps:
@@ -619,7 +634,8 @@ jobs:
     name: Validation result
     runs-on: ubuntu-latest
     needs: [change-scope, lint, doc-consistency, dead-stub-detection, iceberg-sdk, static-analysis,
-            native-build, java-build, native-sanitizers, production-image, production-regression,
+            linux-native, native-build, java-build, native-sanitizers, production-image,
+            production-regression,
             tpch-performance, jmh-benchmarks]
     if: always()
     steps:
@@ -649,10 +665,10 @@ jobs:
           if performance == 'true' and runtime != 'true':
               raise SystemExit('Performance checks require the runtime prerequisites')
           if runtime == 'true':
-              required.update({'dead-stub-detection', 'iceberg-sdk', 'static-analysis', 'native-build',
+              required.update({'dead-stub-detection', 'iceberg-sdk', 'static-analysis', 'linux-native',
                                'java-build', 'production-image', 'production-regression'})
           if native == 'true':
-              required.add('native-sanitizers')
+              required.update({'native-build', 'native-sanitizers'})
           if performance == 'true':
               required.update({'tpch-performance', 'jmh-benchmarks'})
           missing = required - jobs.keys()

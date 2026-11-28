@@ -72,16 +72,18 @@ matching header in `include/`. The receipt is created only after a successful
 build whose inputs remained unchanged.
 
 The daily Java jobs and production regression restore the Lance fixture tool
-from the same workflow run's Linux x86-64 Native build. The test artifact
+from the same workflow run's Linux x86-64 Native build. The other architectures
+and sanitizers validate in parallel. The final CI gate requires every selected
+job to succeed. The test artifact
 preserves executable permissions and includes the tool's shared dependencies.
 Locally, build the `pangrova_lance_fixture_tool` Native target before running
 the Lance SDK tests. Maven looks for it in `pangrova-worker-native/build` by
 default. Set `-Dpangrova.lance.fixture.tool` when using another build directory.
 
-The macOS CI jobs transfer Native prerequisites and SDK outputs within one
-workflow run. Restoration checks the archive checksum, revision, architecture,
-macOS build, compiler, SDK, and linked Homebrew versions. The job records the
-runner image build and prints the exact identity differences on a mismatch.
+The macOS CI jobs reuse a retained SDK only when its dependency inputs and
+runner toolchain match. Cold builds transfer the prerequisites and SDK within
+the same workflow run. The Native test job verifies the archive checksum and
+the running toolchain before using either SDK.
 
 On GitHub-hosted macOS, the Native test job runs the PostgreSQL TestContainer
 through a temporary Lima Docker VM with loopback port forwarding. The Native
