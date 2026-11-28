@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.fencingToken;
-import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreTransitions.failExhaustedPage;
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreTransitions.markJobRunning;
 import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
 import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
@@ -30,7 +29,7 @@ final class PostgresGenerationPageClaim {
             ExecutionAnchor anchor, long ownerEpoch, Duration duration, Instant now, boolean readsSplits)
             throws SQLException {
         if (attemptsExhausted(page)) {
-            failExhaustedPage(connection, page, now);
+            PostgresGenerationJobStoreTransitions.failExhaustedPage(connection, page, now);
             return Optional.empty();
         }
         var inputs = readInputs(connection, page, readsSplits);
