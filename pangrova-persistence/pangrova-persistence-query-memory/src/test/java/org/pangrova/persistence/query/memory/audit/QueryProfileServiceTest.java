@@ -50,7 +50,7 @@ class QueryProfileServiceTest {
         var metric = new OperatorStatsSource.Metric("Scan", "node", 1, 1, 4, 4, 500, 700, 4, 0, 0, 0, 0, 0, 0);
         operators.add(metric);
         var attempt = new OperatorStatsSource.Attempt(0, 1, 1, 0, "task", "worker",
-                "FINISHED", 5, 1, 1, 0, operators, null);
+                "FINISHED", 5, 1, 1, 0, operators, null, null);
         var attempts = new ArrayList<>(List.of(attempt));
         var profile = new QueryProfileService.QueryProfile("q", "SELECT 1", true,
                 attempts, new QueryProfileService.TimingBreakdown(1, 1, 1, 1),
@@ -130,7 +130,7 @@ class QueryProfileServiceTest {
                 1_500_000, 0, 0, 300_000, 1_200_000);
         var attempt = new OperatorStatsSource.Attempt(2, 1, 4, 0, "task-1", "worker-1",
                 "FINISHED", 7, 3, 2, 1, List.of(metric),
-                new OperatorStatsSource.ObjectReads(160, 128, 2, 1, 1, 4, 1, 144));
+                new OperatorStatsSource.ObjectReads(160, 128, 2, 1, 1, 4, 1, 144), null);
         var service = new QueryProfileService(auditService, queryId -> List.of(attempt));
 
         var record = new QueryAuditRecord(
