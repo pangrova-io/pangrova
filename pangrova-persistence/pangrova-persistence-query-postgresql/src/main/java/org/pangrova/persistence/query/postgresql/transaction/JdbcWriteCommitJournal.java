@@ -29,7 +29,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -43,29 +42,8 @@ import java.util.UUID;
  * a crash between intent-record and commit-execute leaves a recoverable
  * PENDING entry in the database.</p>
  *
- * <p>Schema (auto-created on first use):
- * <pre>{@code
- * CREATE TABLE IF NOT EXISTS write_commit_journal (
- *     query_id     VARCHAR(255) PRIMARY KEY,
- *     catalog_name VARCHAR(255) NOT NULL,
- *     table_name   VARCHAR(1024) NOT NULL,
- *     state        VARCHAR(32) NOT NULL,
- *     timestamp_ms BIGINT NOT NULL,
- *     fragments    TEXT,               -- Base64 worker commit fragments (replay payload)
- *     write_mode   VARCHAR(64),
- *     idempotency_key VARCHAR(512),
- *     tenant_id VARCHAR(255) NOT NULL,
- *     base_snapshot_id BIGINT NOT NULL,
- *     write_output_binding TEXT NOT NULL,
- *     commit_fingerprint VARCHAR(64) NOT NULL,
- *     owner_id VARCHAR(255),
- *     owner_incarnation VARCHAR(255),
- *     execution_fencing_token BIGINT NOT NULL DEFAULT 0,
- *     cdc_stream_id VARCHAR(255),
- *     cdc_source_epoch VARCHAR(255),
- *     cdc_offset_ranges JSONB
- * )
- * }</pre>
+ * <p>Flyway owns the journal schema. Redo binds the exact Worker fragments
+ * and canonical output bytes directly through PostgreSQL binary columns.</p>
  */
 @ThreadSafe
 public final class JdbcWriteCommitJournal implements WriteCommitJournal {
@@ -191,7 +169,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             ps.setString(parameter++, entry.tableName());
             ps.setString(parameter++, entry.state().name());
             ps.setLong(parameter++, entry.timestampMs());
-            ps.setString(parameter++, encodeFragments(entry.fragments()));
+            ps.setObject(parameter++, entry.fragments().toArray(byte[][]::new));
             ps.setString(parameter++, entry.writeMode());
             ps.setString(parameter++, entry.idempotencyKey());
             ps.setString(parameter++, entry.ownerId());
@@ -200,8 +178,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             ps.setString(parameter++, entry.commitFingerprint());
             ps.setString(parameter++, entry.ownerIncarnation());
             ps.setLong(parameter++, entry.executionFencingToken());
-            ps.setString(parameter++, Base64.getEncoder().encodeToString(
-                    entry.writeOutputBinding()));
+            ps.setBytes(parameter++, entry.writeOutputBinding());
             ps.setString(parameter++, entry.principal());
             ps.setBytes(parameter++, entry.authorizationReceipt().authorizationScope());
             if (entry.publication() == null) {
@@ -678,14 +655,14 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 rs.getString("table_name"),
                 WriteCommitState.valueOf(rs.getString("state")),
                 rs.getLong("timestamp_ms"),
-                decodeFragments(rs.getString("fragments")),
+                readFragments(rs),
                 rs.getString("write_mode"),
                 rs.getString("idempotency_key"),
                 rs.getString("tenant_id"),
                 rs.getString("principal"),
                 DeferredAuthorizationScopeCodec.decodeWriteReceipt(rs.getBytes("deferred_authorization_scope")),
                 rs.getLong("base_snapshot_id"),
-                Base64.getDecoder().decode(rs.getString("write_output_binding")),
+                rs.getBytes("write_output_binding"),
                 rs.getString("commit_fingerprint"),
                 rs.getString("owner_id"),
                 rs.getString("owner_incarnation"),
@@ -787,32 +764,12 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         }
     }
 
-    /** Encodes worker commit fragments as a comma-separated Base64 list for durable storage. */
-    private static String encodeFragments(List<byte[]> fragments) {
-        if (fragments == null || fragments.isEmpty()) {
-            return "";
+    private static List<byte[]> readFragments(ResultSet row) throws SQLException {
+        var fragments = row.getArray("fragments");
+        try {
+            return List.of((byte[][]) fragments.getArray());
+        } finally {
+            fragments.free();
         }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < fragments.size(); i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(Base64.getEncoder().encodeToString(fragments.get(i)));
-        }
-        return sb.toString();
-    }
-
-    /** Reconstructs worker commit fragments from the comma-separated Base64 storage form. */
-    private static List<byte[]> decodeFragments(String encoded) {
-        if (encoded == null || encoded.isEmpty()) {
-            return List.of();
-        }
-        List<byte[]> out = new ArrayList<>();
-        for (String token : encoded.split(",")) {
-            if (!token.isEmpty()) {
-                out.add(Base64.getDecoder().decode(token));
-            }
-        }
-        return out;
     }
 }

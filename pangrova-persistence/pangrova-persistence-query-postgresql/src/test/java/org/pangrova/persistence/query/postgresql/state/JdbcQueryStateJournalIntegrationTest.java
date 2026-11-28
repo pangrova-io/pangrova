@@ -446,7 +446,7 @@ class JdbcQueryStateJournalIntegrationTest {
                          timestamp_ms, idempotency_key, tenant_id, base_snapshot_id, write_output_binding,
                          commit_fingerprint, owner_id, owner_incarnation, execution_fencing_token)
                      VALUES (?, 'test', 'test.default.t', 'PENDING', ?, ?, 'pending-write-tenant',
-                         -1, '{}', ?, ?, ?, ?)
+                         -1, decode('01', 'hex'), ?, ?, ?, ?)
                      """)) {
             statement.setString(1, query);
             statement.setLong(2, System.currentTimeMillis());

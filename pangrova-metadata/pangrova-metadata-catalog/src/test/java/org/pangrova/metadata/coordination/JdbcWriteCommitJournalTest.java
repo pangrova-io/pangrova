@@ -101,7 +101,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         // fragments, write mode and idempotency key must survive a DB round-trip so a replacement
         // coordinator can reconstruct the commit after a crash rather than just observe a marker.
         java.util.List<byte[]> fragments = java.util.List.of(
-                new byte[]{1, 2, 3}, new byte[]{4, 5, 6, 7});
+                new byte[]{0, (byte) 0xff, 44}, new byte[0], new byte[]{1, (byte) 0x80});
         String fingerprint = WriteCommitFingerprint.compute(
                 new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
                         "q-replay",
@@ -110,7 +110,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                         "analytics.events",
                         "OVERWRITE",
                         41L,
-                        new byte[]{42},
+                        new byte[]{0, 42, (byte) 0xff},
                         "alice",
                         org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(), null),
                 fragments);
@@ -127,7 +127,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 "alice",
                 org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(),
                 41L,
-                new byte[]{42},
+                new byte[]{0, 42, (byte) 0xff},
                 fingerprint,
                 "coord-A",
                 "process-A",
@@ -135,14 +135,19 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 null, null, null));
 
         WriteCommitEntry reloaded = journal.getEntry("q-replay").orElseThrow();
-        assertThat(reloaded.fragments()).hasSize(2);
-        assertThat(reloaded.fragments().get(0)).isEqualTo(new byte[]{1, 2, 3});
-        assertThat(reloaded.fragments().get(1)).isEqualTo(new byte[]{4, 5, 6, 7});
+        var replayed = journal.replayPendingEntries(Set.of("q-replay"));
+        assertThat(replayed).hasSize(1);
+        for (var copy : List.of(reloaded, replayed.get(0))) {
+            assertThat(copy.fragments()).hasSize(fragments.size());
+            for (int index = 0; index < fragments.size(); index++) {
+                assertThat(copy.fragments().get(index)).isEqualTo(fragments.get(index));
+            }
+        }
         assertThat(reloaded.writeMode()).isEqualTo("OVERWRITE");
         assertThat(reloaded.idempotencyKey()).isEqualTo(fingerprint);
         assertThat(reloaded.tenantId()).isEqualTo("tenant-a");
         assertThat(reloaded.baseSnapshotId()).isEqualTo(41L);
-        assertThat(reloaded.writeOutputBinding()).isEqualTo(new byte[]{42});
+        assertThat(reloaded.writeOutputBinding()).isEqualTo(new byte[]{0, 42, (byte) 0xff});
         assertThat(reloaded.commitFingerprint()).isEqualTo(fingerprint);
         assertThat(reloaded.ownerId()).isEqualTo("coord-A");
         assertThat(reloaded.ownerIncarnation()).isEqualTo("process-A");

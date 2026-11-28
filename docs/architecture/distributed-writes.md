@@ -359,6 +359,10 @@ safe long-term terminal retention. Ambiguous PENDING writes still require explic
 Recovery reconstructs the allocation from its persisted codec payload,
 including the original write mode, snapshot and overwrite scope. Iceberg
 allocation uses the current table metadata already loaded by write admission.
+PostgreSQL stores the canonical output binding as `bytea` and Worker fragments
+as an ordered `bytea[]`. The journal preserves fragment boundaries, including
+zero-length fragments, and passes the original bytes to recovery.
+
 The Coordinator decodes the exact Worker write binding and rebuilds it once
 to verify the canonical payload, columns, and allocation. If publication
 reports a missing target, abort confirmation uses the same bound handle and

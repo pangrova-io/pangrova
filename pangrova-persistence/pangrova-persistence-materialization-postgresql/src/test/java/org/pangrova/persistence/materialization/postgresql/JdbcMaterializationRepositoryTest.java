@@ -831,7 +831,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
             statement.setLong(4, committedAt.toEpochMilli());
             statement.setString(5, authority.anchor());
             statement.setString(6, tenant);
-            statement.setString(7, "binding:" + authority.anchor());
+            statement.setBytes(7, ("binding:" + authority.anchor()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             statement.setString(8, evidence.commitFingerprint());
             statement.setBytes(9, MANIFEST);
             statement.setString(10, principal.name());
