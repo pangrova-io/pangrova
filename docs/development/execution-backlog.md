@@ -93,6 +93,16 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
   AI 模型镜像和 digest 回执。Velox 专用目录通过确认 SHA-256 的 simdjson 源归档和已安装的
   Boost 配置启动编译，证据见 `qualified-velox-warm-boost.log`。
 
+- PostgreSQL 上的 generation exchange 43 项、JDBC 时间与事务 4 项和 Paimon 规划预算
+  11 项通过，见 `extended-java-postgres.log`。同轮 CDC 在默认 Docker socket 探测报错。
+  从当前 Docker context 显式传入 host 后，CDC PostgreSQL/Kafka 两组共 41 项通过，
+  Paimon 固定快照与资源生命周期 12 项、持久受理 10 项通过，
+  `WriteCommitJournalIdempotencyTest` 的 7 项仍在旧 Native capability fixture 校验处退出。
+  见 `extended-java-postgres-docker-context.log`。
+- `query-peer-http.log` 的 Coordinator HTTP 定向回归 3 项通过。覆盖同 JVM 内两个真实端口、
+  PostgreSQL 下的幂等回执、并发等待、诊断零 journal SELECT、显式回执恢复与取消。
+  双独立 JVM 和出错 Worker 的组合仍待同源验证。
+
 Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
 Paimon、Shuffle 与 journal 的复现命令如下。
 
