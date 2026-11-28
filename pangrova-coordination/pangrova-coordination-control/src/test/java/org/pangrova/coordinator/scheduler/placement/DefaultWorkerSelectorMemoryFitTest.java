@@ -123,6 +123,30 @@ class DefaultWorkerSelectorMemoryFitTest {
     }
 
     @Test
+    void stageSharesCapacityAcrossPartitionsAndRechecksTheSelectedWorker() {
+        WorkerManager wm = buildWorkerManager();
+        long twoGiB = 2L * 1024 * 1024 * 1024;
+        wm.registerWorker(worker("selected", twoGiB));
+        DefaultWorkerSelector selector = newSelector(wm);
+        WorkerSelector stage = selector.bindStagePlacement(null);
+        var selected = wm.getWorker("selected");
+        var before = stage.computeResourceLimit(2, 1, selected);
+
+        wm.registerWorker(worker("arrived-later", twoGiB));
+        var sameStage = stage.computeResourceLimit(2, 1, selected);
+        var nextStage = selector.bindStagePlacement(null).computeResourceLimit(2, 1, selected);
+        assertThat(sameStage).isEqualTo(before);
+        assertThat(nextStage.getNativeMemoryBytes()).isGreaterThan(sameStage.getNativeMemoryBytes());
+
+        var identity = selected.workerExecutionIdentity();
+        wm.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(
+                selected.workerId(), identity.admissionDomainId(), identity.incarnationId()),
+                new WorkerManager.HeartbeatData(MemoryPressure.CRITICAL, 1.0, 1, 0));
+        assertThatThrownBy(() -> stage.computeResourceLimit(2, 1, selected))
+                .isInstanceOf(NoAvailableWorkerException.class);
+    }
+
+    @Test
     void cacheAffinityCannotBypassMemoryAdmission() {
         WorkerManager wm = buildWorkerManager();
         String path = "/data/cached.parquet";

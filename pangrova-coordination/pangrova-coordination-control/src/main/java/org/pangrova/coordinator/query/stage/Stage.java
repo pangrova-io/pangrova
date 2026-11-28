@@ -362,7 +362,6 @@ public final class Stage {
         }
         if (shufflePlanEpoch < planEpoch) {
             shuffleExecutionOwner = null;
-            shuffleStatsReport = null;
             shuffleReceipt = null;
         }
         shuffleHandle = handle;

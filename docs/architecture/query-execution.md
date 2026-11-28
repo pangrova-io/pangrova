@@ -2268,8 +2268,10 @@ The stage retains the receipt used by its physical input bindings.
 
 For a live equality join over independent scans, the fragmenter can establish
 hash exchanges on both inputs. It uses the bound source statistics to identify
-parallel work and respects the session's requested parallelism. Ordered equality
-keys must have matching hash types. The same proof applies to the physical
+parallel work and respects the session's requested parallelism. For one stage
+dispatch, partition grants share the measured cluster capacity. Each grant
+uses the selected Worker's current available memory and requires its original
+process identity. Ordered equality keys must have matching hash types. The same proof applies to the physical
 input bindings used during dispatch.
 
 Live dispatch can freeze a shared range mapping for a partition-local compute
