@@ -149,9 +149,11 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
 
         metadata.finishDistributedWrite(SESSION, output, fragments, context);
         long publishedSnapshot = snapshotId();
-        var recovered = metadata.reconstructOutputHandle(
-                SESSION, output.targetTable().orElseThrow(),
-                output.writeMode(), context.baseSnapshotId());
+        var binding = org.pangrova.protocol.v2.WriteOutputBinding.parseFrom(context.writeOutputBinding());
+        var handle = binding.getConnector().getOutputHandle();
+        var recovered = new org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec().deserialize(
+                handle.getCodecVersion(), handle.getPayload().toByteArray());
+        assertThat(recovered).isEqualTo(output);
         metadata.finishDistributedWrite(SESSION, recovered, fragments, context);
 
         assertThat(snapshotId()).isEqualTo(publishedSnapshot);
@@ -159,7 +161,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     }
 
     @Test
-    void unjournaledCommitAndUnrecoverablePartitionOverwriteFailClosed() throws Exception {
+    void unjournaledPartitionOverwriteFailsClosed() throws Exception {
         createTable(true, false);
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginOverwrite(
@@ -167,10 +169,6 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         assertThat(output.writeMode()).isEqualTo("OVERWRITE_PARTITIONED");
         assertThatThrownBy(() -> metadata.finishDistributedWrite(
                 SESSION, output, List.of(prepare(output))))
-                .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> metadata.reconstructOutputHandle(
-                SESSION, output.targetTable().orElseThrow(),
-                output.writeMode(), output.writeBaseSnapshotId().orElse(-1L)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 

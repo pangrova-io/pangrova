@@ -190,7 +190,7 @@ class IcebergMetadataAtomicCommitTest {
     }
 
     @Test
-    void recoveryReplayFindsFingerprintInSnapshotLineageAndDoesNotAppendTwice() {
+    void recoveryReplayFindsFingerprintInSnapshotLineageAndDoesNotAppendTwice() throws Exception {
         Table table = createTable("recover_once");
         IcebergOutputTableHandle handle = beginInsert("recover_once");
         byte[] fragment = buildAppendFragmentBytes(table, "recover-once.parquet", 7, 700);
@@ -219,10 +219,7 @@ class IcebergMetadataAtomicCommitTest {
         int snapshotsBeforeReplay = countSnapshots(table);
         long latestSnapshot = table.currentSnapshot().snapshotId();
 
-        IcebergOutputTableHandle rebuilt = (IcebergOutputTableHandle)
-                metadata.reconstructOutputHandle(
-                        SESSION, new SchemaTableName(NAMESPACE, "recover_once"),
-                        "INSERT", handle.baseSnapshotId());
+        IcebergOutputTableHandle rebuilt = decodeJournaledHandle(context);
         metadata.finishDistributedWrite(SESSION, rebuilt, List.of(fragment), context);
 
         table.refresh();
@@ -536,37 +533,27 @@ class IcebergMetadataAtomicCommitTest {
     }
 
     @Test
-    void reconstructOutputHandle_rebuildsHandleUsableByFinishDistributedWrite() {
-        Table table = createTable("reconstruct_me");
-        // A-COMMIT-01: a recovering coordinator rebuilds the handle from the live table (no original).
-        IcebergOutputTableHandle rebuilt = (IcebergOutputTableHandle) metadata.reconstructOutputHandle(
-                SESSION, new SchemaTableName(NAMESPACE, "reconstruct_me"), "INSERT");
-        assertThat(rebuilt.schemaName()).isEqualTo(NAMESPACE);
-        assertThat(rebuilt.tableName()).isEqualTo("reconstruct_me");
-        assertThat(rebuilt.writeMode()).isEqualTo(IcebergOutputTableHandle.MODE_INSERT);
-        assertThat(rebuilt.targetTable()).contains(new SchemaTableName(NAMESPACE, "reconstruct_me"));
+    void durableOutputHandleCanDriveTheFirstPublication() throws Exception {
+        Table table = createTable("durable_output");
+        var issued = beginInsert("durable_output");
+        var fragments = List.of(buildAppendFragmentBytes(table, "durable-0.parquet", 3, 512));
+        var context = context("durable-output", issued, fragments);
+        var decoded = decodeJournaledHandle(context);
+        assertThat(decoded).isEqualTo(issued);
 
-        // The rebuilt handle must be accepted by finishDistributedWrite (the recovery re-drive path):
-        // committing a worker fragment through it lands exactly one new snapshot.
         int before = countSnapshots(table);
-        byte[] fragment = buildAppendFragmentBytes(table, "reconstructed-0.parquet", 3, 512);
-        metadata.finishDistributedWrite(SESSION, rebuilt, List.of(fragment));
-        assertThat(countSnapshots(table))
-                .as("rebuilt handle drives a real commit").isEqualTo(before + 1);
+        metadata.finishDistributedWrite(SESSION, decoded, fragments, context);
+        table.refresh();
+
+        assertThat(countSnapshots(table)).isEqualTo(before + 1);
     }
 
-    @Test
-    void reconstructOutputHandleRejectsUnknownWriteMode() {
-        createTable("reject_unknown_mode");
-        SchemaTableName table = new SchemaTableName(NAMESPACE, "reject_unknown_mode");
-        for (String mode : List.of("UNKNOWN", "APPEND", "overwrite", "")) {
-            assertThatThrownBy(() -> metadata.reconstructOutputHandle(SESSION, table, mode))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("write recovery mode");
-        }
-        assertThatThrownBy(() -> metadata.reconstructOutputHandle(SESSION, table, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("write recovery mode");
+    private static IcebergOutputTableHandle decodeJournaledHandle(DistributedWriteCommitContext context)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+        var binding = org.pangrova.protocol.v2.WriteOutputBinding.parseFrom(context.writeOutputBinding());
+        var handle = binding.getConnector().getOutputHandle();
+        return (IcebergOutputTableHandle) new IcebergOutputHandleCodec().deserialize(
+                handle.getCodecVersion(), handle.getPayload().toByteArray());
     }
 
     @Test

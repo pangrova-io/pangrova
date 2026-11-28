@@ -10,7 +10,6 @@ import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 /**
  * Write-specific metadata operations for a connector.
@@ -169,39 +168,5 @@ public interface ConnectorWriteMetadata {
             ConnectorOutputTableHandle outputHandle, java.util.List<byte[]> fragments,
             DistributedWriteCommitContext context) {
         throw new UnsupportedOperationException("Durable distributed write abort is not implemented");
-    }
-
-    /**
-     * A-COMMIT-01: reconstructs a distributed-write output handle for {@code tableName} from the
-     * live table metadata, so a coordinator recovering a {@code PENDING} write intent can re-drive
-     * {@link #finishDistributedWrite} without the original in-memory handle (which died with the
-     * crashed coordinator). The rebuilt handle mirrors what {@code beginInsert/beginDelete/
-     * beginOverwrite} would produce for the current table, selected by {@code writeMode}.
-     *
-     * <p>Default throws {@link UnsupportedOperationException} — recovery then quarantines the intent
-     * for manual handling. Connectors that support crash-recovery of distributed writes override.
-     *
-     * @param session   a recovery session for the target catalog
-     * @param tableName  the target table (from the durable intent)
-     * @param writeMode  the distributed write mode token (from the durable intent)
-     * @return a handle accepted by {@link #finishDistributedWrite}
-     */
-    default ConnectorOutputTableHandle reconstructOutputHandle(ConnectorSession session,
-                                                               SchemaTableName tableName,
-                                                               String writeMode) {
-        throw new UnsupportedOperationException("reconstructOutputHandle not supported");
-    }
-
-    /**
-     * Reconstructs a recovery handle while preserving the snapshot captured by the original write.
-     * Default is fail-closed because substituting the current snapshot changes conflict semantics.
-     */
-    default ConnectorOutputTableHandle reconstructOutputHandle(
-            ConnectorSession session,
-            SchemaTableName tableName,
-            String writeMode,
-            long baseSnapshotId) {
-        throw new UnsupportedOperationException(
-                "snapshot-preserving reconstructOutputHandle not supported");
     }
 }

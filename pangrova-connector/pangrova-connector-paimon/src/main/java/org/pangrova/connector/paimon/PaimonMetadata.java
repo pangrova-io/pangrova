@@ -371,13 +371,6 @@ public class PaimonMetadata implements ConnectorMetadata {
         writes.finish(session, (PaimonOutputTableHandle) outputHandle, fragments, context);
     }
 
-    @Override
-    public ConnectorOutputTableHandle reconstructOutputHandle(
-            ConnectorSession session, SchemaTableName tableName,
-            String writeMode, long baseSnapshotId) {
-        return writes.reconstruct(tableName, writeMode, baseSnapshotId);
-    }
-
     org.pangrova.connector.api.metadata.NativePhysicalWriteProvider physicalWriteProvider() {
         return writes.physical();
     }

@@ -415,7 +415,12 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             createTable(catalog);
             var metadata = new IcebergMetadata(catalog, schema.name());
             var name = new SchemaTableName("data", "events");
-            var handle = (IcebergOutputTableHandle) metadata.beginInsert(READER, metadata.getTableHandle(READER, name));
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            var target = metadata.getTableHandle(READER, name);
+            long beforeAllocation = schema.catalogPointerLookups();
+            var handle = (IcebergOutputTableHandle) metadata.beginInsert(READER, target);
+            assertThat(schema.catalogPointerLookups() - beforeAllocation)
+                    .as("exact catalog pointer SELECTs during allocation").isOne();
             var table = catalog.loadTable(TABLE);
             var data = DataFiles.builder(table.spec()).withPath(table.location() + "/data/committed.parquet")
                     .withFileSizeInBytes(128).withRecordCount(1).build();
@@ -429,7 +434,6 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                     handle.baseSnapshotId(), binding, READER.getUser(), receipt, null), fragments);
             var context = new DistributedWriteCommitContext("exact-write", tenant, handle.baseSnapshotId(),
                     binding, fingerprint, READER.getUser(), receipt, null);
-            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
             long before = schema.catalogPointerLookups();
 
             var publication = requiresPublication

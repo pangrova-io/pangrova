@@ -356,6 +356,9 @@ publication updates are mutually exclusive on the journal row; a published PENDI
 be aborted. Missing intent evidence fails closed, rather than being treated as a successful abort.
 This barrier does not close the separate execution-anchor check/update transaction race or define
 safe long-term terminal retention. Ambiguous PENDING writes still require explicit reconciliation.
+Recovery reconstructs the allocation from its persisted codec payload,
+including the original write mode, snapshot and overwrite scope. Iceberg
+allocation uses the current table metadata already loaded by write admission.
 The Coordinator decodes the exact Worker write binding and rebuilds it once
 to verify the canonical payload, columns, and allocation. If publication
 reports a missing target, abort confirmation uses the same bound handle and

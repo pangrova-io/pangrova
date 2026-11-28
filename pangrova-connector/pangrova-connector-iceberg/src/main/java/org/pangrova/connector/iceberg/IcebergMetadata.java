@@ -122,23 +122,6 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         return IcebergOutputHandles.forInsert(handle, writeTable(handle));
     }
 
-    /** Rebuilds a non-recovery handle from current table metadata. */
-    @Override
-    public ConnectorOutputTableHandle reconstructOutputHandle(ConnectorSession session,
-            SchemaTableName tableName, String writeMode) {
-        return IcebergOutputHandles.reconstruct(catalog, tableName, writeMode);
-    }
-
-    @Override
-    public ConnectorOutputTableHandle reconstructOutputHandle(
-            ConnectorSession session,
-            SchemaTableName tableName,
-            String writeMode,
-            long baseSnapshotId) {
-        return IcebergOutputHandles.reconstruct(
-                catalog, tableName, writeMode, baseSnapshotId);
-    }
-
     @Override
     public ConnectorOutputTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle table) {
         IcebergTableHandle handle = (IcebergTableHandle) table;

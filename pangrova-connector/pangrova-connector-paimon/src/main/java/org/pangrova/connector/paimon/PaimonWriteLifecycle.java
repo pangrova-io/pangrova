@@ -105,14 +105,6 @@ final class PaimonWriteLifecycle {
         return PaimonTableHandleFactory.outputFromTable(handle.schemaName(), handle.tableName(), table, "DELETE");
     }
 
-    PaimonOutputTableHandle reconstruct(SchemaTableName tableName, String mode, long baseSnapshotId) {
-        if (!List.of("INSERT", "OVERWRITE", "DELETE", "MERGE").contains(mode)) {
-            throw new UnsupportedOperationException("Paimon recovery cannot reconstruct write mode: " + mode);
-        }
-        return PaimonTableHandleFactory.outputFromTable(tableName.schema(), tableName.table(),
-                load(tableName.schema(), tableName.table()), mode).withBaseSnapshotId(baseSnapshotId);
-    }
-
     void finish(ConnectorSession session, PaimonOutputTableHandle handle, List<byte[]> fragments,
             DistributedWriteCommitContext context) {
         byte[] bindingBytes = context.writeOutputBinding();
