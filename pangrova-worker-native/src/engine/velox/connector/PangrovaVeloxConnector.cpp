@@ -194,8 +194,10 @@ PangrovaVeloxDataSource::PangrovaVeloxDataSource(
     std::shared_ptr<const facebook::velox::core::ITypedExpr> remainingFilter,
     int64_t preferredOutputBatchBytes,
     int64_t eagerFirstStripeThresholdBytes,
-    facebook::velox::core::ExpressionEvaluator* expressionEvaluator)
-    : pool_(pool),
+    facebook::velox::core::ExpressionEvaluator* expressionEvaluator,
+    std::shared_ptr<const facebook::velox::config::ConfigBase> fileSystemConfig)
+    : file_system_config_(std::move(fileSystemConfig)),
+      pool_(pool),
       output_type_(outputType),
       scan_schema_(scanSchema),
       eager_first_stripe_threshold_bytes_(eagerFirstStripeThresholdBytes),
@@ -256,7 +258,7 @@ void PangrovaVeloxDataSource::addSplit(
   batch_calibrated_ = false;
 
   if (splitConfig.system_table.has_value()) {
-    const MetadataReadContext reads(read_budget_, cancellation_token_);
+    const MetadataReadContext reads(read_budget_, cancellation_token_, file_system_config_);
     if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_MANIFESTS) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
         throw std::runtime_error("Iceberg manifests split requires metadata Avro format");
@@ -472,7 +474,11 @@ void PangrovaVeloxDataSource::createReaderPair(
       split::stripFilePrefix(splitConfig.file_path));
   const auto format = resolveFileFormat(splitConfig.file_format);
 
-  auto fileSystem = facebook::velox::filesystems::getFileSystem(cleanPath, nullptr);
+  if (cleanPath.starts_with("s3://")
+      && (!file_system_config_ || !file_system_config_->valueExists("hive.s3.aws-access-key"))) {
+    throw std::runtime_error("Native S3 read requires configured filesystem credentials");
+  }
+  auto fileSystem = facebook::velox::filesystems::getFileSystem(cleanPath, file_system_config_);
   if (!fileSystem) {
     throw std::runtime_error(
         "No registered Velox filesystem for data object: " + cleanPath);
@@ -1726,7 +1732,7 @@ PangrovaVeloxConnector::createDataSource(
       assignedSourceFilter(remainingFilter, outputType, sourceType),
       preferredBatchBytes,
       eagerFirstStripeThreshold,
-      connectorQueryCtx->expressionEvaluator());
+      connectorQueryCtx->expressionEvaluator(), connectorConfig());
   source->setCancellationToken(connectorQueryCtx->cancellationToken());
   source->setReadBudget(std::move(readBudget));
   return std::make_unique<ColumnAssignmentDataSource>(

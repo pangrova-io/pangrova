@@ -100,6 +100,28 @@ TEST_F(TaskObjectReadBudgetTest, DownloadQualificationAndHydrationShareOneActual
   EXPECT_EQ(owner->activeReads(), 0);
 }
 
+TEST_F(TaskObjectReadBudgetTest, S3ObservationsStayWithTheExactTaskAndDoNotSpendItsGrant) {
+  auto owner = std::make_shared<TaskObjectReadBudget>(8);
+  auto alternate = std::make_shared<TaskObjectReadBudget>(8);
+  using facebook::velox::RuntimeCounter;
+  auto* s3 = owner->s3IoStats();
+  s3->addCounter("s3SdkReadAttempts", RuntimeCounter(2));
+  s3->addCounter("s3SdkReadRetries", RuntimeCounter(1));
+  s3->addCounter("s3SdkResponseBodyBytes", RuntimeCounter(13, RuntimeCounter::Unit::kBytes));
+
+  TaskBudgetReadFile input(open(), owner, {});
+  std::array<char, 8> bytes{};
+  EXPECT_EQ(input.pread(0, bytes.size(), bytes.data()), "01234567");
+  const auto stats = owner->snapshot();
+  EXPECT_EQ(stats.requested_bytes, 8);
+  EXPECT_EQ(stats.returned_bytes, 8);
+  EXPECT_EQ(stats.s3_sdk_attempts, 2);
+  EXPECT_EQ(stats.s3_sdk_retries, 1);
+  EXPECT_EQ(stats.s3_response_body_bytes, 13);
+  EXPECT_EQ(alternate->snapshot().s3_sdk_attempts, 0);
+  EXPECT_EQ(alternate->snapshot().s3_response_body_bytes, 0);
+}
+
 TEST_F(TaskObjectReadBudgetTest, ActualDiscontiguousRegionsReadOnlyTheirAdmittedRanges) {
   auto owner = std::make_shared<TaskObjectReadBudget>(8);
   TaskBudgetReadFile input(open(), owner, {});

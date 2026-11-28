@@ -2499,3 +2499,65 @@ index 39797ee..820e77c 100644
 @@ -46,0 +47,2 @@ struct UuidParser<TypeKind::VARBINARY> {
 +    VELOX_USER_CHECK_EQ(
 +        uuidValue.size(), 16, "UUID requires exactly 16 binary bytes");
+diff --git a/velox/connectors/hive/storage_adapters/s3fs/S3ReadFile.cpp b/velox/connectors/hive/storage_adapters/s3fs/S3ReadFile.cpp
+index f195871..5be035f 100644
+--- a/velox/connectors/hive/storage_adapters/s3fs/S3ReadFile.cpp
++++ b/velox/connectors/hive/storage_adapters/s3fs/S3ReadFile.cpp
+@@ -21,0 +22,2 @@
++#include <atomic>
++
+@@ -37,0 +40,30 @@
++
++// The caller supplies an IoStats owner for this exact task. Count transport
++// body chunks as the HTTP client receives them, including unsuccessful retries.
++class S3RequestStats {
++ public:
++  S3RequestStats(Aws::AmazonWebServiceRequest& request, IoStats* stats)
++      : stats_(stats) {
++    if (stats_) {
++      request.SetDataReceivedEventHandler(
++          [this](const Aws::Http::HttpRequest*, Aws::Http::HttpResponse*, long long bytes) {
++            bodyBytes_.fetch_add(bytes, std::memory_order_relaxed);
++          });
++    }
++  }
++
++  void record(unsigned int retries) const {
++    if (!stats_) {
++      return;
++    }
++    stats_->addCounter("s3SdkReadAttempts", RuntimeCounter(1LL + retries));
++    stats_->addCounter("s3SdkReadRetries", RuntimeCounter(retries));
++    stats_->addCounter(
++        "s3SdkResponseBodyBytes",
++        RuntimeCounter(bodyBytes_.load(std::memory_order_relaxed), RuntimeCounter::Unit::kBytes));
++  }
++
++ private:
++  IoStats* const stats_;
++  std::atomic<int64_t> bodyBytes_{0};
++};
+@@ -65,0 +98 @@
++    S3RequestStats stats(request, options.stats);
+@@ -67,0 +101 @@
++    stats.record(outcome.GetRetryCount());
+@@ -83 +117 @@
+-    preadInternal(offset, length, static_cast<char*>(buffer));
++    preadInternal(offset, length, static_cast<char*>(buffer), context.ioStats);
+@@ -91 +125 @@
+-    preadInternal(offset, length, position);
++    preadInternal(offset, length, position, context.ioStats);
+@@ -111 +145 @@
+-    preadInternal(offset, length, static_cast<char*>(result.data()));
++    preadInternal(offset, length, static_cast<char*>(result.data()), context.ioStats);
+@@ -143 +177,5 @@
+-  void preadInternal(uint64_t offset, uint64_t length, char* position) const {
++  void preadInternal(
++      uint64_t offset,
++      uint64_t length,
++      char* position,
++      IoStats* ioStats) const {
+@@ -154,0 +193 @@
++    S3RequestStats stats(request, ioStats);
+@@ -157,0 +197 @@
++    stats.record(outcome.GetRetryCount());

@@ -861,7 +861,10 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 assertThat(read.getFailedCalls()).isZero();
                 assertThat(profileReads).containsEntry(report.getAttempt().getTaskId(),
                         new ObjectReads(read.getRequestedBytes(), read.getReturnedBytes(), read.getPayloadCalls(),
-                                read.getMetadataCalls(), read.getFailedCalls()));
+                                read.getMetadataCalls(), read.getFailedCalls(), 0, 0, 0));
+                assertThat(read.getS3SdkAttempts()).isZero();
+                assertThat(read.getS3SdkRetries()).isZero();
+                assertThat(read.getS3ResponseBodyBytes()).isZero();
             });
             var expected = LongStream.range(0, rowCount).filter(id -> id != 5 && id != 3000).boxed().toList();
             assertThat(whole.rows()).extracting(row -> row.getLong("id")).containsExactlyElementsOf(expected);

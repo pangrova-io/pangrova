@@ -75,9 +75,10 @@ public interface OperatorStatsSource {
         }
     }
 
-    /** Native adapter work, measured on the exact attempt. */
+    /** Native adapter work and S3 SDK transfer observations for one attempt. */
     record ObjectReads(long requestedBytes, long returnedBytes, long payloadCalls,
-            long metadataCalls, long failedCalls) {}
+            long metadataCalls, long failedCalls, long s3SdkAttempts, long s3SdkRetries,
+            long s3ResponseBodyBytes) {}
 
     /** One operator in the named attempt. Wait counters accumulate across its Velox drivers. */
     record Metric(

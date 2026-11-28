@@ -314,8 +314,10 @@ manifest metadata. Scalar index pruning batches metadata lookups for distinct pa
 and evaluates an immutable file once before applying its decision and hints to
 the file's ranges. Each Iceberg data range carries the whole object length
 from the same snapshot. The Worker checks the interval against that length
-and passes it to the S3 reader, which can read the footer and data ranges
-without an object HEAD per split. Worker-local qualified inputs continue to
+and passes it to the configured S3 reader, which can read the footer and
+data ranges without an object HEAD per split. The Native S3 reader records
+SDK attempts, retries and response body bytes in the exact task's read
+statistics. Worker-local qualified inputs continue to
 verify the stored bytes against their exact size and digest.
 
 Paimon historical read binding uses the selected snapshot object to resolve the

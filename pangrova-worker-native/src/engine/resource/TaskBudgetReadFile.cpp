@@ -51,16 +51,26 @@ std::shared_ptr<TaskBudgetReadFile> TaskBudgetReadFile::open(
   opening.startCall();
   facebook::velox::filesystems::FileOptions options;
   options.fileSize = file_size;
+  if (path.starts_with("s3://")) options.stats = budget->s3IoStats();
   auto file = filesystem.openFileForRead(path, options);
   opening.completeCall(0);
-  return std::make_shared<TaskBudgetReadFile>(std::move(file), budget, cancellation);
+  return std::make_shared<TaskBudgetReadFile>(std::move(file), budget, cancellation, options.stats);
 }
 
 TaskBudgetReadFile::TaskBudgetReadFile(
     std::shared_ptr<facebook::velox::ReadFile> input,
-    std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation)
+    std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation,
+    facebook::velox::IoStats* s3_io_stats)
     : input_(std::move(input)), budget_(std::move(budget)), cancellation_(std::move(cancellation)),
-      size_(fileSize(input_, budget_, cancellation_)) {}
+      size_(fileSize(input_, budget_, cancellation_)), s3_io_stats_(s3_io_stats) {}
+
+std::optional<facebook::velox::FileIoContext> TaskBudgetReadFile::s3ReadContext(
+    const facebook::velox::FileIoContext& original) const {
+  if (!s3_io_stats_) return std::nullopt;
+  auto context = original;
+  context.ioStats = s3_io_stats_;
+  return context;
+}
 
 void TaskBudgetReadFile::verifySha256(std::string_view expected, uint64_t declaredLength) const {
   checkpoint(cancellation_);
@@ -95,7 +105,8 @@ std::string_view TaskBudgetReadFile::pread(uint64_t offset, uint64_t length,
   addLength(offset, length);
   auto attempt = budget_->begin(length);
   attempt.startCall();
-  auto output = input_->pread(offset, length, buffer, context);
+  const auto s3_context = s3ReadContext(context);
+  auto output = input_->pread(offset, length, buffer, s3_context ? *s3_context : context);
   attempt.completeCall(output.size());
   checkpoint(cancellation_);
   return output;
@@ -109,7 +120,8 @@ uint64_t TaskBudgetReadFile::preadv(uint64_t offset,
   addLength(offset, bytes);
   auto attempt = budget_->begin(bytes);
   attempt.startCall();
-  const auto output = input_->preadv(offset, buffers, context);
+  const auto s3_context = s3ReadContext(context);
+  const auto output = input_->preadv(offset, buffers, s3_context ? *s3_context : context);
   attempt.completeCall(output);
   checkpoint(cancellation_);
   return output;
@@ -130,6 +142,7 @@ uint64_t TaskBudgetReadFile::preadv(
   }
   auto attempt = budget_->begin(bytes);
   uint64_t output = 0;
+  const auto s3_context = s3ReadContext(context);
   // The SDK regions overload permits undisclosed coalesced gap bytes. Issue
   // these exact admitted ranges through the same backend instead, so this
   // owner cannot expand its grant through provider-specific coalescing.
@@ -138,7 +151,8 @@ uint64_t TaskBudgetReadFile::preadv(
     const auto& region = regions[index];
     buffers[index] = folly::IOBuf(folly::IOBuf::CREATE, region.length);
     attempt.startCall();
-    const auto read = input_->pread(region.offset, region.length, buffers[index].writableData(), context);
+    const auto read = input_->pread(region.offset, region.length, buffers[index].writableData(),
+        s3_context ? *s3_context : context);
     attempt.completeCall(read.size());
     if (read.size() != region.length) {
       throw std::runtime_error("Task backend returned a truncated admitted region");
@@ -164,7 +178,8 @@ folly::SemiFuture<uint64_t> TaskBudgetReadFile::preadvAsync(uint64_t offset,
     // SDK hasPreadvAsync=false guarantees this branch is synchronous. Never
     // delegate a native async read whose caller-owned buffers may be released.
     attempt.startCall();
-    return input_->preadvAsync(offset, buffers, context)
+    const auto s3_context = s3ReadContext(context);
+    return input_->preadvAsync(offset, buffers, s3_context ? *s3_context : context)
         .via(&folly::InlineExecutor::instance())
         .thenTry([attempt = std::move(attempt), input = input_, token = cancellation_]
             (folly::Try<uint64_t>&& outcome) mutable {

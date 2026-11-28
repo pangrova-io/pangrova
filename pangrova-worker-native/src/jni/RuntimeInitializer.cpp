@@ -183,7 +183,7 @@ std::unordered_map<std::string, std::string> buildFileSystemConfigMap(
     properties["hive.s3.aws-secret-key"] = config.s3_secret_key;
   }
   if (!config.s3_region.empty()) {
-    properties["hive.s3.region"] = config.s3_region;
+    properties["hive.s3.endpoint.region"] = config.s3_region;
   }
 
   // HDFS configuration.

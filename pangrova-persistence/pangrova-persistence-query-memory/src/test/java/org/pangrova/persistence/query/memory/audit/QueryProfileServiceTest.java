@@ -129,7 +129,8 @@ class QueryProfileServiceTest {
                 "TableScan", "node-1", 100, 50, 200, 100, 2_000_000, 3_000_000, 4096, 0,
                 1_500_000, 0, 0, 300_000, 1_200_000);
         var attempt = new OperatorStatsSource.Attempt(2, 1, 4, 0, "task-1", "worker-1",
-                "FINISHED", 7, 3, 2, 1, List.of(metric), new OperatorStatsSource.ObjectReads(160, 128, 2, 1, 1));
+                "FINISHED", 7, 3, 2, 1, List.of(metric),
+                new OperatorStatsSource.ObjectReads(160, 128, 2, 1, 1, 4, 1, 144));
         var service = new QueryProfileService(auditService, queryId -> List.of(attempt));
 
         var record = new QueryAuditRecord(

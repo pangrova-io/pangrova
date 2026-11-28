@@ -60,8 +60,12 @@ the file adapter, together with `payloadCalls`, `metadataCalls` and
 `failedCalls`. Reported lengths can include logical gaps in vector reads.
 Metadata calls include adapter opens and size lookups. Call counts and
 returned lengths are recorded when the scoped operation exits. A failed multi-range read
-can retain bytes from earlier successful ranges. Provider transport retries
-and wire bytes require request-level instrumentation.
+can retain bytes from earlier successful ranges. Configured Native S3 reads
+also report `s3SdkAttempts`, `s3SdkRetries` and `s3ResponseBodyBytes`. The SDK
+reports attempts and retries for HEAD and ranged GET operations. The byte
+counter measures HTTP response bodies received by the SDK, including failed
+attempts, and excludes headers and transport framing. These observations
+are independent of the adapter's admitted byte grant.
 
 Each operator reports `blockedNanos` and the selected reasons
 `waitForProducerNanos`, `waitForConsumerNanos`, `waitForSplitNanos`, and

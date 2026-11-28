@@ -116,7 +116,8 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
           remainingFilter = nullptr,
       int64_t preferredOutputBatchBytes = kDefaultBatchTargetBytes,
       int64_t eagerFirstStripeThresholdBytes = 1L * 1024 * 1024,
-      facebook::velox::core::ExpressionEvaluator* expressionEvaluator = nullptr);
+      facebook::velox::core::ExpressionEvaluator* expressionEvaluator = nullptr,
+      std::shared_ptr<const facebook::velox::config::ConfigBase> fileSystemConfig = nullptr);
 
   void addSplit(
       std::shared_ptr<facebook::velox::connector::ConnectorSplit> split)
@@ -141,6 +142,7 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   folly::CancellationSource cancellation_source_;
   folly::CancellationToken cancellation_token_{cancellation_source_.getToken()};
   std::shared_ptr<resource::TaskObjectReadBudget> read_budget_;
+  const std::shared_ptr<const facebook::velox::config::ConfigBase> file_system_config_;
   std::string current_source_id_;
   std::string current_source_snapshot_;
   // Apply dynamic filters to a RowVector, returning a filtered vector.

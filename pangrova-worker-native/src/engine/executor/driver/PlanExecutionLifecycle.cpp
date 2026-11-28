@@ -177,6 +177,9 @@ std::optional<protocol::v2::NativeObjectReadStats> PlanExecutionDriver::objectRe
   stats.set_payload_calls(sample.payload_calls);
   stats.set_metadata_calls(sample.metadata_calls);
   stats.set_failed_calls(sample.failed_calls);
+  stats.set_s3_sdk_attempts(sample.s3_sdk_attempts);
+  stats.set_s3_sdk_retries(sample.s3_sdk_retries);
+  stats.set_s3_response_body_bytes(sample.s3_response_body_bytes);
   return stats;
 }
 

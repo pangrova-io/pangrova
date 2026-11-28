@@ -311,7 +311,8 @@ class CanonicalTaskReportValidatorTest {
                 .setState(TaskState.TASK_STATE_FAILED)
                 .setUsage(observedUsage)
                 .setNativeObjectReads(org.pangrova.protocol.v2.NativeObjectReadStats.newBuilder()
-                        .setMetadataCalls(1).setFailedCalls(1))
+                        .setMetadataCalls(1).setFailedCalls(1)
+                        .setS3SdkAttempts(2).setS3SdkRetries(1).setS3ResponseBodyBytes(7))
                 .setError(ExecutionError.newBuilder()
                         .setErrorClass(ErrorClass.ERROR_CLASS_PROVIDER)
                         .setCode("PROVIDER_FAILED")
@@ -332,6 +333,18 @@ class CanonicalTaskReportValidatorTest {
                         .TASK_REPORT_ORIGIN_WORKER_RECONCILED);
         assertThat(validator.validate(report(request, status, "FAILED"), request))
                 .contains(status);
+    }
+
+    @Test
+    void rejectsS3RetriesExceedingActualAttempts() throws Exception {
+        SubmitTaskRequest request = request("COMPUTE", List.of());
+        TaskReport invalid = TaskReport.newBuilder()
+                .setAttempt(request.taskRequest().getAttempt()).setState(TaskState.TASK_STATE_FAILED)
+                .setUsage(ResourceUsage.getDefaultInstance())
+                .setNativeObjectReads(org.pangrova.protocol.v2.NativeObjectReadStats.newBuilder()
+                        .setS3SdkAttempts(1).setS3SdkRetries(2))
+                .build();
+        assertThat(org.pangrova.protocol.task.CanonicalTaskRequests.nativeObjectReadsWithinUsage(invalid)).isFalse();
     }
 
     @Test

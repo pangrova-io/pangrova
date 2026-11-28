@@ -6,6 +6,10 @@
 
 #include "folly/CancellationToken.h"
 
+namespace facebook::velox::config {
+class ConfigBase;
+}
+
 namespace facebook::velox { class ReadFile; }
 namespace pangrova::resource { class TaskObjectReadBudget; }
 
@@ -21,7 +25,8 @@ struct MetadataObjectReference {
 class MetadataReadContext final {
  public:
   MetadataReadContext(std::shared_ptr<resource::TaskObjectReadBudget> budget,
-      folly::CancellationToken cancellation);
+      folly::CancellationToken cancellation,
+      std::shared_ptr<const facebook::velox::config::ConfigBase> fileSystemConfig = nullptr);
   // Standalone format inspection has no executing task. DataSource always uses
   // the admitted constructor above, which rejects a missing task owner.
   static MetadataReadContext unscoped();
@@ -32,6 +37,7 @@ class MetadataReadContext final {
   MetadataReadContext() = default;
   std::shared_ptr<resource::TaskObjectReadBudget> budget_;
   folly::CancellationToken cancellation_;
+  std::shared_ptr<const facebook::velox::config::ConfigBase> file_system_config_;
 };
 
 }  // namespace pangrova::velox

@@ -5,6 +5,10 @@
 #include <memory>
 #include <mutex>
 
+namespace facebook::velox {
+class IoStats;
+}
+
 namespace pangrova::resource {
 
 /** One admitted task grant. Counts backend requested ranges, including failed attempts. */
@@ -17,6 +21,9 @@ class TaskObjectReadBudget final : public std::enable_shared_from_this<TaskObjec
     uint64_t payload_calls = 0;
     uint64_t metadata_calls = 0;
     uint64_t failed_calls = 0;
+    uint64_t s3_sdk_attempts = 0;
+    uint64_t s3_sdk_retries = 0;
+    uint64_t s3_response_body_bytes = 0;
   };
 
   // Each owner issues calls serially and publishes their outcomes when its
@@ -39,7 +46,9 @@ class TaskObjectReadBudget final : public std::enable_shared_from_this<TaskObjec
     uint64_t completed_calls_ = 0;
     uint64_t returned_bytes_ = 0;
   };
-  explicit TaskObjectReadBudget(uint64_t limit) : limit_(limit) {}
+  explicit TaskObjectReadBudget(uint64_t limit);
+  ~TaskObjectReadBudget();
+  facebook::velox::IoStats* s3IoStats();
   Attempt begin(uint64_t requested_bytes, Operation operation = Operation::PAYLOAD);
   void requestCancel();
   void stopAndDrain();
@@ -53,6 +62,7 @@ class TaskObjectReadBudget final : public std::enable_shared_from_this<TaskObjec
   mutable std::mutex mutex_;
   std::condition_variable drained_;
   Counters counters_;
+  std::unique_ptr<facebook::velox::IoStats> s3_io_stats_;
   uint64_t active_ = 0;
   bool stopped_ = false;
 };

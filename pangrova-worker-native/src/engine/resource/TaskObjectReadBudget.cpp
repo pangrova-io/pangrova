@@ -2,7 +2,18 @@
 
 #include <stdexcept>
 
+#include "velox/common/file/File.h"
+
 namespace pangrova::resource {
+
+TaskObjectReadBudget::TaskObjectReadBudget(uint64_t limit) : limit_(limit) {}
+TaskObjectReadBudget::~TaskObjectReadBudget() = default;
+
+facebook::velox::IoStats* TaskObjectReadBudget::s3IoStats() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!s3_io_stats_) s3_io_stats_ = std::make_unique<facebook::velox::IoStats>();
+  return s3_io_stats_.get();
+}
 
 TaskObjectReadBudget::Attempt TaskObjectReadBudget::begin(uint64_t bytes, Operation operation) {
   auto owner = shared_from_this();
@@ -56,7 +67,18 @@ void TaskObjectReadBudget::stopAndDrain() {
 
 TaskObjectReadBudget::Counters TaskObjectReadBudget::snapshot() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return counters_;
+  auto result = counters_;
+  if (s3_io_stats_) {
+    const auto stats = s3_io_stats_->stats();
+    const auto sum = [&stats](const char* key) {
+      const auto item = stats.find(key);
+      return item == stats.end() ? 0 : item->second.sum;
+    };
+    result.s3_sdk_attempts = sum("s3SdkReadAttempts");
+    result.s3_sdk_retries = sum("s3SdkReadRetries");
+    result.s3_response_body_bytes = sum("s3SdkResponseBodyBytes");
+  }
+  return result;
 }
 uint64_t TaskObjectReadBudget::activeReads() const {
   std::lock_guard<std::mutex> lock(mutex_);

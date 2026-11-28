@@ -35,14 +35,18 @@ public final class CanonicalTaskRequests {
         var reads = status.getNativeObjectReads();
         if (!status.hasUsage() || !reads.getUnknownFields().asMap().isEmpty()
                 || reads.getRequestedBytes() < 0 || reads.getReturnedBytes() < 0
-                || reads.getPayloadCalls() < 0 || reads.getMetadataCalls() < 0 || reads.getFailedCalls() < 0) {
+                || reads.getPayloadCalls() < 0 || reads.getMetadataCalls() < 0 || reads.getFailedCalls() < 0
+                || reads.getS3SdkAttempts() < 0 || reads.getS3SdkRetries() < 0
+                || reads.getS3ResponseBodyBytes() < 0) {
             return false;
         }
         long metadataFailures = Math.max(0L, reads.getFailedCalls() - reads.getPayloadCalls());
         return reads.getRequestedBytes() <= status.getUsage().getObjectStoreReadBytes()
                 && reads.getReturnedBytes() <= reads.getRequestedBytes()
                 && (reads.getReturnedBytes() == 0 || reads.getPayloadCalls() > 0)
-                && metadataFailures <= reads.getMetadataCalls();
+                && metadataFailures <= reads.getMetadataCalls()
+                && reads.getS3SdkRetries() <= reads.getS3SdkAttempts()
+                && (reads.getS3ResponseBodyBytes() == 0 || reads.getS3SdkAttempts() > 0);
     }
 
     /** Validates canonical usage against its exact grant in Java's representable accounting domain. */

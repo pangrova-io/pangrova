@@ -104,7 +104,8 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
 
         private ObjectReads objectReads() {
             return reads == null ? null : new ObjectReads(reads.getRequestedBytes(), reads.getReturnedBytes(),
-                    reads.getPayloadCalls(), reads.getMetadataCalls(), reads.getFailedCalls());
+                    reads.getPayloadCalls(), reads.getMetadataCalls(), reads.getFailedCalls(),
+                    reads.getS3SdkAttempts(), reads.getS3SdkRetries(), reads.getS3ResponseBodyBytes());
         }
     }
 }
