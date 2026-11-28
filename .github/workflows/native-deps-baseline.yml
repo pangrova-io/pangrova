@@ -267,8 +267,29 @@ jobs:
             git show "$SOURCE_COMMIT:$file" > "$file"
           done
           git diff --check
-      - uses: ./.github/actions/prepare-native-java-fixture
+      - name: Restore Maven dependencies for the archived Native fixture
         if: inputs.probe == 'macos-arm-acceptance'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: pangrova-native-fixture-maven-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/pom.xml', '.mvn/**', 'pangrova-worker-native/bin/run-native-tests.py') }}
+          restore-keys: pangrova-native-fixture-maven-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Download the archived run's tested Iceberg SDK
+        if: inputs.probe == 'macos-arm-acceptance'
+        uses: actions/download-artifact@v8
+        with:
+          name: pinned-iceberg-sdk
+          path: ${{ runner.temp }}/archived-iceberg-sdk
+          github-token: ${{ github.token }}
+          run-id: '45963319376'
+          digest-mismatch: error
+      - name: Install the archived Iceberg SDK and compile the real Lance fixture
+        if: inputs.probe == 'macos-arm-acceptance'
+        run: |
+          mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
+          cp -R "$RUNNER_TEMP/archived-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"
+          export MAVEN_OPTS="${MAVEN_OPTS:-} -Daether.connector.basic.threads=2 -Daether.connector.http.retryHandler.count=3 -Daether.connector.http.retryHandler.interval=30000 -Daether.connector.http.retryHandler.intervalMax=120000"
+          python3 pangrova-worker-native/bin/run-native-tests.py --prepare-java "$RUNNER_TEMP/native-java-fixture"
       - name: Build the full Native test executable with the canonical Thrift archive
         if: inputs.probe == 'macos-arm-acceptance'
         working-directory: pangrova-worker-native
@@ -914,7 +935,7 @@ jobs:
         run: |
           [[ "$PANGROVA_PROBE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$PANGROVA_PROBE_SOURCE_SHA"
-          test "$PANGROVA_PROBE_SOURCE_SHA" = 4cc9724a3776eab4b96640e87c3b83608404b825
+          test "$PANGROVA_PROBE_SOURCE_SHA" = 1bc3d1e8079ccc3a64e97564305681829f094b23
           tested_ref=b0cd3a5c1b32ecb1407a2edaeb6b0101b142e73d
           git fetch --depth=1 origin "$tested_ref"
           # The Lance fixture links Arrow, canonical protobuf and Lance C FFI.
@@ -967,7 +988,7 @@ jobs:
           name: pinned-iceberg-sdk
           path: ${{ runner.temp }}/pangrova-iceberg-sdk
           github-token: ${{ github.token }}
-          run-id: '46095251162'
+          run-id: '46101766012'
           digest-mismatch: error
       - name: Install the tested Iceberg SDK
         run: |
