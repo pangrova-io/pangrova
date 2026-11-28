@@ -266,6 +266,7 @@ jobs:
             pangrova-worker-native/cmake/FindVelox.cmake \
             pangrova-worker-native/arrow_unexported_symbols_macos.list \
             pangrova-worker-native/bin/isolate-arrow-macos-exports.py \
+            pangrova-worker-native/bin/setup-native-build-env.sh \
             pangrova-worker-native/test/CanonicalFlightPackageTest.py \
             pangrova-worker-native/bin/run-native-tests.py \
             pangrova-worker-native/test/RunNativeTestsTest.py \
