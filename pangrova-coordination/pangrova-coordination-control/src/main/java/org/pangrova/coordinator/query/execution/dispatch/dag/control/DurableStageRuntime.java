@@ -20,7 +20,9 @@ import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedExecution;
-import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionProgress;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionWindow;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
 import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
@@ -43,6 +45,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.IntFunction;
 import java.util.function.LongSupplier;
 import java.util.function.ToIntFunction;
 
@@ -76,7 +80,13 @@ public final class DurableStageRuntime {
     }
 
     /** The exact claim, local Worker snapshot and canonical request, returned only after the PG transaction commits. */
-    public record PreparedTask(GenerationLease lease, WorkerInfo worker, SubmitTaskRequest request) {}
+    public record PreparedTask(GenerationLease lease, WorkerInfo worker, SubmitTaskRequest request)
+            implements WindowPartition {}
+
+    public sealed interface WindowPartition permits PreparedTask, RestoredTask {}
+
+    /** An original Native terminal report, restored without reissuing its attempt. */
+    public record RestoredTask(TaskReport report) implements WindowPartition {}
 
     /** Uses only the current authority returned by the same transactional graph preparation port. */
     public DurableStageRuntime(PreparedExecution execution, Dependencies dependencies) {
@@ -161,44 +171,31 @@ public final class DurableStageRuntime {
         return new DurablePartitionRequest.StageRequestPlan(persisted.stage(), graph.modelSnapshots());
     }
 
-    /** Current progress is read in a bounded window of exact consecutive partitions. */
-    public List<PartitionProgress> inspect(int stage, int firstPartition, int count) {
-        return dependencies.stages().inspectPartitions(job, execution.authority().executionAnchor(), stage,
-                firstPartition, count);
-    }
-
-    /** The exact partition and its already prepared exchange access. */
-    public record PartitionTask(int partition, int pageOrdinal, DurablePartitionRequest.ExchangeAccess exchange) {}
-
-    /** Placement and exact claims for a bounded cohort of one stage. */
     @FunctionalInterface
-    public interface StageTasks {
-        List<PreparedTask> prepare(List<PartitionTask> tasks, Instant now);
+    public interface StageWindows {
+        List<WindowPartition> prepare(int firstPartition, int count, Instant now);
     }
 
-    /** Freezes one tenant placement before taking a partition claim connection. */
-    public StageTasks bindStageTasks(int stage, DurablePartitionRequest.StageRequestPlan requestPlan) {
+    /** Places a batch once and restores original winners on the same authority transaction. */
+    public StageWindows bindStageWindows(int stage, DurablePartitionRequest.StageRequestPlan plan,
+            IntFunction<DurablePartitionRequest.ExchangeAccess> input) {
         var placement = dependencies.scheduler().bindTenant(job.tenantId());
-        return (tasks, now) -> prepare(stage, tasks, requestPlan, now, placement);
+        return (first, count, now) -> dependencies.stages().<WindowPartition>prepareWindow(
+                new PartitionWindow(job, execution.authority().executionAnchor(), stage, first, count,
+                        dependencies.controlTerm().getAsLong(), dependencies.leaseDuration(), now),
+                (partition, stored) -> new RestoredTask(winner(stage, partition, stored)),
+                taskPreparation(plan, input, now, placement));
     }
 
-    private List<PreparedTask> prepare(int stage, List<PartitionTask> tasks,
-            DurablePartitionRequest.StageRequestPlan requestPlan, Instant now, TaskScheduler placement) {
+    private Function<PreparedPartition, WindowPartition> taskPreparation(DurablePartitionRequest.StageRequestPlan plan,
+            IntFunction<DurablePartitionRequest.ExchangeAccess> input, Instant now, TaskScheduler placement) {
         long memory = execution.authority().dispatchSpec().maxMemoryBytes();
         var eligible = placement.eligibleWorkersForTenant(memory, dependencies.workers().getActiveWorkers(),
                 job.tenantId());
-        long term = dependencies.controlTerm().getAsLong();
-        var exchanges = new HashMap<Integer, DurablePartitionRequest.ExchangeAccess>(tasks.size());
-        var claims = new ArrayList<GenerationStageExecutionStore.PartitionClaim>(tasks.size());
-        for (var task : tasks) {
-            claims.add(new GenerationStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
-                    stage, task.partition(), task.pageOrdinal(), term, dependencies.leaseDuration(), now));
-            exchanges.put(task.partition(), task.exchange());
-        }
         Map<WorkerExecutionIdentity, Double> windowWork = new HashMap<>();
-        return dependencies.stages().preparePartitions(claims, evidence -> {
-            var request = DurablePartitionRequest.prepare(evidence, requestPlan,
-                    exchanges.get(evidence.lease().partitionId()), now, control.traceContext());
+        return evidence -> {
+            var request = DurablePartitionRequest.prepare(evidence, plan,
+                    input.apply(evidence.lease().partitionId()), now, control.traceContext());
             var task = request.taskRequest();
             if (task.getResourceGrant().getNativeMemoryBytes() != memory) {
                 throw new IllegalStateException("Durable partition resource grant differs from its bound stage");
@@ -210,7 +207,7 @@ public final class DurableStageRuntime {
                     "No actual Worker satisfies the frozen stage capabilities and admitted resource grant"));
             windowWork.merge(worker.workerExecutionIdentity(), (double) work, Double::sum);
             return new PreparedTask(evidence.lease(), worker, request);
-        });
+        };
     }
 
     private static long placementWork(TaskRequest task) {
@@ -231,9 +228,7 @@ public final class DurableStageRuntime {
         dependencies.dispatched().accept(task, acknowledgement);
     }
 
-    /** Validates the stored whole TaskReport; an old format or changed winner is an explicit rebuild error. */
-    public TaskReport winner(int stage, int partition, PartitionProgress progress) {
-        var stored = progress.winner().orElseThrow();
+    private TaskReport winner(int stage, int partition, NativeWinner stored) {
         try {
             var report = TaskReport.parseFrom(stored.originalWireBytes());
             var attempt = report.getAttempt();

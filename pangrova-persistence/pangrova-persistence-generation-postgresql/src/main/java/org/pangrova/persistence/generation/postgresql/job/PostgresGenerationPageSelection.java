@@ -3,7 +3,6 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionClaim;
-import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionProgress;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.PageRow;
 
 import java.sql.Connection;
@@ -148,9 +147,14 @@ final class PostgresGenerationPageSelection {
         }
     }
 
-    static List<PartitionProgress> inspectWindow(Connection connection, String tenantId, String jobId,
+    static NativeWinner nativeWinner(PageRow page) {
+        return new NativeWinner(page.pageId(), page.attemptId(), page.fencingToken(), page.ownerEpoch(),
+                page.executionOwner(), page.reportBytes(), page.reportSha256());
+    }
+
+    static List<PageRow> lockWindow(Connection connection, String tenantId, String jobId,
             int stageId, GenerationPageKind kind, int firstPartition, int count) throws SQLException {
-        var progress = new ArrayList<PartitionProgress>(count);
+        var pages = new ArrayList<PageRow>(count);
         try (var statement = connection.prepareStatement("""
                 SELECT * FROM artifact_build_pages
                 WHERE tenant_id=? AND job_id=? AND stage_id=? AND partition_id>=? AND partition_id<?
@@ -165,21 +169,17 @@ final class PostgresGenerationPageSelection {
             try (var rows = statement.executeQuery()) {
                 while (rows.next()) {
                     var page = mapPage(rows);
-                    if (page.partitionId() != firstPartition + progress.size() || page.kind() != kind) {
+                    if (page.partitionId() != firstPartition + pages.size() || page.kind() != kind) {
                         throw new IllegalStateException("Persisted pages differ from their exact stage partitions");
                     }
-                    var winner = "SUCCEEDED".equals(page.state())
-                            ? Optional.of(new NativeWinner(page.pageId(), page.attemptId(), page.fencingToken(),
-                                    page.ownerEpoch(), page.executionOwner(), page.reportBytes(), page.reportSha256()))
-                            : Optional.<NativeWinner>empty();
-                    progress.add(new PartitionProgress(page.pageOrdinal(), page.kind(), page.state(), winner));
+                    pages.add(page);
                 }
             }
         }
-        if (progress.size() != count) {
+        if (pages.size() != count) {
             throw new IllegalStateException("Persisted stage partitions are missing from the window");
         }
-        return List.copyOf(progress);
+        return List.copyOf(pages);
     }
 
     static PageRow mapPage(ResultSet result) throws SQLException {
@@ -193,7 +193,7 @@ final class PostgresGenerationPageSelection {
                 result.getString("state"),
                 result.getInt("attempt_id"), result.getLong("fencing_token"),
                 result.getString("lease_owner"), result.getLong("owner_epoch"),
-                leaseExpiresAt,
+                leaseExpiresAt, getInstant(result, "next_available_at"),
                 result.getInt("max_attempts"), result.getBytes("report_bytes"),
                 result.getString("report_sha256"),
                 result.getString("execution_owner_id") == null ? null

@@ -13,6 +13,7 @@ import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
 import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.enums.GenerationPageKind;
+import org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate.PublicationRead;
 import org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentGenerationAuthority;
 import org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore;
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Objects;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /** Same-authority transaction boundary for preparing exact partitions in the shared stage engine. */
@@ -42,29 +44,6 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         super(dataSource);
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
-    }
-
-    /** Checks the current authority and actual owner once per bounded window of exact partitions. */
-    @Override
-    public List<PartitionProgress> inspectPartitions(GenerationJobKey key, ExecutionAnchor anchor,
-            int stageId, int firstPartition, int count) {
-        if (!key.executionId().equals(anchor.executionId())) {
-            throw new IllegalArgumentException("Partition inspection belongs to another durable execution");
-        }
-        if (firstPartition < 0 || count < 1 || count > PARTITION_INSPECTION_WINDOW) {
-            throw new IllegalArgumentException("Invalid partition inspection window");
-        }
-        return inTransaction("inspect current durable stage partitions", connection -> {
-            var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
-                    GenerationExecutionOwner.from(anchor));
-            var stage = context.dispatchSpec().stageGraph().requireStage(stageId);
-            if (count > stage.parallelism() - firstPartition) {
-                throw new IllegalArgumentException("Inspected partitions differ from their immutable stage cohort");
-            }
-            return PostgresGenerationPageSelection.inspectWindow(connection, key.tenantId(), key.jobId(),
-                    stageId, stage.pageKind(), firstPartition, count);
-        });
     }
 
     /** Resolves the actual job and immutable exchange evidence through the same current transaction gate. */
@@ -151,41 +130,109 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var pages = PostgresGenerationPageSelection.selectClaimableCohort(
                     connection, cohort, stage.pageKind().isRelational());
             if (pages.isEmpty()) return List.of();
-            for (var page : pages) {
-                if (page.kind() != stage.pageKind()) {
-                    throw new IllegalStateException("Durable page kind differs from its graph");
-                }
-                if (PostgresGenerationPageClaim.attemptsExhausted(page)) {
-                    failExhaustedPage(connection, page, first.now());
-                    return List.of();
-                }
-            }
+            return preparePages(connection, authority, job, stage, exchanges, pages, first, prepare);
+        });
+    }
 
-            boolean consumesExchange = requireConsumerEvidence(authority, first.stageId(), exchanges);
-            if (job.state() == GenerationJobState.QUEUED) {
-                markJobRunning(connection, key.tenantId(), key.jobId(), first.now());
+    @Override
+    public <T> List<T> prepareWindow(PartitionWindow window, BiFunction<Integer, NativeWinner, T> restore,
+            Function<PreparedPartition, T> prepare) {
+        Objects.requireNonNull(window, "window");
+        Objects.requireNonNull(restore, "restore");
+        Objects.requireNonNull(prepare, "prepare");
+        return inTransaction("prepare durable stage window", connection -> {
+            var key = window.job();
+            var authority = PostgresCurrentGenerationAuthority.resolve(
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
+                    GenerationExecutionOwner.from(window.anchor()));
+            var stage = authority.dispatchSpec().stageGraph().requireStage(window.stageId());
+            if (!stage.pageKind().isRelational() || window.count() > stage.parallelism() - window.firstPartition()) {
+                throw new IllegalArgumentException("Requested window differs from its relational stage cohort");
             }
-            var inputs = stage.pageKind().isRelational() && consumesExchange
-                    ? java.util.Collections.nCopies(pages.size(), new PageInputs(List.of(), List.of()))
-                    : INPUTS.loadPageInputs(connection, key.tenantId(), key.jobId(),
-                            pages.stream().map(PageRow::pageId).toList(), stage.pageKind());
-            var publications = PostgresGenerationPublishedInputs.load(connection, key.tenantId(),
-                    authority.executionAnchor().executionId(), stage.template().publicationReads(),
-                    inputs.stream().map(PageInputs::splits).toList());
-            var result = new ArrayList<T>(pages.size());
-            for (int i = 0; i < pages.size(); i++) {
-                var lease = PostgresGenerationPageClaim.issue(connection, pages.get(i), inputs.get(i),
-                        first.anchor(), first.controlTerm(), first.leaseDuration(), first.now());
-                var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(i));
-                result.add(Objects.requireNonNull(prepare.apply(evidence),
-                        "partition preparation must return immutable metadata"));
+            var exchanges = PostgresGenerationStageExchangeStore.lockAndLoadStageEvidence(
+                    connection, authority, stage.stageId());
+            var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
+            var rows = PostgresGenerationPageSelection.lockWindow(connection, key.tenantId(), key.jobId(),
+                    stage.stageId(), stage.pageKind(), window.firstPartition(), window.count());
+            var pending = rows.stream().filter(page -> !"SUCCEEDED".equals(page.state())).toList();
+            if (!pending.isEmpty() && (terminal(job.state())
+                    || pending.stream().anyMatch(page -> !claimable(page, window.now())))) {
+                return List.of();
+            }
+            var winners = new ArrayList<T>(rows.size() - pending.size());
+            for (var row : rows) {
+                if ("SUCCEEDED".equals(row.state())) {
+                    winners.add(Objects.requireNonNull(
+                            restore.apply(row.partitionId(), PostgresGenerationPageSelection.nativeWinner(row)),
+                            "partition restoration must return immutable metadata"));
+                }
+            }
+            var fresh = List.<T>of();
+            if (!pending.isEmpty()) {
+                var first = pending.get(0);
+                var claim = new PartitionClaim(key, window.anchor(), window.stageId(), first.partitionId(),
+                        first.pageOrdinal(), window.controlTerm(), window.leaseDuration(), window.now());
+                fresh = preparePages(connection, authority, job, stage, exchanges, pending, claim, prepare);
+                if (fresh.size() != pending.size()) return List.of();
+            }
+            var result = new ArrayList<T>(rows.size());
+            var issued = fresh.iterator();
+            var restored = winners.iterator();
+            for (var row : rows) {
+                result.add("SUCCEEDED".equals(row.state()) ? restored.next() : issued.next());
             }
             return List.copyOf(result);
         });
     }
 
+    private static boolean claimable(PageRow page, Instant now) {
+        return switch (page.state()) {
+            case "PENDING" -> !page.nextAvailableAt().isAfter(now);
+            case "LEASED" -> page.leaseExpiresAt() != null && page.leaseExpiresAt().isBefore(now);
+            default -> false;
+        };
+    }
+
+    private static <T> List<T> preparePages(java.sql.Connection connection,
+            PostgresCurrentGenerationAuthority authority, GenerationJob job, StagePlan stage,
+            List<ExchangeEvidence> exchanges, List<PageRow> pages, PartitionClaim claim,
+            Function<PreparedPartition, T> prepare) throws java.sql.SQLException {
+        var stageInputs = stageInputs(authority, stage.stageId(), exchanges);
+        if (stageInputs == StageInputs.BLOCKED) return List.of();
+        for (var page : pages) {
+            if (page.kind() != stage.pageKind()) {
+                throw new IllegalStateException("Durable page kind differs from its graph");
+            }
+            if (PostgresGenerationPageClaim.attemptsExhausted(page)) {
+                failExhaustedPage(connection, page, claim.now());
+                return List.of();
+            }
+        }
+
+        var key = claim.job();
+        if (job.state() == GenerationJobState.QUEUED) {
+            markJobRunning(connection, key.tenantId(), key.jobId(), claim.now());
+        }
+        var inputs = stage.pageKind().isRelational() && stageInputs == StageInputs.FINALIZED
+                ? java.util.Collections.nCopies(pages.size(), new PageInputs(List.of(), List.of()))
+                : INPUTS.loadPageInputs(connection, key.tenantId(), key.jobId(),
+                        pages.stream().map(PageRow::pageId).toList(), stage.pageKind());
+        var publications = PostgresGenerationPublishedInputs.load(connection, key.tenantId(),
+                authority.executionAnchor().executionId(), stage.template().publicationReads(),
+                inputs.stream().map(PageInputs::splits).toList());
+        var result = new ArrayList<T>(pages.size());
+        for (int i = 0; i < pages.size(); i++) {
+            var lease = PostgresGenerationPageClaim.issue(connection, pages.get(i), inputs.get(i),
+                    claim.anchor(), claim.controlTerm(), claim.leaseDuration(), claim.now());
+            var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(i));
+            result.add(Objects.requireNonNull(prepare.apply(evidence),
+                    "partition preparation must return immutable metadata"));
+        }
+        return List.copyOf(result);
+    }
+
     private static PartitionClaim validateCohort(List<PartitionClaim> cohort) {
-        if (cohort.size() > PARTITION_INSPECTION_WINDOW) {
+        if (cohort.size() > PARTITION_WINDOW) {
             throw new IllegalArgumentException("Durable partition claim cohort exceeds its window");
         }
         var first = cohort.get(0);
@@ -220,9 +267,12 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var page = PostgresGenerationPageSelection.findPage(connection, lease.tenantId(), lease.jobId(),
                     lease.pageId(), true).orElseThrow();
             requireIssuedLease(page, lease, now);
-            boolean consumesExchange = requireConsumerEvidence(authority, lease.stageId(), exchanges);
+            var stageInputs = stageInputs(authority, lease.stageId(), exchanges);
+            if (stageInputs == StageInputs.BLOCKED) {
+                throw new IllegalStateException("Durable consumer requires real persisted external finalize evidence");
+            }
             var inputs = PostgresGenerationPageClaim.readInputs(connection, page,
-                    !page.kind().isRelational() || !consumesExchange);
+                    !page.kind().isRelational() || stageInputs != StageInputs.FINALIZED);
             if (!inputs.splits().equals(lease.splits()) || !inputs.dependencies().equals(lease.dependencyPageIds())) {
                 throw new IllegalStateException("Issued durable partition inputs differ from immutable PG allocations");
             }
@@ -251,7 +301,9 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         }
     }
 
-    private static boolean requireConsumerEvidence(PostgresCurrentGenerationAuthority authority, int stage,
+    private enum StageInputs { SOURCE, FINALIZED, BLOCKED }
+
+    private static StageInputs stageInputs(PostgresCurrentGenerationAuthority authority, int stage,
             List<ExchangeEvidence> exchanges) {
         var graph = authority.dispatchSpec().stageGraph();
         boolean consumesExchange = false;
@@ -261,10 +313,10 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var matching = exchanges.stream().filter(value ->
                     value.registration().exchangeId().equals(edge.exchangeId())).toList();
             if (matching.size() != 1 || matching.get(0).finalization().isEmpty()) {
-                throw new IllegalStateException("Durable consumer requires real persisted external finalize evidence");
+                return StageInputs.BLOCKED;
             }
         }
-        return consumesExchange;
+        return consumesExchange ? StageInputs.FINALIZED : StageInputs.SOURCE;
     }
 
     private static PreparedPartition prepareEvidence(java.sql.Connection connection,

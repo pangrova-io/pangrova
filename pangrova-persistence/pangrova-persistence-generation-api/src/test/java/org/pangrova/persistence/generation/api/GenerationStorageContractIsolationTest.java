@@ -141,7 +141,7 @@ class GenerationStorageContractIsolationTest {
             records.addAll(List.of(port.getDeclaredClasses()));
         }
         assertThat(records).extracting(Class::getSimpleName).containsExactlyInAnyOrder(
-                "PreparedExecution", "NativeWinner", "PartitionProgress", "PartitionClaim",
+                "PreparedExecution", "NativeWinner", "PartitionWindow", "PartitionClaim",
                 "PreparedPartition", "ProducerCompletion", "PublishedInput", "ExchangeEvidence");
         for (Class<?> record : records) {
             assertThat(record.isRecord()).isTrue();

@@ -805,10 +805,12 @@ exchanges have finalized. Exact claim and issued-lease preparation therefore ski
 page dependency and split reads for those consumers. Root stages still read their
 frozen scan splits, and artifact reductions still read their ordered page inputs.
 
-Durable graph startup validates the complete exchange index. Afterwards, partition
-progress reads only the exact page window under the current authority. Claims
-and issued-lease preparation read only the immutable registrations and finalized
-receipts attached to the current stage. Producer completion locks only its output
+Durable graph startup validates the complete exchange index. Dispatch then locks
+one exact page window under the current authority and either restores the stored
+Native winner or prepares a new lease for each partition. Both operations use the
+same page read. A blocked window or a failed preparation issues no new leases.
+Claims and issued-lease preparation read only the immutable registrations and
+finalized receipts attached to the current stage. Producer completion locks only its output
 allocation and exact issued page. Each consumer verifies the partition range's
 manifest digest, committed sequence, row count, and byte count against the
 finalization receipt for its incoming edge. Allocation recovery fetches just

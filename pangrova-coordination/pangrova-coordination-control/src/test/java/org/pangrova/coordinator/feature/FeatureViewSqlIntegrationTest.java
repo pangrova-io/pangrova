@@ -315,13 +315,13 @@ class FeatureViewSqlIntegrationTest {
                     .findFirst().orElseThrow();
             assertThat(terminal.parallelism()).isEqualTo(1);
             var key = new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, jobId);
-            var progress = stages.inspectPartitions(key, anchor, terminal.stageId(), 0, 1).get(0);
-            assertThat(progress.pageOrdinal()).isPositive();
-            assertThat(stages.preparePartition(new org.pangrova.persistence.generation.api.execution
-                    .GenerationStageExecutionStore.PartitionClaim(
-                            key, anchor, terminal.stageId(), 0, progress.pageOrdinal(),
-                            4, java.time.Duration.ofMinutes(1), Instant.now()),
-                    evidence -> evidence.lease())).isEmpty();
+            var window = new org.pangrova.persistence.generation.api.execution
+                    .GenerationStageExecutionStore.PartitionWindow(
+                            key, anchor, terminal.stageId(), 0, 1, 4, java.time.Duration.ofMinutes(1), Instant.now());
+            var prepared = stages.prepareWindow(window,
+                    (partition, winner) -> { throw new AssertionError("Export has no winner yet"); },
+                    evidence -> evidence.lease());
+            assertThat(prepared).isEmpty();
             var frozen = stages.prepareExecution(
                     new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, jobId), anchor);
             assertThat(GenerationStageGraphCodec.sha256(frozen.authority().dispatchSpec().stageGraph())).isEqualTo(GenerationStageGraphCodec.sha256(spec.stageGraph()));
@@ -332,13 +332,14 @@ class FeatureViewSqlIntegrationTest {
 
     private void assertTopologicalPageOrdinals(String jobId) throws Exception {
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
-                SELECT producer.page_ordinal AS upstream, consumer.page_ordinal AS downstream
-                FROM artifact_build_page_dependencies dependency
-                JOIN artifact_build_pages producer ON producer.tenant_id=dependency.tenant_id
-                  AND producer.job_id=dependency.job_id AND producer.page_id=dependency.dependency_page_id
-                JOIN artifact_build_pages consumer ON consumer.tenant_id=dependency.tenant_id
-                  AND consumer.job_id=dependency.job_id AND consumer.page_id=dependency.page_id
-                WHERE dependency.tenant_id=? AND dependency.job_id=?
+                SELECT max(producer.page_ordinal) AS upstream, min(consumer.page_ordinal) AS downstream
+                FROM artifact_stage_exchanges edge
+                JOIN artifact_build_pages producer ON producer.tenant_id=edge.tenant_id
+                  AND producer.job_id=edge.job_id AND producer.stage_id=edge.producer_stage_id
+                JOIN artifact_build_pages consumer ON consumer.tenant_id=edge.tenant_id
+                  AND consumer.job_id=edge.job_id AND consumer.stage_id=edge.consumer_stage_id
+                WHERE edge.tenant_id=? AND edge.job_id=?
+                GROUP BY edge.exchange_id
                 """)) {
             statement.setString(1, TENANT);
             statement.setString(2, jobId);

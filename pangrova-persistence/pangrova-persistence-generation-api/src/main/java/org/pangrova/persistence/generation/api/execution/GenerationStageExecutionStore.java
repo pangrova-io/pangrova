@@ -1,7 +1,6 @@
 package org.pangrova.persistence.generation.api.execution;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.page.GenerationLease;
@@ -19,16 +18,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /** Durable stage operations guarded by current authority and the exact backend-issued execution owner. */
 @Internal
 public interface GenerationStageExecutionStore {
-    int PARTITION_INSPECTION_WINDOW = 8;
-
-    /** Reads a contiguous, exact window in partition order under one authority and barrier check. */
-    List<PartitionProgress> inspectPartitions(GenerationJobKey key, ExecutionAnchor anchor,
-            int stageId, int firstPartition, int count);
+    int PARTITION_WINDOW = 8;
 
     /** Resolves the current job and immutable exchange evidence under the same authority boundary. */
     PreparedExecution prepareExecution(GenerationJobKey key, ExecutionAnchor anchor);
@@ -45,12 +41,30 @@ public interface GenerationStageExecutionStore {
     }
 
     /**
-     * Prepares one ordered cohort of up to PARTITION_INSPECTION_WINDOW exact partitions from one stage.
+     * Prepares one ordered cohort of up to PARTITION_WINDOW exact partitions from one stage.
      * The cohort shares one authority, clock, lease duration and control term. Unclaimable partitions
      * yield an empty result before any new lease is issued. Callback failure rolls back the whole cohort.
      * Callbacks prepare local immutable data only. The result is available after commit.
      */
     <T> List<T> preparePartitions(List<PartitionClaim> requests, Function<PreparedPartition, T> prepare);
+
+    /**
+     * Locks one stage window and prepares stored winners and new claims together, in partition order.
+     * Both callbacks prepare local data only. A blocked page or a callback failure issues no leases.
+     */
+    <T> List<T> prepareWindow(PartitionWindow window, BiFunction<Integer, NativeWinner, T> restore,
+            Function<PreparedPartition, T> prepare);
+
+    /** An exact contiguous physical window under a single durable execution anchor. */
+    record PartitionWindow(GenerationJobKey job, ExecutionAnchor anchor, int stageId, int firstPartition,
+            int count, long controlTerm, Duration leaseDuration, Instant now) {
+        public PartitionWindow {
+            requireClaimAuthority(job, anchor, controlTerm, leaseDuration, now);
+            if (stageId < 0 || firstPartition < 0 || count < 1 || count > PARTITION_WINDOW) {
+                throw new IllegalArgumentException("Invalid durable partition window");
+            }
+        }
+    }
 
     /**
      * Revalidates an issued lease and prepares local metadata inside the same current-authority transaction.
@@ -84,29 +98,14 @@ public interface GenerationStageExecutionStore {
         @Override public byte[] originalWireBytes() { return originalWireBytes.clone(); }
     }
 
-    /** One exact immutable page coordinate, with no loading of source rows or unbounded page enumeration. */
-    record PartitionProgress(int pageOrdinal, GenerationPageKind kind, String state,
-            Optional<NativeWinner> winner) {}
-
     /** Exact persisted coordinates and actual backend-issued execution identity; control term is not a page fence. */
     record PartitionClaim(GenerationJobKey job, ExecutionAnchor anchor, int stageId, int partitionId,
             int pageOrdinal, long controlTerm, Duration leaseDuration, Instant now) {
         public PartitionClaim {
-            Objects.requireNonNull(job, "job");
-            Objects.requireNonNull(anchor, "anchor");
+            requireClaimAuthority(job, anchor, controlTerm, leaseDuration, now);
             if (stageId < 0 || partitionId < 0 || pageOrdinal < 0) {
                 throw new IllegalArgumentException("Durable page coordinates must be nonnegative");
             }
-            if (!job.executionId().equals(anchor.executionId())) {
-                throw new IllegalArgumentException("Partition claim belongs to another durable execution");
-            }
-            if (controlTerm <= 0) {
-                throw new IllegalArgumentException("ownerEpoch must be positive");
-            }
-            if (leaseDuration == null || leaseDuration.isZero() || leaseDuration.isNegative()) {
-                throw new IllegalArgumentException("leaseDuration must be positive");
-            }
-            Objects.requireNonNull(now, "now must not be null");
         }
     }
 
@@ -149,6 +148,22 @@ public interface GenerationStageExecutionStore {
             outputs = List.copyOf(outputs);
             sourceObjectIds = Set.copyOf(sourceObjectIds);
         }
+    }
+
+    private static void requireClaimAuthority(GenerationJobKey job, ExecutionAnchor anchor, long controlTerm,
+            Duration leaseDuration, Instant now) {
+        Objects.requireNonNull(job, "job");
+        Objects.requireNonNull(anchor, "anchor");
+        if (!job.executionId().equals(anchor.executionId())) {
+            throw new IllegalArgumentException("Partition claim belongs to another durable execution");
+        }
+        if (controlTerm <= 0) {
+            throw new IllegalArgumentException("ownerEpoch must be positive");
+        }
+        if (leaseDuration == null || leaseDuration.isZero() || leaseDuration.isNegative()) {
+            throw new IllegalArgumentException("Partition lease duration must be positive");
+        }
+        Objects.requireNonNull(now, "now");
     }
 
     private static void requireProducerCoordinates(int stage, int partition, long epoch,
