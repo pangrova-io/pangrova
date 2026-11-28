@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash, macos-arm-acceptance, latency-fixture, chaos-completion]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash, macos-arm-acceptance, macos-intel-acceptance, latency-fixture, chaos-completion]
         default: macos-docker
       production_source:
         description: Exact production source revision
@@ -97,22 +97,24 @@ jobs:
             "-Dpangrova.e2e.ai.image-id=$ai_image"
 
   macos-arm-crash:
-    name: Verify ARM64 Native runtime with the archived SDK
-    if: inputs.probe == 'macos-arm-crash' || inputs.probe == 'macos-arm-acceptance'
-    runs-on: macos-15
+    name: Verify ${{ inputs.probe == 'macos-intel-acceptance' && 'Intel' || 'ARM64' }} Native runtime with the archived SDK
+    if: inputs.probe == 'macos-arm-crash' || inputs.probe == 'macos-arm-acceptance' || inputs.probe == 'macos-intel-acceptance'
+    runs-on: ${{ inputs.probe == 'macos-intel-acceptance' && 'macos-15-intel' || 'macos-15' }}
     timeout-minutes: 230
     env:
-      ORIGINAL_BUILD: b470b54b75bc6caeb7ca4dfa91a5926350593eea
-      ORIGINAL_RUN: '45963319376'
+      ORIGINAL_BUILD: ${{ inputs.probe == 'macos-intel-acceptance' && '46cc8ba23eccf4b17f048bfe691519ab5d99467f' || 'b470b54b75bc6caeb7ca4dfa91a5926350593eea' }}
+      ORIGINAL_RUN: ${{ inputs.probe == 'macos-intel-acceptance' && '45983684204' || '45963319376' }}
+      ORIGINAL_ARTIFACT: ${{ inputs.probe == 'macos-intel-acceptance' && 'macos-sdk-osx-x86_64' || 'macos-sdk-osx-aarch_64' }}
+      ORIGINAL_ARCH: ${{ inputs.probe == 'macos-intel-acceptance' && 'x86_64' || 'arm64' }}
       SOURCE_COMMIT: ${{ inputs.production_source }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: b470b54b75bc6caeb7ca4dfa91a5926350593eea
+          ref: ${{ env.ORIGINAL_BUILD }}
       - name: Verify the archived build identity
         run: |
           test "$(git rev-parse HEAD)" = "$ORIGINAL_BUILD"
-          test "$(uname -m)" = arm64
+          test "$(uname -m)" = "$ORIGINAL_ARCH"
           uname -a
       - uses: actions/setup-java@v6
         with:
@@ -125,10 +127,10 @@ jobs:
       - uses: ./.github/actions/setup-macos-native-cache
       - uses: actions/download-artifact@v8
         with:
-          name: macos-sdk-osx-aarch_64
+          name: ${{ env.ORIGINAL_ARTIFACT }}
           path: ${{ runner.temp }}/archived-sdk
           github-token: ${{ github.token }}
-          run-id: '45963319376'
+          run-id: ${{ env.ORIGINAL_RUN }}
           digest-mismatch: error
       - name: Restore the SDK from the failed run with its own provenance
         run: |
@@ -229,12 +231,14 @@ jobs:
           folly_source="$VELOX_HOME/deps-download/folly"
           folly_build="$RUNNER_TEMP/release-folly"
           folly_archive="$VELOX_HOME/deps-install/lib/libfolly.a"
+          folly_flags="-isystem $(brew --prefix)/include"
+          if [[ "$ORIGINAL_ARCH" == arm64 ]]; then folly_flags="-mcpu=apple-m1+crc $folly_flags"; fi
           cp "$folly_source/_build/CMakeCache.txt" "$RUNNER_TEMP/native-crash-diagnostics/original-folly-cache.txt"
           cmake -S "$folly_source" -B "$folly_build" -GNinja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             "-DCMAKE_PREFIX_PATH=$VELOX_HOME/deps-install;$(brew --prefix libevent);$(brew --prefix)" \
             "-DOPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR" \
-            "-DCMAKE_CXX_FLAGS=-mcpu=apple-m1+crc -isystem $(brew --prefix)/include" \
+            "-DCMAKE_CXX_FLAGS=$folly_flags" \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_TESTING=OFF -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARKS=OFF \
             -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE
@@ -253,7 +257,7 @@ jobs:
           python3 "$RUNNER_TEMP/run-crash-probe.py" release-folly
           test "$(cat "$RUNNER_TEMP/native-crash-diagnostics/standard.result")" -eq 0
       - name: Apply the candidate Thrift, Arrow status storage and fixture changes
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         run: |
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           git fetch --depth 1 origin "$SOURCE_COMMIT"
@@ -271,7 +275,7 @@ jobs:
           done
           git diff --check
       - name: Rebuild canonical Arrow and Flight with private status storage
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         run: |
           source ~/.pangrova/env.sh
           old_libraries="$RUNNER_TEMP/original-flight"
@@ -282,30 +286,30 @@ jobs:
           SKIP_DEPS=1 PANGROVA_NATIVE_BUILD_PHASE=arrow-flight \
             bash pangrova-worker-native/bin/setup-native-build-env.sh
       - name: Restore Maven dependencies for the archived Native fixture
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository
           key: pangrova-native-fixture-maven-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/pom.xml', '.mvn/**', 'pangrova-worker-native/bin/run-native-tests.py') }}
           restore-keys: pangrova-native-fixture-maven-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Download the archived run's tested Iceberg SDK
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         uses: actions/download-artifact@v8
         with:
           name: pinned-iceberg-sdk
           path: ${{ runner.temp }}/archived-iceberg-sdk
           github-token: ${{ github.token }}
-          run-id: '45963319376'
+          run-id: ${{ env.ORIGINAL_RUN }}
           digest-mismatch: error
       - name: Install the archived Iceberg SDK and compile the real Lance fixture
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         run: |
           mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
           cp -R "$RUNNER_TEMP/archived-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"
           export MAVEN_OPTS="${MAVEN_OPTS:-} -Daether.connector.basic.threads=2 -Daether.connector.http.retryHandler.count=3 -Daether.connector.http.retryHandler.interval=30000 -Daether.connector.http.retryHandler.intervalMax=120000"
           python3 pangrova-worker-native/bin/run-native-tests.py --prepare-java "$RUNNER_TEMP/native-java-fixture"
       - name: Build the full Native test executable with the canonical Thrift archive
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         working-directory: pangrova-worker-native
         run: |
           set -eo pipefail
@@ -319,7 +323,7 @@ jobs:
             exit 1
           fi
       - name: Compare original and isolated Flight libraries in the same full executable
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         working-directory: pangrova-worker-native
         run: |
           python3 - <<'PY'
@@ -336,6 +340,7 @@ jobs:
               "NativeExchangeDataPlaneE2ETest.ConcurrentFlightLongPollsDoNotStarveTimers",
               "NativeExchangeDataPlaneE2ETest.CancellingOneFlightSourceKeepsTheSharedPeerStreamAlive",
               "NativeExchangeDataPlaneE2ETest.CloseCancelsBlockedRead",
+              "NativeExchangeDataPlaneE2ETest.MultiSourceVeloxClientProbeDoesNotBypassQueueBackpressure",
           )
           directory = Path(os.environ["RUNNER_TEMP"])
           logs = directory / "native-crash-diagnostics"
@@ -357,16 +362,16 @@ jobs:
                   raise SystemExit(1)
           PY
       - name: Prepare the same cold Docker endpoint as full macOS CI
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         run: bash .pangrova/scripts/setup-macos-native-test-docker.sh
       - name: Run all Native cases against the fresh real PostgreSQL fixture
-        if: inputs.probe == 'macos-arm-acceptance'
+        if: inputs.probe != 'macos-arm-crash'
         working-directory: pangrova-worker-native
         run: |
           python3 bin/run-native-tests.py --prepared-java "$RUNNER_TEMP/native-java-fixture" \
             -- --output-junit test-results.xml
       - name: Diagnose remaining Flight failures in the full executable
-        if: failure() && inputs.probe == 'macos-arm-acceptance'
+        if: failure() && inputs.probe != 'macos-arm-crash'
         working-directory: pangrova-worker-native
         run: |
           [[ -s build/test-results.xml ]] || exit 0
