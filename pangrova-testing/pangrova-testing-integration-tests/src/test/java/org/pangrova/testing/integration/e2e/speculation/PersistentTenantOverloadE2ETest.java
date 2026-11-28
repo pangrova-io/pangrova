@@ -8,10 +8,12 @@ import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.exception.PangrovaServerException;
+import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.pangrova.common.concurrency.ExecutorDrain;
 import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 import org.slf4j.Logger;
@@ -19,10 +21,16 @@ import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -147,6 +155,85 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
                                     + " and " + peer.retainDiagnostics()));
                     throw failure;
                 }
+            }
+        }
+    }
+
+    @Test
+    void concurrentReplaysAcrossIndependentCoordinatorsShareTheReceiptAndPhysicalExecution() throws Exception {
+        try (var primary = new IndependentLocalProcesses()) {
+            primary.startCoordinatorAndFirstWorker();
+            try (var peer = primary.startPeer()) {
+                try {
+                    verifyConcurrentReplay(primary, peer);
+                } catch (Exception | Error failure) {
+                    failure.addSuppressed(new IllegalStateException(
+                            "Replay diagnostics retained at " + primary.retainDiagnostics()
+                                    + " and " + peer.retainDiagnostics()));
+                    throw failure;
+                }
+            }
+        }
+    }
+
+    private static void verifyConcurrentReplay(IndependentLocalProcesses primary, IndependentLocalProcesses peer)
+            throws Exception {
+        var http = HttpClient.newHttpClient();
+        var mapper = JsonMapperFactory.shared();
+        var workload = WORKLOADS.get(0);
+        String body = mapper.writeValueAsString(Map.of("query", workload.sql()));
+        String key = UUID.randomUUID().toString();
+        String credentials = ProcessSecurityAuthority.USER + ":" + ProcessSecurityAuthority.PASSWORD;
+        String authorization = "Basic " + Base64.getEncoder()
+                .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+        var replies = List.of(primary, peer, peer, primary).stream()
+                .map(process -> HttpRequest.newBuilder(
+                                URI.create("http://127.0.0.1:" + process.coordinatorPort() + "/v1/query/submit"))
+                        .timeout(TIMEOUT)
+                        .header("Authorization", authorization)
+                        .header("Idempotency-Key", key)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body)).build())
+                .map(request -> http.sendAsync(request, HttpResponse.BodyHandlers.ofString()))
+                .toList();
+
+        var receipts = new ArrayList<SubmitQueryResponse>();
+        for (var reply : replies) {
+            var response = reply.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+            assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
+            receipts.add(mapper.readValue(response.body(), SubmitQueryResponse.class));
+        }
+        var receipt = receipts.get(0);
+        assertThat(receipts).containsOnly(receipt);
+        assertThat(receipt.ownerEndpoint().coordinatorId()).isIn(primary.coordinatorId(), peer.coordinatorId());
+        assertThat(receipt.ownerEndpoint().routeTicket()).isNotBlank();
+        var owner = primary.coordinatorId().equals(receipt.ownerEndpoint().coordinatorId()) ? primary : peer;
+        var ingress = owner == primary ? peer : primary;
+        assertThat(primary.activeTenantReservations()).isOne();
+        assertSingleDurableAcceptance(primary, receipt.queryId());
+
+        try (var client = ingress.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
+            var query = client.resumeQuery(receipt);
+            long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+            consumeAndDrain(client, query, awaitResult(query, deadline), workload.expected(), deadline);
+            requireReportsFromOwner(owner, query);
+        }
+        assertThat(ingress.reports().deliveries()).noneMatch(delivery ->
+                receipt.queryId().equals(delivery.report().queryId()));
+        assertThat(primary.activeTenantReservations()).isZero();
+    }
+
+    private static void assertSingleDurableAcceptance(IndependentLocalProcesses process, String queryId)
+            throws java.sql.SQLException {
+        try (var connection = process.metadataDataSource().getConnection();
+             var statement = connection.prepareStatement("""
+                     SELECT COUNT(*) FROM query_state_journal
+                     WHERE query_id = ? AND idempotency_key_digest IS NOT NULL
+                     """)) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getLong(1)).isOne();
             }
         }
     }

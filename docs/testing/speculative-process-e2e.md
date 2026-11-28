@@ -157,6 +157,12 @@ EOF, physical drain and the shared slot count. Twelve status reads after reconne
 to each live owner produce zero query-journal SELECTs. Shared Worker routing and
 cross-host latency have separate acceptance conditions in the execution plan.
 
+The concurrent replay case sends four authenticated submissions with the same
+idempotency key to both Coordinator endpoints. It checks the exact receipt,
+one durable acceptance row and one occupied tenant slot. The client opens the
+owner's Native Flight stream from the peer endpoint and requires EOF and physical
+drain. Reports for the query must reach its owner, and the slot must return to zero.
+
 ## Measuring public SQL latency across two builds
 
 Use the same macOS arm64 machine, JDK 17, UTF-8 locale, Docker, Iceberg SDK
