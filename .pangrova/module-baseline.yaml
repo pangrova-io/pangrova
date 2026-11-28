@@ -4369,6 +4369,7 @@ artifacts:
         - pangrova-persistence-security-api
         - pangrova-persistence-security-memory
         - pangrova-persistence-security-postgresql
+        - pangrova-persistence-streaming-postgresql
         - pangrova-persistence-table-api
         - pangrova-persistence-table-postgresql
         - pangrova-persistence-workflow-postgresql

@@ -30,6 +30,17 @@ sidebar_label: "Streaming & CDC"
 > the streaming bootstrap; it does not own a second registration, scheduler or
 > offset/watermark store.
 
+The active maintenance Coordinator holds one dedicated PostgreSQL connection for
+stream definition notifications. The metadata JDBC endpoint must preserve
+PostgreSQL session semantics for this connection. The listener subscribes
+before loading the running definitions and then refreshes only the distinct
+stream names changed by committed DDL. The channel is scoped to the metadata
+relation. A connection loss clears the in-memory view and a new subscription
+rebuilds it before scheduling resumes. Source observation uses the in-memory view, so idle rounds
+perform no PostgreSQL stream discovery query. Batch admission, publication and
+offset acknowledgement still validate the current revision under their existing
+durable fences.
+
 The JDBC offset batch store owns one connection and commits the complete batch
 only after all writes succeed. SQL exceptions, runtime exceptions, and Errors
 trigger rollback; a rollback exception is suppressed on the original failure.

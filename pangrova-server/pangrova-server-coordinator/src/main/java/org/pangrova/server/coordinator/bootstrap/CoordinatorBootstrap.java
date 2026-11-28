@@ -25,6 +25,7 @@ import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
+import org.pangrova.persistence.streaming.postgresql.JdbcRunningStreamFeed;
 import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.security.api.secret.SecretResolver;
 import org.pangrova.security.secret.resolution.SecretResolverRegistry;
@@ -179,7 +180,7 @@ public final class CoordinatorBootstrap {
         cdcRuntime = new JournaledCdcRuntime(streamingBootstrap, metadataBootstrap.catalogRegistry(),
                 query.writeCommitJournal(),
                 query.queryDispatcher().writeAuthorityResolver(),
-                executionAuthority, workers, null, maintenanceLeadership);
+                executionAuthority, workers, null, maintenanceLeadership, cdcStreamFeed());
         streamingBootstrap.attachJournaledRuntime(cdcRuntime);
         LOG.info("event=cdc_worker_runtime_started");
     }
@@ -197,9 +198,14 @@ public final class CoordinatorBootstrap {
         cdcRuntime = new JournaledCdcRuntime(streamingBootstrap, catalogs, journal, resolver,
                 executionAuthority, null, new LocalCdcBatchExecutor(journal, executionAuthority, recovery, quarantine,
                         streamingBootstrap.converterRegistry()),
-                maintenanceLeadership);
+                maintenanceLeadership, cdcStreamFeed());
         streamingBootstrap.attachJournaledRuntime(cdcRuntime);
         LOG.info("event=cdc_local_journaled_runtime_started");
+    }
+
+    private JdbcRunningStreamFeed cdcStreamFeed() {
+        var jdbc = config.metadataJdbcConfig();
+        return new JdbcRunningStreamFeed(jdbc.jdbcUrl(), jdbc.username(), jdbc.password());
     }
 
     private QueryBootstrap buildQueryBootstrap() {

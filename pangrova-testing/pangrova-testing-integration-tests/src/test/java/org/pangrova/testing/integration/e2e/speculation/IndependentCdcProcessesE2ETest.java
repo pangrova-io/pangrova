@@ -56,6 +56,7 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             "SELECT * FROM ingestion_stream_state WHERE stream_name = %";
     private static final String RUNNING_STREAMS_LOOKUP =
             "SELECT * FROM ingestion_stream_state WHERE lifecycle_state = %";
+    private static final String CHANGED_STREAMS_LOOKUP = RUNNING_STREAMS_LOOKUP + " AND stream_name = ANY (%";
     private static final String ACKNOWLEDGE_OFFSETS =
             "WITH current_revision AS MATERIALIZED (%INSERT INTO ingestion_stream_offsets%";
     private static final String STANDALONE_OFFSET_LOCK =
@@ -572,11 +573,11 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
 
     private static void queueChangeWhileSuspended(IndependentLocalProcesses processes,
             KafkaProducer<String, String> producer, ProducerRecord<String, String> update) throws Exception {
+        long definitionChanges = processes.metadataStatementCalls(CHANGED_STREAMS_LOOKUP);
         processes.query("ALTER STREAM orders_stream SUSPEND", ResultProtocol.GRPC_TLS);
         producer.send(update).get(30, TimeUnit.SECONDS);
-        long scans = processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP);
-        await("the elected runtime observes suspension").atMost(Duration.ofSeconds(30))
-                .until(() -> processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP) >= scans + 2);
+        await("the elected runtime reads the changed definition").atMost(Duration.ofSeconds(15))
+                .until(() -> processes.metadataStatementCalls(CHANGED_STREAMS_LOOKUP) > definitionChanges);
         assertThat(journalFingerprint(processes, "COMMITTED", 1)).isNotBlank();
         assertThat(payload(processes)).contains("cdc-visible").doesNotContain("cdc-updated");
         processes.query("ALTER STREAM orders_stream RESUME", ResultProtocol.GRPC_TLS);
@@ -604,20 +605,23 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
     }
 
     private static void verifyIdleCheckpointReads(IndependentLocalProcesses processes) throws Exception {
-        long warmup = processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP);
-        await("idle stream reconciles after the first acknowledgement").atMost(Duration.ofSeconds(35))
-                .until(() -> processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP) >= warmup + 2);
+        long definitions = processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP);
+        var warmup = new AtomicReference<>(idleCheckpointCalls(processes));
+        await("discovery, checkpoint, and offset reads stop over multiple source intervals")
+                .during(Duration.ofSeconds(16)).atMost(Duration.ofSeconds(40)).pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> {
+                    assertThat(processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP))
+                            .as("running stream discovery reads without DDL")
+                            .isEqualTo(definitions);
+                    var current = idleCheckpointCalls(processes);
+                    assertThat(current).as("reads after the final checkpoint is cached")
+                            .isEqualTo(warmup.getAndSet(current));
+                });
+    }
 
-        long checkpoints = processes.metadataStatementCalls(CHECKPOINT_LOOKUP);
-        long offsets = processes.metadataStatementCalls(STREAM_OFFSET_LOOKUP);
-        long before = processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP);
-        await("three more stream reconciliations with unchanged Kafka offsets").atMost(Duration.ofSeconds(35))
-                .until(() -> processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP) >= before + 3);
-
-        assertThat(List.of(processes.metadataStatementCalls(CHECKPOINT_LOOKUP) - checkpoints,
-                processes.metadataStatementCalls(STREAM_OFFSET_LOOKUP) - offsets))
-                .as("idle checkpoint and offset point reads")
-                .containsExactly(0L, 0L);
+    private static List<Long> idleCheckpointCalls(IndependentLocalProcesses processes) throws SQLException {
+        return List.of(processes.metadataStatementCalls(CHECKPOINT_LOOKUP),
+                processes.metadataStatementCalls(STREAM_OFFSET_LOOKUP));
     }
 
     private static void verifyPaimonCommitInterruption(IndependentLocalProcesses processes,

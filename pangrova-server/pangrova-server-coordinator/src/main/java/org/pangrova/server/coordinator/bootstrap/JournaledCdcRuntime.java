@@ -25,6 +25,7 @@ import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
+import org.pangrova.persistence.streaming.postgresql.JdbcRunningStreamFeed;
 import org.pangrova.persistence.streaming.postgresql.JdbcStreamOffsetStore;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
@@ -50,7 +51,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 /**
  * Supervised Coordinator loop for durable CDC publication.
@@ -69,6 +69,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private static final long SHUTDOWN_TIMEOUT_MS = 30_000L;
 
     private final StreamStateStore stateStore;
+    private final JdbcRunningStreamFeed runningStreams;
     private final JdbcStreamOffsetStore offsetStore;
     private final CdcSourceRegistry sources;
     private final CatalogRegistry catalogRegistry;
@@ -93,7 +94,8 @@ final class JournaledCdcRuntime implements AutoCloseable {
             org.pangrova.query.api.write.WriteAuthorityResolver authorityResolver,
             org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority,
             WorkerDispatch workers, LocalCdcBatchExecutor local,
-            MaintenanceLeadershipBootstrap maintenanceLeadership) {
+            MaintenanceLeadershipBootstrap maintenanceLeadership, JdbcRunningStreamFeed runningStreams) {
+        this.runningStreams = java.util.Objects.requireNonNull(runningStreams, "runningStreams");
         this.stateStore = java.util.Objects.requireNonNull(streaming.stateStore(), "stateStore");
         this.offsetStore = java.util.Objects.requireNonNull(streaming.offsetStore(), "offsetStore");
         this.sources = java.util.Objects.requireNonNull(streaming.sourceRegistry(), "sources");
@@ -128,22 +130,29 @@ final class JournaledCdcRuntime implements AutoCloseable {
     }
 
     void start() {
+        runningStreams.start();
         reconciler.scheduleWithFixedDelay(this::reconcileSafely,
                 RECONCILE_INTERVAL_SECONDS, RECONCILE_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
-    void setActive(boolean leader) {
-        leaderActive.set(leader);
-        if (!leader) idleCheckpoints.clear();
+    synchronized void setActive(boolean leader) {
+        if (leader && !closed.get()) {
+            runningStreams.setActive(true);
+            leaderActive.set(true);
+        } else {
+            leaderActive.set(false);
+            runningStreams.setActive(false);
+            idleCheckpoints.clear();
+        }
     }
 
     @Override
     public void close() {
         closed.set(true);
-        leaderActive.set(false);
+        setActive(false);
         reconciler.shutdownNow();
         streams.shutdownNow();
-        ResourceCloser.closeAll(null,
+        ResourceCloser.closeAll(null, runningStreams::close,
                 () -> ExecutorDrain.shutdownAndAwait(reconciler, SHUTDOWN_TIMEOUT_MS),
                 () -> ExecutorDrain.shutdownAndAwait(streams, SHUTDOWN_TIMEOUT_MS));
     }
@@ -151,12 +160,11 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private void reconcileSafely() {
         if (closed.get() || !leaderActive.get()) return;
         try {
-            var running = stateStore.listByState(org.pangrova.streaming.api.enums.StreamLifecycleState.RUNNING);
-            if (!idleCheckpoints.isEmpty()) {
-                idleCheckpoints.keySet().retainAll(running.stream().map(StreamState::streamName)
-                        .collect(Collectors.toSet()));
-            }
-            for (StreamState state : running) {
+            long term = maintenanceLeadership.activeEpoch();
+            if (term <= 0) return;
+            var running = runningStreams.snapshot();
+            idleCheckpoints.keySet().retainAll(running.keySet());
+            for (StreamState state : running.values()) {
                 try {
                     if (CdcWriteAuthority.privileges(state).isEmpty()) continue;
                 } catch (RuntimeException invalidStream) {
@@ -167,7 +175,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
                 if (!activeStreams.add(state.streamName())) continue;
                 streams.execute(() -> {
                     try {
-                        executeStream(state);
+                        executeStream(state, term);
                     } catch (RuntimeException | Error failure) {
                         LOG.error("event=cdc_worker_stream_failed stream={}",
                                 state.streamName(), failure);
@@ -181,9 +189,9 @@ final class JournaledCdcRuntime implements AutoCloseable {
         }
     }
 
-    private void executeStream(StreamState state) {
-        long maintenanceTerm = maintenanceLeadership.activeEpoch();
-        if (!leaderActive.get() || maintenanceTerm <= 0) return;
+    private void executeStream(StreamState state, long maintenanceTerm) {
+        if (!leaderActive.get() || maintenanceLeadership.activeEpoch() != maintenanceTerm
+                || runningStreams.snapshot().get(state.streamName()) != state) return;
         var idle = idleCheckpoints.get(state.streamName());
         if (idle != null && !idle.matches(state, maintenanceTerm)) {
             idleCheckpoints.remove(state.streamName(), idle);
