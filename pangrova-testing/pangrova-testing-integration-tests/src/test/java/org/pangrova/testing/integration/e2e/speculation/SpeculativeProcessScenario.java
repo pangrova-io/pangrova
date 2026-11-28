@@ -2,6 +2,7 @@ package org.pangrova.testing.integration.e2e.speculation;
 
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
+import org.pangrova.protocol.task.CanonicalExecutionDrainReports;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskKind;
@@ -115,7 +116,7 @@ final class SpeculativeProcessScenario implements AutoCloseable {
                 if (!transfer.method().equals("DELETE") || !transfer.path().getPath().equals("/v1/task/" + taskId)) continue;
                 var response = transfer.response().get();
                 if (response != null && response.statusCode() == 200) {
-                    new CanonicalTaskReportValidator().validateExecutionDrainReceipt(
+                    CanonicalExecutionDrainReports.decode(
                             response.body(), issued.request().taskRequest().getAttempt());
                     return true;
                 }

@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.cancellation;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
+import org.pangrova.protocol.task.CanonicalExecutionDrainReports;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
@@ -89,7 +89,7 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
     protected static TaskReport receipt(HttpResponse<byte[]> response, SubmitTaskRequest expected) {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.headers().firstValue("Content-Type").orElseThrow()).startsWith("application/x-protobuf");
-        return new CanonicalTaskReportValidator().validateExecutionDrainReceipt(
+        return CanonicalExecutionDrainReports.decode(
                 response.body(), expected.taskRequest().getAttempt());
     }
 
