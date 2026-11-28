@@ -790,7 +790,7 @@ jobs:
         run: |
           [[ "$PANGROVA_PROBE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$PANGROVA_PROBE_SOURCE_SHA"
-          test "$PANGROVA_PROBE_SOURCE_SHA" = af64a3d845ff6d891f37098398ed4d0331bdfefe
+          test "$PANGROVA_PROBE_SOURCE_SHA" = 4cc9724a3776eab4b96640e87c3b83608404b825
           tested_ref=b0cd3a5c1b32ecb1407a2edaeb6b0101b142e73d
           git fetch --depth=1 origin "$tested_ref"
           # The Lance fixture links Arrow, canonical protobuf and Lance C FFI.
@@ -843,7 +843,7 @@ jobs:
           name: pinned-iceberg-sdk
           path: ${{ runner.temp }}/pangrova-iceberg-sdk
           github-token: ${{ github.token }}
-          run-id: '46087153146'
+          run-id: '46095251162'
           digest-mismatch: error
       - name: Install the tested Iceberg SDK
         run: |
@@ -876,6 +876,14 @@ jobs:
       # Standalone-process tests need the complete reactor installed before tests start.
       - name: Install the complete Java reactor for process tests
         run: mvn -B -Pnative-runtime -DskipTests install -pl '!pangrova-native-bundle'
+
+      - name: Verify real Flight completion through Worker and Coordinator failures
+        run: |
+          mvn -B -Pnative-runtime,full-regression \
+            -pl pangrova-testing/pangrova-testing-integration-tests \
+            -Dpangrova.e2e.excludedGroups=none -Dtest=CoordinatorRestartChaosTest test \
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
+            -Dpangrova.e2e.local.source-commit="$PANGROVA_PROBE_SOURCE_SHA"
 
       - name: Prepare immutable real AI models before regression
         run: |
