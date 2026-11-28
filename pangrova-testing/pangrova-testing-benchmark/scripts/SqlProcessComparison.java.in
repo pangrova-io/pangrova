@@ -100,7 +100,8 @@ public final class SqlProcessComparison {
                 }
             }
             int active = processes.activeTenantReservations();
-            if (!seen.isEmpty() && drained.keySet().equals(seen) && active == 0) {
+            if (!seen.isEmpty() && drained.keySet().equals(seen) && active == 0
+                    && processes.status(queryId).drained()) {
                 long maxOperatorPeak = 0;
                 long consumerWait = 0;
                 long spill = 0;
