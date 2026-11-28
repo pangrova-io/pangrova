@@ -12,9 +12,12 @@ import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
@@ -276,29 +279,47 @@ class PaimonScanBudgetIntegrationTest {
         }
     }
 
-    @Test
-    void pinnedPaimonPlanningPrunesDisjointIntegerBuildRanges() throws Exception {
+    @ParameterizedTest
+    @EnumSource(value = DataTypeRoot.class, names = {"TINYINT", "SMALLINT", "INTEGER"})
+    void pinnedPaimonPlanningPrunesDisjointSignedBuildRanges(DataTypeRoot width) throws Exception {
+        var type = switch (width) {
+            case TINYINT -> DataTypes.TINYINT();
+            case SMALLINT -> DataTypes.SMALLINT();
+            case INTEGER -> DataTypes.INT();
+            default -> throw new AssertionError(width);
+        };
         try (var catalog = new FileSystemCatalog(new LocalFileIO(), new org.apache.paimon.fs.Path(directory.toString()))) {
             catalog.createDatabase("db", false);
-            var id = Identifier.create("db", "integer_ranges");
-            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+            var id = Identifier.create("db", "signed_ranges");
+            catalog.createTable(id, Schema.newBuilder().column("id", type)
                     .column("payload", DataTypes.BIGINT()).partitionKeys("id").option("bucket", "-1")
                     .build(), false);
             var table = (FileStoreTable) catalog.getTable(id);
             var builder = table.newBatchWriteBuilder();
             try (var writer = builder.newWrite(); var commit = builder.newCommit()) {
                 for (int key = -4; key < 5; key++) {
-                    writer.write(GenericRow.of(key, (long) key * 10));
+                    Object value = switch (width) {
+                        case TINYINT -> Byte.valueOf((byte) key);
+                        case SMALLINT -> Short.valueOf((short) key);
+                        case INTEGER -> Integer.valueOf(key);
+                        default -> throw new AssertionError(width);
+                    };
+                    writer.write(GenericRow.of(value, (long) key * 10));
                 }
                 commit.commit(writer.prepareCommit());
             }
             var snapshot = table.snapshotManager().latestSnapshot();
-            var domain = new Domain.RangeUnion(java.util.List.of(
+            var domain = new Domain.RangeUnion(List.of(
                     new Domain.Range(-3L, -2L, true, true), new Domain.Range(3L, 3L, true, true)));
             ColumnHandle key = () -> "id";
             var predicate = PaimonFilterBuilder.build(table.rowType(), () -> Map.of(key, domain));
             var filtered = budget(100).plan(table, predicate, snapshot).stream()
-                    .map(DataSplit.class::cast).map(split -> split.partition().getInt(0)).toList();
+                    .map(DataSplit.class::cast).map(DataSplit::partition).map(partition -> switch (width) {
+                        case TINYINT -> (int) partition.getByte(0);
+                        case SMALLINT -> (int) partition.getShort(0);
+                        case INTEGER -> partition.getInt(0);
+                        default -> throw new AssertionError(width);
+                    }).toList();
 
             assertThat(budget(100).plan(table, null, snapshot)).hasSize(9);
             assertThat(filtered).containsExactlyInAnyOrder(-3, -2, 3);

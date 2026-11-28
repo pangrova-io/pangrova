@@ -9,7 +9,6 @@ import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeFamily;
-import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -146,16 +145,29 @@ final class PaimonFilterBuilder {
         if (value == null) {
             return null;
         }
-        if (fieldType instanceof IntType && value instanceof Long longValue) {
-            return Math.toIntExact(longValue);
-        }
         if (fieldType.getTypeRoot().getFamilies().contains(DataTypeFamily.CHARACTER_STRING)) {
             if (value instanceof BinaryString) {
                 return value;
             }
             return BinaryString.fromString(value.toString());
         }
+        if (value instanceof Long bound) {
+            // Runtime build ranges use signed 64-bit coordinates on the execution wire.
+            return switch (fieldType.getTypeRoot()) {
+                case TINYINT -> (byte) requireRange(bound, Byte.MIN_VALUE, Byte.MAX_VALUE);
+                case SMALLINT -> (short) requireRange(bound, Short.MIN_VALUE, Short.MAX_VALUE);
+                case INTEGER -> Math.toIntExact(bound);
+                default -> bound;
+            };
+        }
         return value;
+    }
+
+    private static long requireRange(long bound, long minimum, long maximum) {
+        if (bound < minimum || bound > maximum) {
+            throw new IllegalArgumentException("Predicate bound is outside the signed integer column range");
+        }
+        return bound;
     }
 
     private static Predicate combineParts(List<Predicate> parts) {

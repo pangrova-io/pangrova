@@ -221,8 +221,8 @@ void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
       throw std::invalid_argument("Runtime-filter build keys require shuffle output columns");
     }
     const auto& type = plan_->outputType()->childAt(ordinal);
-    if (!type->isInteger() && !type->isBigint()) {
-      throw std::invalid_argument("Runtime-filter build keys require INTEGER or BIGINT shuffle output columns");
+    if (!type->isTinyint() && !type->isSmallint() && !type->isInteger() && !type->isBigint()) {
+      throw std::invalid_argument("Runtime-filter build keys require signed integer shuffle output columns");
     }
   }
   build_key_ranges_.resize(config_.build_key_ordinals.size());
@@ -1190,10 +1190,22 @@ void VeloxTaskRunner::collectBuildKeyRanges(const facebook::velox::RowVector& ro
   for (size_t channel = 0; channel < count; ++channel) {
     const auto& column = rows.childAt(config_.build_key_ordinals[channel]);
     facebook::velox::DecodedVector key(*column);
-    if (column->type()->isInteger()) {
-      collectSignedBuildKeys<int32_t>(key, rows.size(), batch[channel]);
-    } else {
-      collectSignedBuildKeys<int64_t>(key, rows.size(), batch[channel]);
+    using facebook::velox::TypeKind;
+    switch (column->typeKind()) {
+      case TypeKind::TINYINT:
+        collectSignedBuildKeys<int8_t>(key, rows.size(), batch[channel]);
+        break;
+      case TypeKind::SMALLINT:
+        collectSignedBuildKeys<int16_t>(key, rows.size(), batch[channel]);
+        break;
+      case TypeKind::INTEGER:
+        collectSignedBuildKeys<int32_t>(key, rows.size(), batch[channel]);
+        break;
+      case TypeKind::BIGINT:
+        collectSignedBuildKeys<int64_t>(key, rows.size(), batch[channel]);
+        break;
+      default:
+        throw std::invalid_argument("Runtime-filter build output changed its signed integer type");
     }
     containsKey |= !batch[channel].ranges().empty();
   }

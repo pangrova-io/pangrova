@@ -869,7 +869,7 @@ final class PlanFragmenter {
                     continue;
                 }
                 SqlTypeName type = first.getType().getSqlTypeName();
-                if ((type != SqlTypeName.INTEGER && type != SqlTypeName.BIGINT)
+                if (!SqlTypeName.INT_TYPES.contains(type)
                         || second.getType().getSqlTypeName() != type) {
                     continue;
                 }

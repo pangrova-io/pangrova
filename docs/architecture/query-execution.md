@@ -556,9 +556,10 @@ A controlled read checks the current catalog deployment once when matching its p
 
 A live read with an eligible runtime filter starts the build and releases probe
 enumeration on build completion, deadline, or query termination. One leaf shuffle
-producer can collect ranges for up to four BIGINT equality columns. The Coordinator
-unions the ranges per ordinal across the complete winning build cohort. It applies
-the domains together when the probe's Iceberg snapshot, schema, source and field
+producer can collect ranges for up to four same-width signed integer equality
+columns. The Coordinator merges each winning report into a bounded union and
+shares the sealed union once the cohort completes. It applies the domains
+together when the probe's Iceberg or Paimon snapshot, schema, source and field
 identities match. The join still evaluates the full condition for each matching row.
 Missing evidence or a timeout releases the probe. Complete evidence that arrives
 after release can still constrain splits when it arrives before the probe's
@@ -1814,12 +1815,17 @@ Note: Velox internally uses a shared thread pool (`thread-pool-size`) to schedul
 
 ## 5. Dynamic Filtering
 
-For an eligible inner equality join, the Coordinator binds up to four BIGINT key
-ordinals of an actual build exchange to direct Iceberg scan fields. Each binding
-retains the selected snapshot and stable field identity. A small build can use
+For an eligible inner equality join, the Coordinator binds up to four signed
+TINYINT, SMALLINT, INTEGER or BIGINT key ordinals of an actual build exchange
+to same-width fields on a direct Iceberg or Paimon scan. Each binding retains
+the selected snapshot and stable field identity. A small build can use
 the existing broadcast exchange when a probe needs at least 32 files or 128 MiB.
 Native collects signed ranges while producing the exchange and includes them in
-the task's canonical terminal report. The Coordinator selects up to four pairs
+the task's canonical terminal report. The Coordinator retains at most 16
+disjoint intervals per key while winning attempts report. If the union exceeds
+that limit, it keeps a conservative interval covering every observed key and
+expands it for subsequent winners. The final cohort seals one immutable
+snapshot. A missing report permits the full probe scan. The Coordinator selects up to four pairs
 with disjoint build and probe stages, prioritizing estimated probe bytes and file
 count. Each probe uses its own winning build cohort. The pairs share one 200 ms
 wait window after initial source scheduling. One build can release its probe
@@ -1831,7 +1837,7 @@ enumeration log indicates when it used evidence after a timeout. If the evidence
 is still incomplete when enumeration starts, the probe uses its static constraints.
 A proven all-NULL cohort still validates the pinned read authority and emits no
 probe splits. Proven nonempty ranges join the existing constraints in the same
-Iceberg scan.
+Iceberg or Paimon scan.
 
 ![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](../../website/static/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
 
