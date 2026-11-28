@@ -62,6 +62,29 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void pageClaimReturnsTheSameExpirationThatPostgresqlPersists() throws Exception {
+        Instant claimTime = NOW.plusNanos(123);
+        Duration leaseDuration = Duration.ofSeconds(30);
+        var anchor = new ExecutionAnchor(new GenerationJobKey("tenant-a", "job-a").executionId(),
+                "owner-a", "incarnation-a", 1, NOW, NOW.plusSeconds(60));
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            execute(connection, "UPDATE artifact_build_pages SET page_kind='RELATIONAL_COMPUTE' "
+                    + "WHERE tenant_id='tenant-a' AND job_id='job-a' AND page_id='page-a'");
+            var page = PostgresGenerationPageSelection.selectClaimablePage(
+                    connection, "tenant-a", "job-a", claimTime, true).orElseThrow();
+            var lease = PostgresGenerationPageClaim.claim(
+                    connection, page, anchor, 1, leaseDuration, claimTime, true).orElseThrow();
+            var stored = PostgresGenerationPageSelection.findPage(
+                    connection, "tenant-a", "job-a", page.pageId(), true).orElseThrow();
+
+            assertThat(lease.expiresAt()).isEqualTo(stored.leaseExpiresAt());
+            assertThat(lease.expiresAt()).isEqualTo(NOW.plus(leaseDuration));
+            connection.rollback();
+        }
+    }
+
+    @Test
     void cancellationWaitsForJobBeforeTakingAnyPageLock() throws Exception {
         var executor = Executors.newSingleThreadExecutor();
         try (var owner = dataSource.getConnection()) {

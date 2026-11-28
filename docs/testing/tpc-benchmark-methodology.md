@@ -52,6 +52,10 @@ when running Q9. Prepare their immutable fixture before starting Maven; test
 startup only verifies local model inventory and never calls the model registry.
 This is separate from SF100/SF1000 data preparation and performance acceptance.
 
+The SQL latency baselines load the test kit's TPC-H tables into a dedicated
+Iceberg catalog and warehouse for each test run. The `SHOW TABLES` case verifies
+the full fixture table set before timing the authenticated SQL round trips.
+
 From the repository root:
 
 ```bash

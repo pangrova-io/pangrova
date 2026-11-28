@@ -4,6 +4,9 @@ import org.pangrova.worker.enums.TaskState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
+import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -11,6 +14,36 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Tag("native-required")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class TaskRetiredOwnerCancellationTest {
+    @Test
+    void sealAndTerminalPublicationAgreeWhenCancellationWinsAfterNativeSuccess() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "actual-cancel-after-native-success")) {
+            var request = runtime.valuesRequest(false);
+            var info = tasks.preparePending(request);
+            long handle = info.executorHandle();
+            runtime.executor().startTask(handle);
+            assertThat(runtime.executor().awaitFinished(handle, 5_000)).isTrue();
+            assertThat(TaskReport.parseFrom(runtime.executor().getTaskStatus(handle)).getState())
+                    .isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
+
+            var seal = CanonicalTaskAdmissionSeals.create(request);
+            assertThat(tasks.manager().sealAdmission(seal)).isEmpty();
+            assertThat(info.getState()).isEqualTo(TaskState.CANCELLING);
+            tasks.manager().releaseTaskExecutor(info.taskId());
+
+            var terminal = tasks.terminalReport(info);
+            var receipt = tasks.manager().sealAdmission(seal).orElseThrow();
+            assertThat(info.executorReleaseReceipt().report().getState())
+                    .isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
+            assertThat(terminal.state()).isEqualTo("CANCELLED");
+            assertThat(receipt).isEqualTo(
+                    CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(terminal.canonicalStatus()));
+            assertThat(receipt.getExecutionDrainState()).isEqualTo(
+                    ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+            assertThat(receipt.getError().getCode()).isEqualTo("TASK_CANCELLED");
+        }
+    }
+
     @Test
     void retiredActualNativeOwnerDoesNotAcknowledgeSuccessfulCancellation() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();

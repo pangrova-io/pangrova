@@ -24,6 +24,9 @@ import static org.awaitility.Awaitility.await;
 
 /** Measures PostgreSQL reads from SQL submission through physical drain. */
 class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
+    private static final String CATALOG = "read_budget_iceberg";
+    private static final String SCHEMA = "default";
+    private static final String QUALIFIED_SCHEMA = CATALOG + "." + SCHEMA + ".";
     private static final String JOURNAL_LOOKUP =
             "SELECT query_id, catalog_name,%FROM write_commit_journal WHERE query_id = $1";
     private static final String RELEASE_JOURNAL_LOOKUP =
@@ -78,7 +81,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
-        return List.of(ConnectorTestConfig.icebergLocal("iceberg_catalog", "default", icebergWarehouse().toString(),
+        return List.of(ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA,
+                icebergWarehouse().resolveSibling("read-budget-iceberg-warehouse").toString(),
                 Map.of("type", "jdbc", "uri", pgJdbcUrl(), "jdbc.user", pgUsername(),
                         "jdbc.password", pgPassword(), "jdbc.schema-version", "V1")));
     }
@@ -163,7 +167,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void managedReadLoadsItsRegistrationAndCatalogTogether() throws SQLException {
-        String table = "iceberg_catalog.default.read_admission_database_budget";
+        String table = QUALIFIED_SCHEMA + "read_admission_database_budget";
         sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, email VARCHAR)");
         sqlRunner.execute("INSERT INTO " + table + " VALUES (42, 'alice@example.com')");
         sqlRunner.executeDdl("ALTER TABLE " + table + " ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL'");
@@ -200,7 +204,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void managedJoinBatchesDistinctTablePoliciesAndReusesAliases() throws SQLException {
-        String name = "iceberg_catalog.default.policy_reads_";
+        String name = QUALIFIED_SCHEMA + "policy_reads_";
         int tables = 4;
         for (int index = 0; index < tables; index++) {
             String table = name + index;
@@ -296,8 +300,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void qualifiedSourceResolvesWithoutLookingUpItsCatalogNameAsATable() throws SQLException {
-        String table = "iceberg_catalog.default.qualified_read_database_budget";
-        String sameNameAsCatalog = "iceberg_catalog.default.iceberg_catalog";
+        String table = QUALIFIED_SCHEMA + "qualified_read_database_budget";
+        String sameNameAsCatalog = QUALIFIED_SCHEMA + CATALOG;
         sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
         sqlRunner.executeDdl("CREATE TABLE " + sameNameAsCatalog + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
@@ -316,12 +320,13 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(ICEBERG_NAMED_NAMESPACE_LOOKUP) - previousNamedNamespaceLookups)
                 .as("exact Iceberg namespace SELECTs").isOne();
 
-        assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog"))
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG))
                 .extracting(row -> row.getLong("id")).containsExactly(7L);
-        assertThat(sqlRunner.execute("SELECT id FROM \"iceberg_catalog\".\"default\".\"qualified_read_database_budget\""))
+        assertThat(sqlRunner.execute("SELECT id FROM \"%s\".\"%s\".\"qualified_read_database_budget\""
+                .formatted(CATALOG, SCHEMA)))
                 .extracting(row -> row.getLong("id")).containsExactly(42L);
         assertThat(sqlRunner.execute("SELECT qualified.id AS qualified_id, local_table.id AS local_id FROM "
-                + table + " AS qualified CROSS JOIN iceberg_catalog AS local_table"))
+                + table + " AS qualified CROSS JOIN " + CATALOG + " AS local_table"))
                 .singleElement().satisfies(row -> {
                     assertThat(row.getLong("qualified_id")).isEqualTo(42L);
                     assertThat(row.getLong("local_id")).isEqualTo(7L);
@@ -330,7 +335,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void publicInsertPublishesWithoutLookingForAnInternalMaterializationAttempt() throws SQLException {
-        String table = "iceberg_catalog.default.completion_database_budget";
+        String table = QUALIFIED_SCHEMA + "completion_database_budget";
         sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
         long previousLookups = calls(PUBLICATION_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
@@ -426,8 +431,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void measuresVersionedStatisticsReadsForRepeatedAndDistinctManagedSources() throws SQLException {
-        String left = "iceberg_catalog.default.statistics_budget_l";
-        String right = "iceberg_catalog.default.statistics_budget_r";
+        String left = QUALIFIED_SCHEMA + "statistics_budget_l";
+        String right = QUALIFIED_SCHEMA + "statistics_budget_r";
         for (String table : List.of(left, right)) {
             sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, score BIGINT)");
             sqlRunner.execute("INSERT INTO " + table + " VALUES (1, 11), (2, 12)");

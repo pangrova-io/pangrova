@@ -136,9 +136,12 @@ std::vector<uint8_t> serializeTaskStatus(
   if (unsuccessful && lifecycle.error.has_value()) {
     *status.mutable_error() = *lifecycle.error;
   }
-  if (auto artifact_report = executor.artifactWorkReport();
-      artifact_report.has_value()) {
-    *status.mutable_artifact_work() = std::move(*artifact_report);
+  if (finished) {
+    // Output staging can finish just before cancellation wins the terminal race.
+    // Only the successful task state authorizes publication of those outputs.
+    if (auto artifact_report = executor.artifactWorkReport(); artifact_report) {
+      *status.mutable_artifact_work() = std::move(*artifact_report);
+    }
   }
   std::vector<uint8_t> buf(status.ByteSizeLong());
   if (!status.SerializeToArray(buf.data(), static_cast<int>(buf.size()))) {

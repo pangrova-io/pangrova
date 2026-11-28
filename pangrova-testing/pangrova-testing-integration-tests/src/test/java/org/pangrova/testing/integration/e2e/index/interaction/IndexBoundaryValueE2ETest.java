@@ -69,7 +69,7 @@ class IndexBoundaryValueE2ETest extends SqlE2ETestBase {
     void btreeZeroValue() {
         List<TypedRow> baseline = sqlRunner.execute(
                 "SELECT * FROM " + fqn + " WHERE amount = 0.0");
-        sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+        sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
         List<TypedRow> withIndex = sqlRunner.execute(
                 "SELECT * FROM " + fqn + " WHERE amount = 0.0");
         assertThat(withIndex).containsAll(baseline);

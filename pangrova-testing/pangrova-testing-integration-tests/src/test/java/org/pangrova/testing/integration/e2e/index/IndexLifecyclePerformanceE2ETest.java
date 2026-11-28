@@ -164,7 +164,7 @@ class IndexLifecyclePerformanceE2ETest extends VectorIndexE2ETestBase {
             assertThat(baseline).isNotEmpty();
 
             sqlRunner.executeDdl("CREATE INDEX idx_btree ON " + fqn()
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
             waitForIndexReady("idx_btree", fqn());
             List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
             assertThat(indexes).anyMatch(r -> "idx_btree".equals(r.getRaw("index_name").toString()));

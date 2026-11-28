@@ -30,6 +30,21 @@ class PangrovaPlannerTest {
     }
 
     @Test
+    void stringLiteralsPreserveBmpAndSupplementaryCharactersInValues() {
+        String bmp = "\uE000";
+        String supplementary = "\uD800\uDC00";
+        for (String value : new String[] {bmp, supplementary}) {
+            RelNode result = planner.plan("SELECT '" + value + "'").plan();
+
+            assertThat(result.getRowType().getFieldList().get(0).getType().getCharset())
+                    .isEqualTo(StandardCharsets.UTF_8);
+            assertThat(result).isInstanceOf(Values.class);
+            assertThat(((Values) result).getTuples().get(0).get(0).getValueAs(String.class))
+                    .isEqualTo(value);
+        }
+    }
+
+    @Test
     void unicodeStringLiteralKeepsItsValueAndUtf8Collation() {
         RelNode result = planner.plan("SELECT '汉字😀' AS value_text").plan();
         assertThat(result).isInstanceOf(Values.class);

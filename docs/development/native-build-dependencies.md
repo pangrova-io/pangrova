@@ -122,8 +122,9 @@ The bootstrap enforces these dependency contracts.
 - The pinned Folly SpookyHash short-tail path uses alignment-safe loads in
   the regular, production and instrumented builds. The byte order and hash
   values stay compatible with the pinned upstream version. The Darwin
-  bootstrap rebuilds a cached Folly archive when its alignment-patch digest
-  is missing or differs from the reviewed patch.
+  bootstrap builds Folly in Release mode to match the inline F14 templates
+  used by Velox and the Worker. It accepts a cached archive when the receipt
+  records Release mode and the current alignment-patch digest.
 
 ## Sanitizer Dependency Chain
 
@@ -140,6 +141,8 @@ instrumented container code can produce false positives.
 The ASan job first runs the regular bootstrap with
 `PANGROVA_NATIVE_BUILD_PHASE=dependencies`. This fetches the pinned SDK sources and
 prepares dependencies without compiling Release Velox or Release Arrow Flight.
+The Linux bootstrap omits DuckDB by default because Pangrova's Release and
+sanitizer builds disable Velox's DuckDB-backed upstream test utilities.
 `setup-native-asan-env.sh` then rebuilds Abseil, protobuf, RE2, gRPC, Folly, Velox
 and Arrow Flight into separate ASan prefixes and build directories. Folly uses C++20 and its upstream
 `FOLLY_LIBRARY_SANITIZE_ADDRESS` option. The generated `asan-env.sh` records
@@ -155,6 +158,12 @@ compiler or sanitizer flags automatically. The reviewed
 `velox-arrow-build-flags.patch` forwards the C/C++ compilers, compilation flags,
 Release optimization flags and executable/shared linker flags. This keeps the
 bundled Arrow build instrumented as well as the later Arrow Flight build.
+
+On macOS, Arrow and Arrow Flight keep the private empty-message storage in
+`arrow::Status::message` local to each dynamic library. Their Mach-O fixup
+checks reject bindings that could share writable initializer storage with a
+C++20 consumer's constant-initialized copy. The public Arrow exports remain
+available to native callers.
 
 Pangrova checks Folly's headers and archive instrumentation regardless of whether
 Velox dependencies came from `deps-install` or a system prefix. Missing or
@@ -227,13 +236,20 @@ When Velox resolves the AWS SDK, Thrift, stemmer or the s2n archive from one
 dependency prefix, native builds link them beside the AWS CRT: Linux wraps the
 static AWS archives in a linker rescan group and appends the s2n, stemmer and
 Thrift archives plus OpenSSL/curl after the group. The Thrift search first uses
-Velox's Arrow ExternalProject install and falls back to the AWS dependency
-prefix, so builds whose Velox used dependency sources instead of the
-ExternalProject layout still link.
+Velox's Arrow ExternalProject install, then checks the AWS dependency prefix
+and the installed Velox SDK. It takes the Apache Thrift archive and headers
+from the same package. The dependency archive globs exclude Thrift archives
+and FBThrift's `libtransport.a` so Parquet keeps one C++ transport implementation.
 
 The macOS bootstrap installs the version of Snappy pinned by Velox into its
 dependency prefix. Velox uses that prefix's CMake package for the Hive/DWIO
 codecs, and the JNI link consumes the static archive from the same prefix.
+
+The macOS Native test runner resolves the PostgreSQL fixture image through
+Testcontainers before starting the three-minute Lance broker readiness timer.
+Image preparation has its own five-minute limit and log. The broker still
+starts a fresh database, applies migrations and verifies the authenticated
+readiness response before CTest begins.
 
 On macOS, Folly's libevent search only covers `/usr/local`, `/opt/local` and
 `$HOME`, not Homebrew's `/opt/homebrew` prefix. The bootstrap resolves the
@@ -274,7 +290,8 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   install options change. Keys never fall back to another image, compiler
   configuration or pre-patch dependency tree.
 - `.github/workflows/native-deps-baseline.yml` warms the layered keys weekly
-  and when the dependency lock changes. Each Linux warm job can publish
+  and when the dependency lock changes on main. The warm-up can also be
+  dispatched manually. Each Linux warm job can publish
   its installed `~/.pangrova/native-deps` prefix as an OCI image to GHCR
   when the repository variable
   `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
@@ -283,19 +300,25 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   baseline workflow uses the same two macOS SDK build stages as CI and
   publishes the macOS dependency archive for diagnostics and separate
   qualification.
-- Hosted macOS CI separates canonical and Velox prerequisite packages,
-  Velox/Arrow Flight SDK construction and the Native build/test into three
-  jobs per selected architecture using a per-platform reusable workflow.
-  Linux platform builds have no macOS-stage dependency. The six-hour
-  **per-job** limit must not put cold dependency builds and Native tests in
-  the same time budget. Each consumer
-  checks the workflow run, source revision, architecture, macOS build,
-  compiler, SDK and linked Homebrew versions. It records the runner image
-  and verifies the archive checksum and required outputs before using it. The SDK artifact retains the source provenance checkout,
-  headers, generated configuration and libraries, but excludes object files
-  and download archives. Artifacts are short-lived, not cross-run dependency
-  caches; partitioning adds transfer overhead. macOS no longer restores an
-  optional last-successful baseline artifact in CI.
+- A cold macOS run builds prerequisite packages, the Velox and Arrow Flight
+  SDK, and the Native tests in three jobs per architecture. Each job gets its
+  own six-hour hosted runner limit. The same-run handoff verifies the run,
+  revision, architecture, macOS build, compiler, SDK and linked Homebrew
+  versions. SDK archives retain generated headers, the provenance checkout and
+  libraries. They exclude object files and downloaded source archives.
+- The production image job imports the Linux x86-64 dependency layers from a
+  repository-owned OCI cache. The separate cache workflow builds the dependency
+  stage from the same Dockerfile on main. BuildKit validates layer inputs and
+  compiles from those inputs on a cache miss. Pull requests can read this cache.
+  The final runtime image is still built, labeled and tested for the selected
+  revision.
+
+- macOS first looks for a retained SDK from a trusted default-branch build.
+  Reuse requires the same dependency inputs, runner image, architecture,
+  SDK, compiler and linked system libraries. The Native test job independently
+  verifies the archive and the running toolchain before building and running
+  the complete test list. A cold run still builds both dependency stages.
+
 - macOS explicitly installs and verifies ccache and exports its compiler
   launchers to every CMake invocation. Stage-specific compiler cache keys
   preserve completed work even when a later stage fails. The Native job

@@ -107,7 +107,7 @@ class IndexIncrementalCorrectnessE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("BTREE: INSERT after index → new data queryable via range")
         void btreeIncrementalInsert() {
-            sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+            sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
             insertPostIndexBatch(fqn);
 
             List<TypedRow> rows = sqlRunner.execute(
@@ -122,7 +122,7 @@ class IndexIncrementalCorrectnessE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("BTREE: correctness invariant holds after INSERT")
         void btreeIncrementalCorrectness() {
-            sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+            sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
             insertPostIndexBatch(fqn);
 
             List<TypedRow> baseline = sqlRunner.execute(
@@ -268,7 +268,7 @@ class IndexIncrementalCorrectnessE2ETest extends SqlE2ETestBase {
         @DisplayName("SPARSE: INSERT after index → new data queryable via range")
         void sparseIncrementalInsert() {
             sqlRunner.executeDdl("CREATE INDEX idx_sp ON " + fqn
-                    + "(user_id) USING SPARSE");
+                    + "(user_id) USING SPARSE FORCE");
             insertPostIndexBatch(fqn);
 
             List<TypedRow> rows = sqlRunner.execute(
@@ -284,7 +284,7 @@ class IndexIncrementalCorrectnessE2ETest extends SqlE2ETestBase {
         @DisplayName("SPARSE: correctness invariant holds after INSERT")
         void sparseIncrementalCorrectness() {
             sqlRunner.executeDdl("CREATE INDEX idx_sp ON " + fqn
-                    + "(user_id) USING SPARSE");
+                    + "(user_id) USING SPARSE FORCE");
             insertPostIndexBatch(fqn);
 
             List<TypedRow> baseline = sqlRunner.execute(
@@ -408,7 +408,7 @@ class IndexIncrementalCorrectnessE2ETest extends SqlE2ETestBase {
         void multipleInsertsAfterBtreeIndex() {
             // Create BTREE index after batch 1
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             // Batch 2 (post-index)
             sqlRunner.execute("INSERT INTO " + fqn
@@ -449,7 +449,7 @@ class IndexIncrementalCorrectnessE2ETest extends SqlE2ETestBase {
         @DisplayName("3 sequential INSERTs after BTREE index → correctness invariant holds")
         void multipleInsertsCorrectness() {
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             // 3 sequential INSERTs after index
             sqlRunner.execute("INSERT INTO " + fqn

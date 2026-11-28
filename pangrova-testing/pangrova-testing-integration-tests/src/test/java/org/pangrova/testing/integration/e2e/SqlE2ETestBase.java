@@ -600,8 +600,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private static void shutdownSharedInfrastructure() {
-        if (framework != null) framework.teardown();
         stopArtifactControlLoops();
+        if (framework != null) framework.teardown();
         if (controlEpochObserver != null) {
             controlEpochObserver.shutdownNow();
             controlEpochObserver = null;
@@ -1250,7 +1250,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             try {
                 rows = fetchResultsViaTransport(endpoint, queryId);
             } catch (Exception transportFailure) {
-                cancelNativeTaskAfterFetch(canonicalTaskId, workerTaskId);
                 String queryFailure = awaitQueryFailure(queryId, transportFailure);
                 if (queryFailure != null) {
                     throw new IllegalStateException("Query failed: " + queryId
@@ -1418,7 +1417,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                 status.get("result_endpoint"), ResultEndpoint.class);
                         return true;
                     }
-                    if (!"PENDING".equals(disposition) && !"NONE".equals(disposition)) {
+                    if ("NONE".equals(disposition)) {
+                        if (status.hasNonNull("result_endpoint")) {
+                            throw new IllegalStateException("Resultless query published an endpoint: " + queryId);
+                        }
+                        return false;
+                    }
+                    if (!"PENDING".equals(disposition)) {
                         throw new IllegalStateException(
                                 "Invalid live query result disposition: " + queryId + " disposition=" + disposition);
                     }
@@ -1675,11 +1680,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * retried — with the async execution model, timeouts indicate genuine
      * server/network failure rather than thread-pool starvation.</p>
      *
-     * <h4>Cleanup (F-DOGET-03)</h4>
-     * <p>On final failure, cancels the native task via WorkerTaskManager and
-     * releases the task executor after its ready messages and reader have
-     * drained. A full byte window suspends the producer until Flight returns
-     * credit or the task is cancelled.</p>
+     * <p>The caller owns cleanup after observing the query's terminal state.
+     * A full byte window suspends the producer until Flight returns credit or
+     * the task is cancelled.</p>
      */
     protected static List<TypedRow> fetchResultsViaFlight(
             ResultEndpoint endpoint, String queryId, CoordinatorTaskTracker tracker) {
@@ -1736,16 +1739,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         LOG.error("event=flight_fetch_exhausted queryId={} taskId={} error={}",
                 queryId, nativeTaskId,
                 lastException != null ? lastException.getMessage() : "unknown", lastException);
-        cancelNativeTaskAfterFetch(nativeTaskId);
         String causeMessage = lastException != null && lastException.getMessage() != null
                 ? ": " + lastException.getMessage() : "";
         throw new IllegalStateException(
                 "Native Flight result fetch failed: queryId=" + queryId
                         + " taskId=" + nativeTaskId + causeMessage, lastException);
-    }
-
-    protected static void cancelNativeTaskAfterFetch(String coordinatorTaskId) {
-        cancelNativeTaskAfterFetch(coordinatorTaskId, null);
     }
 
     protected static void cancelNativeTaskAfterFetch(
@@ -1789,12 +1787,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     /** The actual initialized Worker admission authority, for execution-boundary fault injection. */
     protected static TaskManager actualWorkerTaskManager() {
         return java.util.Objects.requireNonNull(workerTaskManagerRef, "Worker task manager has not started");
-    }
-
-    /** Actual Native split decisions, captured before scan scheduling. */
-    protected static TaskManager.IndexSplitTotals nativeIndexSplitTotals() {
-        return java.util.Objects.requireNonNull(workerTaskManagerRef,
-                "Worker task manager has not started").getNativeIndexSplitTotals();
     }
 
     /** Waits for asynchronous Worker registration of an issued result task. */
@@ -2083,9 +2075,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private static void closeE2ECoordination() {
+        stopArtifactControlLoops();
         closeQuietly(sharedIndexingBootstrap, "indexing_lifecycle");
         sharedIndexingBootstrap = null;
-        stopArtifactControlLoops();
         var coordination = e2eCoordinationService;
         e2eCoordinationService = null;
         if (coordination != null) {
@@ -2304,7 +2296,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")),
                 java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"),
                 null, new org.pangrova.worker.file.FileSpaceFileResource(
-                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}));
+                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}),
+                new org.pangrova.worker.http.endpoint.ReclusterStageResource(sharedWorkerCatalogRuntime));
         startServerOrFail(server);
         sharedWorkerHttpPort = server.getPort();
         return server;
@@ -2433,11 +2426,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static void stopArtifactControlLoops() {
         if (artifactDispatchExecutor != null) {
-            artifactDispatchExecutor.shutdownNow();
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(artifactDispatchExecutor, 10_000);
             artifactDispatchExecutor = null;
         }
-        closeQuietly(sharedArtifactBuildDispatcher, "artifact_build_dispatcher");
-        sharedArtifactBuildDispatcher = null;
+        if (sharedArtifactBuildDispatcher != null) {
+            sharedArtifactBuildDispatcher.close();
+            sharedArtifactBuildDispatcher = null;
+        }
         closeQuietly(artifactTaskDispatcher, "artifact_task_dispatcher");
         artifactTaskDispatcher = null;
         closeQuietly(sharedArtifactPublisher, "artifact_publisher");
@@ -2606,6 +2601,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 catalog, maintenancePolicyService,
                 new org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease(stateStoreDataSource),
                 E2E_COORDINATOR_ID, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+        controlledMaintenance.setReclusterDispatcher(
+                new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
+                        embeddingWorkers::getActiveWorkers, E2E_INTERNAL_AUTH_SECRET));
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -2655,6 +2653,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.VacuumTask(maintenanceExecutor));
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.OptimizeTask(maintenanceExecutor));
+        org.pangrova.coordinator.query.execution.dispatch.task.ClusteringStatementTasks.register(
+                tasks, controlledMaintenance);
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(
@@ -2968,8 +2968,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private static void shutdownMetadata() {
+        stopArtifactControlLoops();
         try (var ownedPool = metadataDataSourcePool) {
-            stopArtifactControlLoops();
             if (metadataBootstrap != null) metadataBootstrap.shutdown();
         } finally {
             metadataBootstrap = null;

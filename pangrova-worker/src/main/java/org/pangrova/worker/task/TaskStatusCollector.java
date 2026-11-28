@@ -24,6 +24,8 @@ import java.util.List;
 final class TaskStatusCollector {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskStatusCollector.class);
+    private static final ErrorDetail CONTROL_CANCELLATION =
+            new ErrorDetail("TASK_CANCELLED", "Cancellation", "Task cancelled by control plane");
 
     private final TaskStatusReporter reporter;
     private final String workerId;
@@ -136,6 +138,16 @@ final class TaskStatusCollector {
                 .setObjectStoreReadBytes(info.preNativeReadBytes())).build());
     }
 
+    /** The seal response and terminal publication must agree on the outcome of a cancelled attempt. */
+    java.util.Optional<org.pangrova.protocol.v2.TaskReport> controlDrainReceipt(TaskInfo info) {
+        var state = info.getState();
+        return switch (state) {
+            case FINISHED, FAILED -> executionDrainReceipt(info);
+            case CANCELLED -> executionDrainReceipt(info).map(actual -> cancelledDrainEvidence(info, actual).report());
+            default -> java.util.Optional.empty();
+        };
+    }
+
     private void reportStatus(
             TaskInfo info, String state, ErrorDetail error, TaskReportEvidence terminalReport) {
         if (reporter == null) {
@@ -186,10 +198,9 @@ final class TaskStatusCollector {
             org.pangrova.protocol.v2.TaskReport terminalReport) {
         var actual = executionDrainReceipt(info).orElseThrow(() ->
                 new IllegalStateException("Terminal publication lacks actual released execution evidence"));
-        if ("CANCELLED".equals(state) && actual.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED) {
-            // The cancellation response may already have published this exact checkpoint.
-            // Keep the Native classification, including a cancellation without an error.
-            return buildReport(info, state, terminalError(actual), retainedEvidence(info, actual));
+        if ("CANCELLED".equals(state)) {
+            var evidence = cancelledDrainEvidence(info, actual);
+            return buildReport(info, state, terminalError(evidence.report()), evidence);
         }
         if (terminalReport != null) {
             // A classified Worker failure can differ from the Native execution outcome.
@@ -200,14 +211,11 @@ final class TaskStatusCollector {
                 throw new IllegalStateException("Successful Worker state conflicts with actual release state");
             }
             return buildReport(info, state, null, retainedEvidence(info, actual));
-        } else if ("FAILED".equals(state) || "CANCELLED".equals(state)) {
-            if ("FAILED".equals(state) && !actual.hasError()) {
+        } else if ("FAILED".equals(state)) {
+            if (!actual.hasError()) {
                 throw new IllegalStateException("Failed terminal publication lacks its original classified failure");
             }
             ErrorDetail failure = terminalError(actual);
-            if (failure == null) {
-                failure = new ErrorDetail("TASK_CANCELLED", "Cancellation", "Task cancelled by control plane");
-            }
             var canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
                     info.request().taskRequest(), TaskStateMapper.toProtoState(TaskState.valueOf(state)),
                     failure, actual);
@@ -215,6 +223,19 @@ final class TaskStatusCollector {
         } else {
             throw new IllegalStateException("Released task is not terminal: " + state);
         }
+    }
+
+    private static TaskReportEvidence cancelledDrainEvidence(
+            TaskInfo info, org.pangrova.protocol.v2.TaskReport actual) {
+        var cancelled = org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED;
+        if (actual.getState() == cancelled) {
+            return retainedEvidence(info, actual);
+        }
+        // Native may finish staging just before the Worker commits cancellation.
+        // Both channels report that logical outcome with the verified release checkpoint.
+        var reconciled = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
+                info.request().taskRequest(), cancelled, CONTROL_CANCELLATION, actual);
+        return withActualDrain(info, reconciled);
     }
 
     private static TaskReportEvidence retainedEvidence(TaskInfo info, org.pangrova.protocol.v2.TaskReport report) {

@@ -79,7 +79,7 @@ class IndexMultiConnectorE2ETest extends SqlE2ETestBase {
         @DisplayName("BTREE index on Iceberg — create, query, drop")
         void icebergBtreeLifecycle() {
             sqlRunner.executeDdl("CREATE INDEX idx_ice ON " + iceFqn()
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             List<TypedRow> result = sqlRunner.execute(
                     "SELECT * FROM " + iceFqn() + " WHERE amount BETWEEN 50 AND 150");
@@ -103,7 +103,7 @@ class IndexMultiConnectorE2ETest extends SqlE2ETestBase {
         @DisplayName("BTREE index on Paimon — create, query, drop")
         void paimonBtreeLifecycle() throws Exception {
             sqlRunner.executeDdl("CREATE INDEX idx_pmn ON " + pmnFqn()
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             org.awaitility.Awaitility.await("Paimon index READY")
                     .atMost(Duration.ofSeconds(45))

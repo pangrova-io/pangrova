@@ -50,7 +50,7 @@ final class TaskAdmissionControl {
 
     private Optional<TaskReport> captureReceipt(TaskInfo info) {
         if (owner.statusCollector == null) return Optional.empty();
-        var receipt = owner.statusCollector.executionDrainReceipt(info);
+        var receipt = owner.statusCollector.controlDrainReceipt(info);
         if (receipt.isEmpty()) return Optional.empty();
         TaskReport compact = CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(receipt.orElseThrow());
         owner.taskAdmissions.retainDrainReceipt(info.taskId(), compact,

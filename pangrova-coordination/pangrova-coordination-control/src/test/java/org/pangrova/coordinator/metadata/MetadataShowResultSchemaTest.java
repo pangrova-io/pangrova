@@ -109,6 +109,11 @@ class MetadataShowResultSchemaTest {
                 ignored -> () -> { });
 
         List<List<String>> execute(Statement statement, MetadataTask<?> task, List<String> columns) throws Exception {
+            return execute(statement, task, columns, Map.of());
+        }
+
+        List<List<String>> execute(Statement statement, MetadataTask<?> task, List<String> columns,
+                                   Map<String, ArrowType> declaredTypes) throws Exception {
             String id = UUID.randomUUID().toString();
             var state = new QueryStateMachine();
             var factory = new MetadataExecutionFactory(Map.of(statement.getClass(), task));
@@ -122,7 +127,9 @@ class MetadataShowResultSchemaTest {
                 assertThat(reader).isNotNull();
                 var root = streamedRoot(reader::streamTo);
                 assertThat(root.getSchema().getFields()).extracting(field -> field.getName()).containsExactlyElementsOf(columns);
-                assertThat(root.getSchema().getFields()).allMatch(field -> field.getType().equals(ArrowType.Utf8.INSTANCE));
+                assertThat(root.getSchema().getFields()).allSatisfy(field ->
+                        assertThat(field.getType()).as("Arrow type of %s", field.getName())
+                                .isEqualTo(declaredTypes.getOrDefault(field.getName(), ArrowType.Utf8.INSTANCE)));
                 List<List<String>> values = new ArrayList<>();
                 for (int row = 0; row < root.getRowCount(); row++) {
                     List<String> cells = new ArrayList<>();

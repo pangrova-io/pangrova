@@ -30,7 +30,15 @@ class IndependentClientCancellationE2ETest extends ContainerTestBase {
                 try (var connection = cluster.openJdbc(); var statement = connection.createStatement()) {
                     var first = new CompletableFuture<String>();
                     try (var hold = holdNewQuery(cluster, first, false)) {
-                        var running = executor.submit(() -> statement.executeQuery("SELECT 41 + 1"));
+                        var running = executor.submit(() -> {
+                            try (var rows = statement.executeQuery("SELECT 41 + 1")) {
+                                int rowCount = 0;
+                                while (rows.next()) {
+                                    rowCount++;
+                                }
+                                return rowCount;
+                            }
+                        });
                         String id = first.get(60, TimeUnit.SECONDS);
                         assertThat(cluster.status(id).state()).isEqualTo("RUNNING");
                         assertHeldTask(cluster, id);

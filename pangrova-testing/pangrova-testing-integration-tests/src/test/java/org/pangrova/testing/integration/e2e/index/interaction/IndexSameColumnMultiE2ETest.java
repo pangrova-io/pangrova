@@ -85,7 +85,7 @@ class IndexSameColumnMultiE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE INDEX idx_bf ON " + fqn
                 + "(amount) USING BLOOM_FILTER");
         sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                + "(amount) USING BTREE");
+                + "(amount) USING BTREE FORCE");
         List<TypedRow> withIndex = sqlRunner.execute(
                 "SELECT * FROM " + fqn + " WHERE amount = 50.0");
         assertThat(withIndex).containsAll(baseline);
@@ -99,7 +99,7 @@ class IndexSameColumnMultiE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE INDEX idx_bf ON " + fqn
                 + "(amount) USING BLOOM_FILTER");
         sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                + "(amount) USING BTREE");
+                + "(amount) USING BTREE FORCE");
         List<TypedRow> withIndex = sqlRunner.execute(
                 "SELECT * FROM " + fqn + " WHERE amount BETWEEN 100.0 AND 200.0");
         assertThat(withIndex).containsAll(baseline);

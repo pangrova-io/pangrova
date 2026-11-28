@@ -23,10 +23,13 @@ import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.parquet.GenericParquetReaders;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.parquet.Parquet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -42,11 +45,13 @@ import java.util.NoSuchElementException;
  * is cached for subsequent reads within the same table.</p>
  */
 public final class IcebergCatalogColumnValueReader implements ColumnValueReader {
+    private static final Logger LOG = LoggerFactory.getLogger(IcebergCatalogColumnValueReader.class);
 
     private final Catalog catalog;
     private final FileIO fileIO;
-    private volatile Schema cachedSchema;
-    private volatile String cachedTableLocation;
+    private volatile LocatedSchema cached;
+
+    private record LocatedSchema(String filePrefix, Schema schema) {}
 
     /**
      * Creates a reader that lazily resolves table schemas from the given catalog.
@@ -75,10 +80,9 @@ public final class IcebergCatalogColumnValueReader implements ColumnValueReader 
     }
 
     private Schema resolveSchema(String dataFilePath) {
-        String loc = cachedTableLocation;
-        Schema schema = cachedSchema;
-        if (schema != null && loc != null && dataFilePath.startsWith(loc)) {
-            return schema;
+        LocatedSchema current = cached;
+        if (current != null && dataFilePath.startsWith(current.filePrefix())) {
+            return current.schema();
         }
         return findAndCacheSchema(dataFilePath);
     }
@@ -87,12 +91,20 @@ public final class IcebergCatalogColumnValueReader implements ColumnValueReader 
         if (catalog instanceof SupportsNamespaces nsCatalog) {
             for (Namespace ns : nsCatalog.listNamespaces()) {
                 for (TableIdentifier tid : catalog.listTables(ns)) {
-                    Table table = catalog.loadTable(tid);
+                    Table table;
+                    try {
+                        table = catalog.loadTable(tid);
+                    } catch (NoSuchTableException missing) {
+                        // A namespace listing can still contain a concurrently dropped table.
+                        LOG.debug("event=index_column_reader_table_vanished table={}", tid, missing);
+                        continue;
+                    }
                     String location = table.location();
-                    if (dataFilePath.startsWith(location)) {
-                        cachedSchema = table.schema();
-                        cachedTableLocation = location;
-                        return cachedSchema;
+                    String prefix = location.endsWith("/") ? location : location + "/";
+                    if (dataFilePath.startsWith(prefix)) {
+                        LocatedSchema resolved = new LocatedSchema(prefix, table.schema());
+                        cached = resolved;
+                        return resolved.schema();
                     }
                 }
             }

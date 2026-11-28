@@ -66,7 +66,7 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
             Objects.requireNonNull(serializedPlan, "serializedPlan");
             sources = List.copyOf(sources);
             outputNames = List.copyOf(outputNames);
-            splittableHashInputs = splittableHashInputs.stream().sorted().toList();
+            splittableHashInputs = List.copyOf(splittableHashInputs.stream().sorted().toList());
             resultColumnModels = List.copyOf(resultColumnModels);
             resultColumnTypes = List.copyOf(resultColumnTypes.stream()
                     .sorted(Comparator.comparingInt(ResultColumnLogicalType::getColumnIndex)).toList());

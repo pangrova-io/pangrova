@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.awaitility.Awaitility;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.client.http.authentication.ClientAuthentication;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.common.client.query.QueryStatusResponse;
@@ -509,7 +510,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     QueryResult requireSuccessfulExecution(
-            CliOutcome outcome, ResultDisposition expected, ResultProtocol expectedProtocol) {
+            CliOutcome outcome, ResultDisposition expectedDisposition, ResultProtocol expectedProtocol) {
         if (outcome.exitCode() != 0 || outcome.receipt() == null
                 || outcome.output() == null) {
             preserveDiagnostics = true;
@@ -525,15 +526,20 @@ final class IndependentLocalProcesses implements AutoCloseable {
         }
         String queryId = record.path("queryId").asText();
         QueryStatusResponse publicStatus = status(queryId);
-        var endpoint = publicStatus.resultEndpoint();
-        boolean endpointMatches = expected == ResultDisposition.STREAM
-                ? endpoint != null && expectedProtocol.value().equals(endpoint.protocol())
-                : endpoint == null;
-        if (!"FINISHED".equals(publicStatus.state()) || publicStatus.resultDisposition() != expected
-                || !endpointMatches) {
+        boolean expectedResult = switch (expectedDisposition) {
+            case NONE -> publicStatus.resultEndpoint() == null
+                    && outcome.output().lines().anyMatch("OK (no result set)"::equals);
+            case STREAM -> publicStatus.resultEndpoint() != null
+                    && expectedProtocol.value().equals(publicStatus.resultEndpoint().protocol());
+            case PENDING, UNAVAILABLE -> throw new IllegalArgumentException(
+                    "A consumed query must expect a stream or a command acknowledgement");
+        };
+        if (!"FINISHED".equals(publicStatus.state())
+                || publicStatus.resultDisposition() != expectedDisposition || !expectedResult) {
             preserveDiagnostics = true;
             throw new IllegalStateException("Public query state or typed result protocol disagrees"
-                    + " with CLI receipt: " + queryId + " status=" + publicStatus);
+                    + " with CLI receipt: " + queryId + " expected=" + expectedDisposition
+                    + " status=" + publicStatus);
         }
         return new QueryResult(queryId, outcome.output());
     }

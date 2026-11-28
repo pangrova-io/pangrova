@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -52,6 +53,15 @@ class CanonicalFlightPackageTest(unittest.TestCase):
     def test_real_package_declares_direct_grpc_dependency_without_telemetry(self):
         result = self.configure(OPTIONS.flight_prefix)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        if sys.platform == "darwin":
+            for name in ("libarrow.dylib", "libarrow_flight.dylib"):
+                library = OPTIONS.flight_prefix / "lib" / name
+                fixups = subprocess.check_output(["xcrun", "dyld_info", "-fixups", str(library)], text=True)
+                shared_storage = [
+                    line.strip() for line in fixups.splitlines()
+                    if "weak-bind" in line and "Status7messageEvE10no_message" in line
+                ]
+                self.assertFalse(shared_storage, f"{name} shares private Arrow status storage: {shared_storage}")
 
     def test_headers_without_library_do_not_admit_an_incomplete_runtime(self):
         with tempfile.TemporaryDirectory(prefix="pangrova-flight-headers-") as directory:

@@ -34,12 +34,6 @@ bytes = "1"
 [build-dependencies]
 prost-build = "0.13"
 
-[patch.crates-io]
-lance = { path = "../deps-download/lance-sdk-owned/lance-0.20.0" }
-lance-io = { path = "../deps-download/lance-sdk-owned/lance-io-0.20.0" }
-lance-file = { path = "../deps-download/lance-sdk-owned/lance-file-0.20.0" }
-lance-encoding = { path = "../deps-download/lance-sdk-owned/lance-encoding-0.20.0" }
-
 [profile.release]
 # MEM-R5: thin LTO instead of fat LTO. Fat LTO (lto = true) loads bitcode for
 # the entire lance/datafusion/arrow/tokio dependency tree into a single linker

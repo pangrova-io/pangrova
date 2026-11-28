@@ -614,13 +614,13 @@ void PangrovaVeloxDataSource::createReaderPair(
   // that uses source (physical) column names from the file schema. The Parquet
   // reader matches columns by name, so renamed columns would fail without this.
   // Post-processing (applyColumnMapping) renames back to target names.
-  std::unordered_map<std::string, std::string> target_to_source;
+  std::unordered_map<std::string, size_t> target_to_mapping;
   if (!requestedType) {
-    for (const auto& cm : current_column_mappings_) {
-      auto lower_target = cm.target_name;
+    for (size_t i = 0; i < current_column_mappings_.size(); ++i) {
+      auto lower_target = current_column_mappings_[i].target_name;
       std::transform(lower_target.begin(), lower_target.end(),
                      lower_target.begin(), ::tolower);
-      target_to_source[lower_target] = cm.source_name;
+      target_to_mapping[lower_target] = i;
     }
   }
   std::vector<std::string> reader_names;
@@ -646,7 +646,7 @@ void PangrovaVeloxDataSource::createReaderPair(
     auto lower_col = col_name;
     std::transform(lower_col.begin(), lower_col.end(),
                    lower_col.begin(), ::tolower);
-    auto it = target_to_source.find(lower_col);
+    auto it = target_to_mapping.find(lower_col);
     auto physical_type = target_type->childAt(i);
     if (!requestedType) {
       for (const auto& mapping : current_column_mappings_) {
@@ -664,8 +664,22 @@ void PangrovaVeloxDataSource::createReaderPair(
       }
     }
     if (col_name.empty()) continue;
-    reader_names.push_back(
-        it == target_to_source.end() ? col_name : it->second);
+    bool mapped = it != target_to_mapping.end();
+    auto physical_name = mapped ? current_column_mappings_[it->second].source_name : col_name;
+    if (!requestedType && splitConfig.iceberg && col_name != kPhysicalRowPositionColumnName &&
+        !outReader->rowType()->containsChild(physical_name)) {
+      if (current_partition_values_.contains(col_name)) continue;
+      // Keep the missing column out of DWIO's projection. Preserve an explicit
+      // mapping's identity even when the logical name belongs to another field.
+      if (mapped) {
+        current_column_mappings_[it->second].source_id = -1;
+      } else {
+        current_column_mappings_.push_back({.source_id = -1, .source_name = col_name,
+            .target_name = col_name, .default_value = {}});
+      }
+      continue;
+    }
+    reader_names.push_back(std::move(physical_name));
     reader_types.push_back(physical_type);
   }
   if (!requestedType) {

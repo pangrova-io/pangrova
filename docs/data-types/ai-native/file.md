@@ -36,6 +36,10 @@ INSERT INTO documents VALUES
     (2, FILE_FROM_BYTES(X'68656C6C6F', 'text/plain'));
 ```
 
+`FILE_FROM_BYTES` returns SQL `NULL` when either argument is `NULL` and publishes
+no object for that row. A nullable `FILE` retains its null value through
+expressions, shuffle, and Arrow Flight results.
+
 `FILE_FROM_URL` accepts **HTTPS only**. The importer checks the configured host
 allowlist, URL structure, public DNS addresses, size, MIME type, and checksum.
 S3, HDFS, plain HTTP, and other source URI schemes are not accepted by this helper.

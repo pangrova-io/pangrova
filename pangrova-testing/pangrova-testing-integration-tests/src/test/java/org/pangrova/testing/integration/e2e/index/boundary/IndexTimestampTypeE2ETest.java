@@ -61,7 +61,7 @@ class IndexTimestampTypeE2ETest extends SqlE2ETestBase {
         @DisplayName("BTREE range query on TIMESTAMP returns correct results")
         void btreeTimestampRangeReturnsCorrectResults() {
             sqlRunner.executeDdl("CREATE INDEX idx_bt_ts ON " + fqn
-                    + "(ts) USING BTREE");
+                    + "(ts) USING BTREE FORCE");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn
@@ -81,7 +81,7 @@ class IndexTimestampTypeE2ETest extends SqlE2ETestBase {
             IndexTestFixture.assertCorrectnessInvariant(sqlRunner, fqn,
                     "ts BETWEEN TIMESTAMP '2025-01-01 00:00:00'"
                             + " AND TIMESTAMP '2025-02-01 00:00:00'",
-                    "CREATE INDEX idx_bt_ts ON " + fqn + "(ts) USING BTREE");
+                    "CREATE INDEX idx_bt_ts ON " + fqn + "(ts) USING BTREE FORCE");
         }
     }
 
@@ -104,7 +104,7 @@ class IndexTimestampTypeE2ETest extends SqlE2ETestBase {
         @DisplayName("SPARSE range query on TIMESTAMP returns correct results")
         void sparseTimestampRangeReturnsCorrectResults() {
             sqlRunner.executeDdl("CREATE INDEX idx_sp_ts ON " + fqn
-                    + "(ts) USING SPARSE");
+                    + "(ts) USING SPARSE FORCE");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn
@@ -124,7 +124,7 @@ class IndexTimestampTypeE2ETest extends SqlE2ETestBase {
             IndexTestFixture.assertCorrectnessInvariant(sqlRunner, fqn,
                     "ts BETWEEN TIMESTAMP '2025-01-01 00:00:00'"
                             + " AND TIMESTAMP '2025-02-01 00:00:00'",
-                    "CREATE INDEX idx_sp_ts ON " + fqn + "(ts) USING SPARSE");
+                    "CREATE INDEX idx_sp_ts ON " + fqn + "(ts) USING SPARSE FORCE");
         }
     }
 

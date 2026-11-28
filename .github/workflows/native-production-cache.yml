@@ -1,0 +1,61 @@
+name: Native production dependency cache
+
+on:
+  schedule:
+    - cron: '30 4 * * 0'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-production-cache.yml'
+      - 'deploy/docker/Dockerfile.native-build'
+      - 'deploy/docker/docker-bake.hcl'
+      - 'deploy/docker/build-static-system-deps.sh'
+      - 'pangrova-worker-native/dependency-versions.txt'
+      - 'pangrova-worker-native/patches/**'
+      - 'pangrova-worker-native/bin/setup-native-build-env.sh'
+      - 'pangrova-worker-native/bin/apply-velox-patches.sh'
+      - 'pangrova-worker-native/bin/record-function-provenance.sh'
+      - 'pangrova-worker-native/bin/prepare-aws-sdk-source.sh'
+      - 'pangrova-worker-native/bin/prepare-lance-sdk.sh'
+      - 'pangrova-worker-native/cmake/dependency-checks/re2/**'
+      - 'pangrova-worker-native/tools/function-contracts/FunctionGenerationIdentity.cpp'
+      - 'pangrova-worker-native/jni_exported_symbols.map'
+      - 'pangrova-worker-native/patch_flight_types.py'
+      - 'pangrova-protocol/tools/function-contracts/**'
+      - 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-production-dependency-cache
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    name: Warm canonical production dependency layers (Linux x86-64)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Authenticate to the production dependency cache
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and publish the canonical dependency layers
+        run: |
+          repository=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          cache="ghcr.io/$repository/build-cache:linux-amd64-v1"
+          docker buildx bake -f deploy/docker/docker-bake.hcl \
+            --set native-production-dependencies.args.NATIVE_BUILD_JOBS=2 \
+            --set "native-production-dependencies.cache-from=type=registry,ref=$cache" \
+            --set "native-production-dependencies.cache-to=type=registry,ref=$cache,mode=max,image-manifest=true,oci-mediatypes=true" \
+            native-production-dependencies
