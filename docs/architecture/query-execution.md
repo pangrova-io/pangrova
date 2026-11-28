@@ -814,8 +814,15 @@ evidence cannot be persisted and later become unreadable. The submission
 factory validates graph size before returning a dispatch specification, and
 all build insertion paths validate again before SQL mutations, including
 caller-owned transactions. Domain record construction alone is not persistence
-admission. Graph format 3 binds the planner's partition-local proof to the
-immutable stage plan and exchange shape.
+admission. Graph format 4 binds the planner's partition-local proof and the exact
+splittable input identities to the immutable stage plan and exchange shape.
+Replay checks the allowed sides against the saved Substrait join in the same
+pass that verifies its exchange schemas.
+On submission, the initial graph write and exchange index share the same
+computed digest. Claim, registration and publication transactions carry the
+digest verified by their existing authority read into exchange validation.
+Registration uses one locked lookup for the original allocation, source
+snapshot and physical producer count, alongside the existing graph index check.
 
 The durable DAG reuses the live byte-based coalescer for certified single HASH
 inputs and aligned two-input HASH joins. When a stage reduces its task count,

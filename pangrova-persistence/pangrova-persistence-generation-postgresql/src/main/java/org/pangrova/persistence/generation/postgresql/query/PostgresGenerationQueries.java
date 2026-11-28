@@ -39,7 +39,7 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
 
     /** Reads the immutable scoped dispatch contract without synthesizing missing state. */
     @Override
-    public Optional<GenerationDispatchSpec> findDispatchSpec(
+    public Optional<StoredDispatch> findStoredDispatch(
             Connection connection, String tenantId, String jobId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT * FROM artifact_build_dispatch_specs "
@@ -50,15 +50,16 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
                 if (!result.next()) {
                     return Optional.empty();
                 }
-                return Optional.of(new GenerationDispatchSpec(
-                        jobId, GenerationStageGraphCodec.decode(
-                                result.getBytes("stage_graph_bytes"), result.getString("stage_graph_sha256")),
+                String graphSha256 = result.getString("stage_graph_sha256");
+                var graph = GenerationStageGraphCodec.decode(result.getBytes("stage_graph_bytes"), graphSha256);
+                var spec = new GenerationDispatchSpec(jobId, graph,
                         result.getString("tenant_id"), result.getString("principal"),
                         org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec.decode(
                                 result.getBytes("authorization_scope_bytes")),
                         result.getLong("max_memory_bytes"), result.getInt("max_threads"),
                         result.getLong("max_spill_bytes"),
-                        result.getLong("task_timeout_millis")));
+                        result.getLong("task_timeout_millis"));
+                return Optional.of(new StoredDispatch(spec, graphSha256));
             }
         }
     }

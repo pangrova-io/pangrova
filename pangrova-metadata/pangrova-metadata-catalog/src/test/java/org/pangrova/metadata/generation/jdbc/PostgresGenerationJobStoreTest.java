@@ -919,7 +919,10 @@ class PostgresGenerationJobStoreTest {
         var miswired = new org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority() {
             @Override
             public AuthorizedDispatch authorize(java.sql.Connection connection, String tenant, String job) {
-                return new AuthorizedDispatch(dispatchSpec("tenant-2"), Set.of("artifact_builder"));
+                var spec = dispatchSpec("tenant-2");
+                var stored = new org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs.StoredDispatch(
+                        spec, org.pangrova.generation.codec.execution.GenerationStageGraphCodec.sha256(spec.stageGraph()));
+                return new AuthorizedDispatch(stored, Set.of("artifact_builder"));
             }
             @Override
             public void requireCurrent(java.sql.Connection connection, String tenant, String principal,

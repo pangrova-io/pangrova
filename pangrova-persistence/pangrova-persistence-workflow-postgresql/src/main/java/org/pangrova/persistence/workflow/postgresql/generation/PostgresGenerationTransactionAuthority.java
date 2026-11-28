@@ -42,16 +42,16 @@ public final class PostgresGenerationTransactionAuthority implements GenerationT
     @Override
     public AuthorizedDispatch authorize(Connection connection, String tenantId, String jobId) throws SQLException {
         publicationLock.lockPublication(connection);
-        GenerationDispatchSpec spec;
+        GenerationTransactionInputs.StoredDispatch stored;
         try {
-            spec = inputs.findDispatchSpec(connection, tenantId, jobId)
+            stored = inputs.findStoredDispatch(connection, tenantId, jobId)
                     .orElseThrow(() -> new AuthorizationDeniedException(
                             "Deferred work has no scoped dispatch specification"));
         } catch (IllegalArgumentException unscopedOrCorrupt) {
             throw new AuthorizationDeniedException(
                     "Deferred work has invalid scope metadata; securely resubmit the job");
         }
-        return new AuthorizedDispatch(spec, requireScope(connection, spec));
+        return new AuthorizedDispatch(stored, requireScope(connection, stored.dispatchSpec()));
     }
 
     /** Checks the current tenant, security, and model authority under the publication lock. */

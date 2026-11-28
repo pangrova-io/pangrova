@@ -39,9 +39,10 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
         super(dataSource);
     }
 
-    protected static void insertDispatchSpec(
+    protected static String insertDispatchSpec(
             Connection connection, GenerationDispatchSpec spec) throws SQLException {
         byte[] graphBytes = GenerationStageGraphCodec.encode(spec.stageGraph());
+        String graphSha256 = org.pangrova.common.util.DigestUtils.sha256Hex(graphBytes);
         String sql = "INSERT INTO artifact_build_dispatch_specs "
                 + "(tenant_id,job_id,stage_graph_bytes,stage_graph_sha256,principal,max_memory_bytes,"
                 + "max_threads,max_spill_bytes,task_timeout_millis,authorization_scope_bytes) "
@@ -51,7 +52,7 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
             statement.setString(parameter++, spec.tenantId());
             statement.setString(parameter++, spec.jobId());
             statement.setBytes(parameter++, graphBytes);
-            statement.setString(parameter++, org.pangrova.common.util.DigestUtils.sha256Hex(graphBytes));
+            statement.setString(parameter++, graphSha256);
             statement.setString(parameter++, spec.principal());
             statement.setLong(parameter++, spec.maxMemoryBytes());
             statement.setInt(parameter++, spec.maxThreads());
@@ -61,6 +62,7 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
                     spec.authorizationScope()));
             statement.executeUpdate();
         }
+        return graphSha256;
     }
 
     protected static void insertPage(

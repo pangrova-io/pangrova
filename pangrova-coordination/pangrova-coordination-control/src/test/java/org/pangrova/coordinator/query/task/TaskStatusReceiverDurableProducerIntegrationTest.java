@@ -835,7 +835,9 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         var registered = shuffleRequest(7);
         var replacement = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement", 9);
         installStatementCounters();
-        long allEdgesBefore = exchangeReads().combined();
+        var readsBefore = exchangeReads();
+        String separateIdentity = "SELECT j.source_snapshot, e.physical_producer_count%";
+        long separateIdentityBefore = statementReads(separateIdentity);
         String exactRegistration = "WITH exact_registration_edge AS MATERIALIZED%";
         long exactRegistrationBefore = statementReads(exactRegistration);
         assertThatThrownBy(() -> original.restoredAllocation(registered))
@@ -847,8 +849,12 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThatThrownBy(() -> recovered.registered(registered, allocation(), shuffleOwner(anchor)))
                 .hasMessageContaining("stale owner");
         recovered.registered(registered, allocation(), shuffleOwner(replacement));
-        assertThat(exchangeReads().combined() - allEdgesBefore).isZero();
-        assertThat(statementReads(exactRegistration) - exactRegistrationBefore).isEqualTo(2);
+        var reads = exchangeReads().since(readsBefore);
+        assertThat(reads.combined()).isZero();
+        assertThat(reads.registration()).isZero();
+        assertThat(reads.graph()).isOne();
+        assertThat(statementReads(separateIdentity) - separateIdentityBefore).isZero();
+        assertThat(statementReads(exactRegistration) - exactRegistrationBefore).isEqualTo(3);
         assertThat(ModelAuthorityFixtures.artifacts().exchanges(dataSource)
                 .load(KEY, GenerationExecutionOwner.from(replacement))).singleElement().satisfies(evidence ->
                         assertThat(evidence.registration().registeredOwner()).isEqualTo(GenerationExecutionOwner.from(anchor)));

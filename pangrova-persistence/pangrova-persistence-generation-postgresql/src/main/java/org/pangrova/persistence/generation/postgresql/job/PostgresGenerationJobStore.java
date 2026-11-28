@@ -234,8 +234,8 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
         }
         PostgresGenerationJobInsertion.insertJob(connection, job);
         PostgresGenerationExecutionRoutes.insertRoute(connection, job.tenantId(), job.jobId());
-        insertDispatchSpec(connection, dispatchSpec);
-        PostgresGenerationStageExchangeStore.insertGraphEdges(connection, dispatchSpec);
+        String graphSha256 = insertDispatchSpec(connection, dispatchSpec);
+        PostgresGenerationStageExchangeStore.insertGraphEdges(connection, dispatchSpec, graphSha256);
         for (GenerationPage page : immutablePages) {
             insertPage(connection, job.tenantId(), page, job.createdAt());
         }
