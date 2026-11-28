@@ -313,6 +313,13 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   and download archives. Artifacts are short-lived, not cross-run dependency
   caches; partitioning adds transfer overhead. macOS no longer restores an
   optional last-successful baseline artifact in CI.
+- The production image job imports the Linux x86-64 dependency layers from a
+  repository-owned OCI cache. The separate cache workflow builds the dependency
+  stage from the same Dockerfile on main. BuildKit validates layer inputs and
+  compiles from those inputs on a cache miss. Pull requests can read this cache.
+  The final runtime image is still built, labeled and tested for the selected
+  revision.
+
 - macOS explicitly installs and verifies ccache and exports its compiler
   launchers to every CMake invocation. Stage-specific compiler cache keys
   preserve completed work even when a later stage fails. The Native job

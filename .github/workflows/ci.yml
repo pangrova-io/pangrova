@@ -151,6 +151,9 @@ jobs:
   production-image:
     name: Build canonical Linux production image
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
     needs: [change-scope, iceberg-sdk]
     if: needs.change-scope.outputs.runtime == 'true'
     outputs:
@@ -165,6 +168,16 @@ jobs:
       - name: Install same-run Iceberg SDK
         uses: ./.github/actions/restore-iceberg-sdk
 
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Authenticate to the production dependency cache
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          repository=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "PANGROVA_PRODUCTION_CACHE=ghcr.io/$repository/build-cache:linux-amd64-v1" >> "$GITHUB_ENV"
+
       - name: Build the canonical same-source Linux production image
         id: build
         shell: bash
@@ -174,6 +187,7 @@ jobs:
             docker buildx bake --load -f deploy/docker/docker-bake.hcl \
               --allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk" \
               --set native-build.args.NATIVE_BUILD_JOBS=2 \
+              --set "native-build.cache-from=type=registry,ref=$PANGROVA_PRODUCTION_CACHE" \
               --set 'pangrova.args.MAVEN_ARGS=-C --global-settings /build/.mvn/ci-settings.xml' \
               --set "pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk" pangrova
           image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")

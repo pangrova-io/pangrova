@@ -398,6 +398,26 @@ class StructuralPolicyTest(unittest.TestCase):
             # Full regression and the isolated owner suites both require this identity.
             self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 2)
 
+    def test_production_cache_uses_the_canonical_dependency_stage_and_trusted_writer(self):
+        workflow = (WORKFLOWS / 'ci.yml').read_text()
+        image = workflow.split('  production-image:\n', 1)[1].split('  production-regression:', 1)[0]
+        publisher = (WORKFLOWS / 'native-production-cache.yml').read_text()
+        cache_tag = 'build-cache:linux-amd64-v1'
+        self.assertIn(cache_tag, image)
+        self.assertIn(cache_tag, publisher)
+        self.assertIn('packages: read', image)
+        self.assertNotIn('cache-to', image)
+        self.assertIn('native-build.cache-from=type=registry', image)
+        self.assertIn("if: github.ref == 'refs/heads/main'", publisher)
+        self.assertIn('packages: write', publisher)
+        self.assertIn('native-production-dependencies.args.NATIVE_BUILD_JOBS=2', publisher)
+        self.assertIn('native-production-dependencies.cache-to=type=registry', publisher)
+        bake = (ROOT / 'deploy/docker/docker-bake.hcl').read_text()
+        target = bake.split('target "native-production-dependencies" {', 1)[1].split('}', 1)[0]
+        self.assertIn('inherits = ["native-build"]', target)
+        self.assertIn('target = "builder"', target)
+        self.assertIn('output = ["type=cacheonly"]', target)
+
     def test_local_file_acceptance_runs_in_its_own_native_process(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         production = workflow.split('  production-regression:\n', 1)[1].split(
