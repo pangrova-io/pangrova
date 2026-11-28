@@ -64,9 +64,36 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
 | A9 | `TaskRuntimeFilterWire` 与 `RuntimeFilterRpcIntegrationTest` 覆盖控制面，`IndependentLateRuntimeFilterE2ETest` 覆盖真实晚到过滤。主线已包含 build-key range 不可变快照修复 `b325de4c4`。 |
 | A10/B5 | `DurableStageShuffleEvidence` 记录持久交换证据，`RemoteShuffleSqlCoalescingE2ETest` 和 `AdaptiveQueryExecutionE2ETest` 提供真实 SQL 入口。 |
 | A11/B7 | `PostgresShuffleWindowPublication` 发布 producer window，`DurableShuffleIntegrationTest` 与 `PhysicalTwoWorkerShuffleE2ETest` 覆盖持久状态和数据面。未出现对象的止写证明仍开放。 |
-| A12/B8 | `CdcCommitCoordinator`、`JdbcCdcCommitStateStore` 管理发布和回执，`IndependentCdcProcessesE2ETest` 和 `IndependentRelationalWriteRecoveryE2ETest` 提供重放、接管与回读入口。 |
+| A12/B8 | 生产入口 `JournaledCdcRuntime` 由写入 journal 查询 checkpoint，`CdcWriteCommitCoordinator` 处理 fenced 发布。`IndependentCdcProcessesE2ETest` 和 `IndependentRelationalWriteRecoveryE2ETest` 提供重放、接管与回读入口。 |
 | A13 | `ObservedWriteStagingRecovery` 和 `JdbcObservedWriteStaging` 驱动观测文件回收。现有回收作用域覆盖已报告的本地 Paimon SDK 文件。 |
 | B4/B6 | 复用 `RemoteShuffleSqlCoalescingE2ETest` 的真实 SQL 入口与独立进程基准。以 `NativeCapabilityHandshakeE2ETest` 和物理排空夹具核对同源部署及所有权。 |
+
+### 2026-11-28 分批回归
+
+以下日志位于本次运行的本机证据目录。失败项和当前同源验收缺口仍在 A、B 和 N 表中。
+
+| 批次 | 提交和实际结果 |
+|---|---|
+| N1 | `a11cb8f53` 完成 Common、JDBC、策略持久化和精确类加载白名单的切换。`n1-selected.log` 为 229 项通过，零失败、错误或跳过。扩大范围的首轮测试在旧 Native capability fixture 的 descriptor 身份校验处失败，见 `n1-focused.log`。 |
+| N2 | `6e270165c` 完成 Parser、Planner、Protocol Java、Indexing、生成与 Connector 更名。`n2-selected-corrected.log` 为 380 项通过。扩大编译范围时发现 Apache Commons Codec 的同名引用，已恢复该外部 SDK 引用。 |
+| N3 | `c70789b84` 完成启停、观测、AI、运维与测试夹具迁移。`n3-selected-independent.log` 记录 107 项，1 项 SPI 可达性失败。`baseline-spi-wiring-with-source.log` 在冻结基线复现相同四个独立库组件。加入显式消费者合同后，`57d6f3d37` 对应的 `reachability-final.log` 中 18 项通过，覆盖 SPI、ServiceLoader、Bootstrap 和 SQL 编译会话。Worker 启停的大范围复跑仍需新 Native capability fixture。 |
+| N4 | 声明与路径扫描确认 61 个目标声明各唯一、22 个旧包无源码声明、11 个保留声明均在。JDBC Maven 模块名继续为 `org.pangrova.persistence.jdbc.support`。模块基线、SPI 注解、365 项文档类引用、Protobuf descriptor golden 和 244 项仓库工具回归通过。SpotBugs 过滤器的 JVM 类型路径和两处已有的精确 SQL 分类检查已同步，见 `spotbugs-filter-final.log`。 |
+| A4/B6 | `471cb357a` 扩展同一条 SQL 夹具的 PostgreSQL 计数、Native 文件读取和 Flight 阶段采样。以冻结基线的 Java 测试类路径执行 `javac --release 17` 通过。运行结果等待同源 Native。 |
+| A6 | `8490621ce` 在 Worker 注册表恢复时采纳同 incarnation 的较新负载样本，并保留本地退役状态。定向回归在构造 Worker 的旧 capability fixture 时被 descriptor 校验阻止，见 `a6-registry.log`。多 Coordinator 并发派发以及心跳与本地在途计数的重叠仍待验证。 |
+| A1/A11/A12/A13 | `56dc818b2` 对缺少对象回执的 Paimon 暂存保留回收义务。定向 reactor 共 104 项通过，包含 PostgreSQL query journal 48 项、journal SQL 1 项、write journal 2 项、PostgreSQL/MinIO Shuffle 33 项和 Paimon 20 项，零失败、错误或跳过。见 `write-shuffle-journals.log`。Shuffle 在 32 批次共享一个写窗口的场景断言 8 条总 SQL，独立测试断言读窗口续租 2 条、关闭 1 条。完整进程路径的 SQL 和排空仍待测。 |
+
+Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
+Paimon、Shuffle 与 journal 的复现命令如下。
+
+```bash
+mvn -B -pl pangrova-connector/pangrova-connector-paimon,pangrova-persistence/pangrova-persistence-query-postgresql,pangrova-shuffle/pangrova-shuffle-service -am \
+  -Dtest=PaimonDistributedDeleteCommitTest,JdbcQueryStateJournalIntegrationTest,JdbcWriteCommitJournalInitializationTest,DurableShuffleIntegrationTest,JournalSqlOperationTest \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -B -pl pangrova-testing/pangrova-testing-integration-tests -am \
+  -Dtest=SpiWiringVerificationTest,ServiceLoaderReachabilityTest,BootstrapReachabilityTest,SqlCompilerSessionIntegrationTest \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_*.py'
+```
 
 ## A 实现工作包与单项验证 {#remaining-work}
 
