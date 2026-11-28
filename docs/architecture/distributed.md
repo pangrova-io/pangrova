@@ -602,6 +602,13 @@ incarnation while preserving local decommissioning. The refreshed placement
 sample uses the registry's accepted timestamp. A registry snapshot older than
 the local sample is ignored for that same Worker process.
 
+For each exact Worker incarnation, placement adds locally prepared attempts to
+the greater of the Worker heartbeat's in-flight count and the local count of
+entered attempts. Prepared attempts become eligible to appear in heartbeats
+when dispatch enters transport. The Coordinator releases a prepared attempt
+on rollback and holds an entered attempt until it accepts the exact physical
+drain receipt.
+
 #### 5.2.1 Scheduling Rules by Memory Pressure
 
 | Worker Memory Pressure | Scheduling Decision | Rationale |

@@ -496,9 +496,9 @@ public class CoordinatorTaskTracker {
                 fact.state(), fact.stageId(), fact.reportSequence(), issuance);
     }
 
-    /** Counts assigned attempts through their exact physical release or pre-transport rollback. */
+    /** Combines the Worker sample with locally assigned attempts held until exact release. */
     public int placementLoad(WorkerInfo worker) {
-        return taskIdentityStore.workerLoad(worker.workerExecutionIdentity());
+        return taskIdentityStore.placementLoad(worker.workerExecutionIdentity(), worker.inFlightTaskCount());
     }
 
     /** Captures the actual target before transport admission, never a later WorkerId lookup. */

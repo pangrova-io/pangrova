@@ -155,19 +155,23 @@ class TaskIdentityRegistryDrainContractTest {
         registry.registerRequest("task", request);
         registry.bindTarget(request, worker);
         registry.bindTarget(request, worker);
-        assertThat(registry.workerLoad(worker.workerExecutionIdentity())).isOne();
-        assertThat(registry.workerLoad(replacement)).isZero();
+        var target = worker.workerExecutionIdentity();
+        assertThat(registry.placementLoad(target, 0)).isOne();
+        assertThat(registry.placementLoad(target, 7)).isEqualTo(8);
+        assertThat(registry.placementLoad(target, Integer.MAX_VALUE)).isEqualTo(Integer.MAX_VALUE);
+        assertThat(registry.placementLoad(replacement, 7)).isEqualTo(7);
 
         registry.enterDispatch(request);
         registry.sealQuery("query");
         assertThatThrownBy(() -> registry.remove("task"))
                 .hasMessageContaining("without actual drain evidence");
-        assertThat(registry.workerLoad(worker.workerExecutionIdentity())).isOne();
+        assertThat(registry.placementLoad(target, 0)).isOne();
+        assertThat(registry.placementLoad(target, 7)).isEqualTo(7);
         var drained = receipt(request);
         registry.recordExecutionDrain(request, drained);
         registry.recordExecutionDrain(request, drained);
         registry.retireQuery("query");
-        assertThat(registry.workerLoad(worker.workerExecutionIdentity())).isZero();
+        assertThat(registry.placementLoad(target, 0)).isZero();
     }
 
     @Test
@@ -177,11 +181,11 @@ class TaskIdentityRegistryDrainContractTest {
         var target = TestWorkerInfoBuilder.executionIdentity("worker");
         issue(registry, request);
         assertThat(registry.removeRequest("task", request)).isTrue();
-        assertThat(registry.workerLoad(target)).isZero();
+        assertThat(registry.placementLoad(target, 7)).isEqualTo(7);
         issue(registry, request);
-        assertThat(registry.workerLoad(target)).isOne();
+        assertThat(registry.placementLoad(target, 7)).isEqualTo(8);
         registry.remove("task");
-        assertThat(registry.workerLoad(target)).isZero();
+        assertThat(registry.placementLoad(target, 7)).isEqualTo(7);
     }
 
     @Test

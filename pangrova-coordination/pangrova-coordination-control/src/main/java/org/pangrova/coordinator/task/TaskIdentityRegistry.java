@@ -17,7 +17,7 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 final class TaskIdentityRegistry {
     private final ConcurrentHashMap<String, Identity> identities = new ConcurrentHashMap<>();
     // Published under the issuance lock and read by placement without locking or scanning attempts.
-    private final ConcurrentHashMap<WorkerExecutionIdentity, Integer> workerLoads = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<WorkerExecutionIdentity, WorkerLoad> workerLoads = new ConcurrentHashMap<>();
     // This is the admission state of the SAME issued identities, not a second
     // completion registry. All mutations below are local; no RPC runs here.
     @javax.annotation.concurrent.GuardedBy("this")
@@ -258,7 +258,8 @@ final class TaskIdentityRegistry {
         }
         identities.put(taskId, new Identity(existing.attempt(), existing.request(), existing.drainReceipt(),
                 java.util.Objects.requireNonNull(worker, "worker"), existing.entered()));
-        workerLoads.merge(worker.workerExecutionIdentity(), 1, Integer::sum);
+        workerLoads.compute(worker.workerExecutionIdentity(), (key, load) -> load == null
+                ? new WorkerLoad(1, 0) : new WorkerLoad(load.prepared() + 1, load.entered()));
     }
 
     CoordinatorTaskTracker.IssuedTask liveReadTarget(String taskId, String queryId) {
@@ -271,18 +272,22 @@ final class TaskIdentityRegistry {
         return new CoordinatorTaskTracker.IssuedTask(identity.request(), identity.worker(), java.util.Optional.empty());
     }
 
-    int workerLoad(WorkerExecutionIdentity worker) {
-        return workerLoads.getOrDefault(worker, 0);
+    int placementLoad(WorkerExecutionIdentity worker, int heartbeatInFlight) {
+        var load = workerLoads.get(worker);
+        if (load == null) return heartbeatInFlight;
+        // Prepared attempts cannot be in a Worker heartbeat until transport has been entered.
+        long estimated = (long) load.prepared() + Math.max(load.entered(), heartbeatInFlight);
+        return (int) Math.min(estimated, Integer.MAX_VALUE);
     }
 
     private void releaseWorkerLoad(Identity identity) {
         if (identity.worker() == null) return;
         var target = identity.worker().workerExecutionIdentity();
-        workerLoads.compute(target, (key, count) -> {
-            if (count == null) {
-                throw new IllegalStateException("Issued Worker has no placement load: " + key);
-            }
-            return count == 1 ? null : count - 1;
+        workerLoads.compute(target, (key, load) -> {
+            if (load == null) throw new IllegalStateException("Issued Worker has no placement load: " + key);
+            var remaining = identity.entered() ? new WorkerLoad(load.prepared(), load.entered() - 1)
+                    : new WorkerLoad(load.prepared() - 1, load.entered());
+            return remaining.prepared() == 0 && remaining.entered() == 0 ? null : remaining;
         });
     }
 
@@ -292,8 +297,20 @@ final class TaskIdentityRegistry {
         if (existing.worker() == null || existing.entered() || existing.drainReceipt() != null) {
             throw new IllegalStateException("Task lacks an unentered exact dispatch target");
         }
+        workerLoads.compute(existing.worker().workerExecutionIdentity(), (key, load) -> {
+            if (load == null) throw new IllegalStateException("Issued Worker has no placement load: " + key);
+            return new WorkerLoad(load.prepared() - 1, load.entered() + 1);
+        });
         identities.put(request.taskRequest().getAttempt().getTaskId(),
                 new Identity(existing.attempt(), existing.request(), existing.drainReceipt(), existing.worker(), true));
+    }
+
+    private record WorkerLoad(int prepared, int entered) {
+        private WorkerLoad {
+            if (prepared < 0 || entered < 0) {
+                throw new IllegalStateException("Issued Worker placement load underflow");
+            }
+        }
     }
 
     synchronized List<CoordinatorTaskTracker.IssuedTask> sealQuery(String queryId) {
