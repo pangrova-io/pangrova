@@ -20,8 +20,8 @@ Stream syntax and dynamic-table syntax have different maturity boundaries.
 
 Catalog publication and source offsets are not committed atomically. Do not infer
 exactly-once or effectively-once behavior, complete refresh, or failure recovery from
-these examples. See [Current Capability Status](../getting-started/capability-status.md)
-and [Streaming Architecture](../architecture/streaming.md) for known gaps.
+these examples. See [Streaming Architecture](../architecture/streaming.md) for
+execution and recovery details.
 
 
 ## Stream DDL

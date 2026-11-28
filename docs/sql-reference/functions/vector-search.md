@@ -30,8 +30,7 @@ reranking are distinct execution paths.
   executes exact distance ordering; a configured model and provider are required.
 
 These examples are query shapes and syntax references, not measured recall/latency
-or a qualification of every combination. See
-[Current Capability Status](../../getting-started/capability-status.md).
+or a qualification of every combination.
 
 ---
 

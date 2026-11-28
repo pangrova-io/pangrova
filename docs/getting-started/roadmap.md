@@ -6,8 +6,7 @@ description: "Remaining implementation gaps, proposed extensions, and qualificat
 # Roadmap
 
 This roadmap lists remaining work, not an inventory of implemented features.
-These goals are not release commitments. Read the
-[current capability status](capability-status.md) for support boundaries.
+These goals are not release commitments.
 
 ## In progress and open items
 

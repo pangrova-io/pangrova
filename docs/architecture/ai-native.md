@@ -9,8 +9,7 @@ sidebar_label: "AI-Native Architecture"
 This document describes the intended execution boundary and implementation contracts
 for Pangrova AI SQL, model invocation, generated values, retrieval, and multimodal data.
 A contract or operator does not prove that every SQL shape or lifecycle is wired and
-qualified. Read [Current Capability Status](../getting-started/capability-status.md)
-for default wiring gaps, supported boundaries, and evidence limits.
+qualified.
 Current implementation evidence and open admission gates are tracked in the
 [Roadmap](../getting-started/roadmap.md).
 

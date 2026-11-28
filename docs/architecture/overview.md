@@ -12,10 +12,8 @@ execution through JNI. Iceberg and Paimon connectors provide metadata access,
 scan planning, and catalog publication. Arrow supports interoperability and data
 exchange; Velox owns the Native execution representation.
 
-Read [Current Capability Status](../getting-started/capability-status.md) before
-interpreting an architectural component as a completed product feature. This page
-summarizes source ownership and design constraints, not production qualification
-or measured performance.
+This page summarizes source ownership and design constraints. Use the
+[production checklist](../deployment/production-checklist.md) for deployment acceptance.
 
 ## 1. Product Direction
 
@@ -108,8 +106,7 @@ terminal metadata and exposes result endpoints. Worker JVM code supplies lifecyc
 policy, secrets, and governed provider networking; it is not a second relational engine.
 
 This constraint is not a claim that every historical CDC, maintenance, or AI path
-has completed migration. Known exceptions and missing wiring are tracked in the
-[capability guide](../getting-started/capability-status.md) and subsystem documents.
+has completed migration. The subsystem guides describe their current execution paths.
 Coordinator planning and metadata services still consume resources; neither
 unlimited scaling nor automatic transparent result recovery is established here.
 
@@ -190,8 +187,6 @@ a nonempty producer and the supported major version before interpreting the plan
 Minor/patch acceptance does not replace individual capability checks. Packaged JNI
 tests cover invalid-version rejection as well as compatible-version execution.
 Worker bootstrap wires Native loading, admission, transport, and provider callbacks.
-See the [current status table](../getting-started/capability-status.md) for default
-no-op providers and absent registrations.
 
 ### 5.3 Parser
 

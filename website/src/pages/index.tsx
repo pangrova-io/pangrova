@@ -139,7 +139,7 @@ const community = [
   },
   {
     title: 'Documentation',
-    description: 'Start with the quickstart, capability status, and architecture overview.',
+    description: 'Start with the quickstart and architecture overview.',
     href: '/docs/',
     label: 'Read the docs',
   },
@@ -148,12 +148,6 @@ const community = [
     description: 'Review development priorities and open engineering items.',
     href: '/docs/getting-started/roadmap/',
     label: 'View the roadmap',
-  },
-  {
-    title: 'Capability status',
-    description: 'Check implemented paths, wiring gaps, and qualification limits.',
-    href: '/docs/getting-started/capability-status/',
-    label: 'Check capabilities',
   },
 ];
 
@@ -276,7 +270,6 @@ function Architecture() {
           <Link to="/docs/architecture/overview/">System overview →</Link>
           <Link to="/docs/architecture/query-execution/">Query execution →</Link>
           <Link to="/docs/architecture/distributed/">Distributed architecture →</Link>
-          <Link to="/docs/getting-started/capability-status/">Capability boundaries →</Link>
         </div>
       </div>
     </section>

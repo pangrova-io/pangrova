@@ -125,8 +125,7 @@ a Pangrova extension for table-to-table copies; each execution appends rows.
 File/URI loading is not implemented. A URI source, or file-loading options on a
 subquery source, returns an unsupported-feature error before any write. Do not
 use `COPY INTO` for retryable file ingestion until file discovery, authorization,
-format scanning, and committed file identity tracking are available. See
-[Current Capability Status](../getting-started/capability-status.md).
+format scanning, and committed file identity tracking are available.
 
 ### Syntax
 

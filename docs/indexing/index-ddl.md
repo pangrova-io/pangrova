@@ -9,8 +9,7 @@ Indexes accelerate predicate evaluation and ANN search over lakehouse tables. Al
 index types share the same DDL surface; behavior differs by `USING <type>`.
 A recognized index type or successful metadata operation does not prove build,
 publication, freshness, background authorization, or query acceleration. Verify the
-index artifact and actual query plan. See
-[Current Capability Status](../getting-started/capability-status.md) and the
+index artifact and actual query plan. See the
 [index publication boundary](../architecture/distributed-writes.md).
 
 ## Index Types

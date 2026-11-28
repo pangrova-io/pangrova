@@ -22,10 +22,6 @@ Pangrova is an open-source distributed SQL engine for open lakehouses. It brings
 relational analytics and AI retrieval to existing lakehouse data through a
 shared query and governance framework.
 
-> **Project status:** Under active development. See the
-> [current capability status](docs/getting-started/capability-status.md) for
-> implementation and production qualification.
-
 ## The Name
 
 Pangrova evokes the pangolin and the mangrove. The pangolin symbolizes

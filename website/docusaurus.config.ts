@@ -101,14 +101,6 @@ const config: Config = {
         autoCollapseCategories: false,
       },
     },
-    announcementBar: {
-      id: 'active_development',
-      content:
-        `Pangrova is under active development. Review the <a href="${siteBaseUrl}docs/getting-started/capability-status/">current capability status</a> before evaluating a workload.`,
-      backgroundColor: '#171336',
-      textColor: '#ddd6fe',
-      isCloseable: true,
-    },
     tableOfContents: {
       minHeadingLevel: 2,
       maxHeadingLevel: 4,
@@ -157,7 +149,6 @@ const config: Config = {
           title: 'Resources',
           items: [
             {label: 'Quickstart', to: '/docs/getting-started/quickstart/'},
-            {label: 'Capability status', to: '/docs/getting-started/capability-status/'},
             {label: 'Roadmap', to: '/docs/getting-started/roadmap/'},
           ],
         },

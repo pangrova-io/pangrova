@@ -17,8 +17,6 @@ The diagrams and interface sketches below are explanatory, not generated wire/AP
 contracts or evidence that all statement forms are supported. Native Flight serves
 shuffle and results; the Worker JVM is not a result/shuffle batch relay. The canonical
 v2 definitions and current JNI exports take precedence over historical snippets.
-Read [Current Capability Status](../getting-started/capability-status.md) for default
-no-op providers, absent task registration, and qualification limits.
 
 ## Query session ownership
 
