@@ -327,11 +327,14 @@ allocating the connector split list or registering SDK readers. Conversion
 rechecks the deadline and query lifetime while visiting files. The pinned
 Paimon batch scanner checks cancellation and the deadline on manifest entry
 admission, including the underlying scanner for data-evolution reads. The
-connector retains the SDK's data-evolution wrapper and query authorization. The connector rejects more than one million candidate manifest
-entries in that scanner or an incremental range spanning more than one million
-snapshots. A rejected scan fails as a whole. The SDK still owns manifest task
-submission and individual storage calls. SDK scan variants that do not expose
-the same manifest hook have extent checks at the planning boundary.
+connector retains the SDK's data-evolution wrapper and query authorization.
+It submits one window of at most 32 manifest reads per source, constrained by
+the configured scan parallelism, and consumes that window before submitting
+another. Full scans reconcile file identities across all windows so a deletion
+in a later manifest also removes an earlier addition. Append, primary-key and
+data-evolution scans share this submission bound. The connector rejects more
+than one million candidate entries or an incremental range spanning more than
+one million snapshots. A rejected scan fails as a whole.
 The direct JDBC catalog reads the metadata pointer during load. Catalog wrappers
 that can return cached SDK tables refresh that observation before validation.
 

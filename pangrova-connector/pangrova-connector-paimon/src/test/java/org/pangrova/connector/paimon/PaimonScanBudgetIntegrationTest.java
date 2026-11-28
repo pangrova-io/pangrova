@@ -10,10 +10,12 @@ import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.metadata.SplitPlanningBudget;
@@ -218,6 +220,47 @@ class PaimonScanBudgetIntegrationTest {
         }
     }
 
+    @Test
+    void blockedManifestPreventsSubmissionBeyondTheCurrentWindow() throws Exception {
+        var io = new ManifestIo();
+        try (var catalog = new FileSystemCatalog(io, new org.apache.paimon.fs.Path(directory.toString()))) {
+            var table = manifestTable(catalog, 5);
+            io.observe = true;
+            io.holdOnlyFirst = true;
+            var planner = ManagedExecutorFactory.newSingleThreadExecutor("bounded-paimon-manifest-test");
+            try {
+                var planned = planner.submit(() -> budget(100).plan(table, null, null));
+                assertThat(io.entered.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThat(io.beyondWindow.await(500, TimeUnit.MILLISECONDS)).isFalse();
+                io.resume.countDown();
+                assertThat(planned.get(15, TimeUnit.SECONDS).stream()
+                        .map(DataSplit.class::cast).mapToInt(split -> split.dataFiles().size()).sum()).isEqualTo(5);
+                assertThat(io.opens.get()).isEqualTo(5);
+            } finally {
+                io.resume.countDown();
+                planner.shutdownNow();
+                assertThat(planner.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            }
+        }
+    }
+
+    @Test
+    void deletesInLaterManifestWindowsRemoveFilesFromEarlierWindows() throws Exception {
+        var io = new ManifestIo();
+        try (var catalog = new FileSystemCatalog(io, new org.apache.paimon.fs.Path(directory.toString()))) {
+            var table = manifestTable(catalog, 5);
+            write(table.newBatchWriteBuilder().withOverwrite(), 987);
+            var expected = table.newScan().plan().splits().stream().map(DataSplit.class::cast)
+                    .flatMap(split -> split.dataFiles().stream()).toList();
+            io.observe = true;
+            var actual = budget(100).plan(table, null, null).stream().map(DataSplit.class::cast)
+                    .flatMap(split -> split.dataFiles().stream()).toList();
+            assertThat(expected).hasSize(1);
+            assertThat(actual).containsExactlyElementsOf(expected);
+            assertThat(io.opens.get()).isGreaterThan(2);
+        }
+    }
+
     private static FileStoreTable manifestTable(FileSystemCatalog catalog, int count) throws Exception {
         return manifestTable(catalog, Identifier.create("db", "bounded_manifest_io"), count);
     }
@@ -251,15 +294,18 @@ class PaimonScanBudgetIntegrationTest {
         private final AtomicInteger opens = new AtomicInteger();
         private final CountDownLatch entered = new CountDownLatch(2);
         private final CountDownLatch resume = new CountDownLatch(1);
+        private final CountDownLatch beyondWindow = new CountDownLatch(1);
         private volatile boolean observe;
         private volatile boolean hold;
+        private volatile boolean holdOnlyFirst;
 
         @Override
         public SeekableInputStream newInputStream(org.apache.paimon.fs.Path path) throws IOException {
             if (observe && path.getName().startsWith("manifest-") && !path.getName().startsWith("manifest-list-")) {
-                opens.incrementAndGet();
-                if (hold) {
-                    entered.countDown();
+                int opened = opens.incrementAndGet();
+                if (opened > 2) beyondWindow.countDown();
+                if (hold || holdOnlyFirst) entered.countDown();
+                if (hold || holdOnlyFirst && opened == 1) {
                     try {
                         if (!resume.await(15, TimeUnit.SECONDS)) throw new IOException("Blocked manifest test timed out");
                     } catch (InterruptedException interrupted) {
@@ -286,7 +332,10 @@ class PaimonScanBudgetIntegrationTest {
     }
 
     private static void write(FileStoreTable table, long value) throws Exception {
-        var builder = table.newBatchWriteBuilder();
+        write(table.newBatchWriteBuilder(), value);
+    }
+
+    private static void write(BatchWriteBuilder builder, long value) throws Exception {
         try (var writer = builder.newWrite(); var commit = builder.newCommit()) {
             writer.write(GenericRow.of(value));
             commit.commit(writer.prepareCommit());

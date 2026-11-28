@@ -93,9 +93,11 @@ final class PaimonScanBudget {
     private static FileStoreTable planningTable(FileStoreTable table, Snapshot snapshot, PaimonPlanningFileIO io) {
         FileStoreTable view;
         if (table instanceof AppendOnlyFileStoreTable) {
-            view = new AppendOnlyFileStoreTable(io, table.location(), table.schema(), table.catalogEnvironment());
+            view = new PaimonBoundedPlanningTable.Append(
+                    io, table.location(), table.schema(), table.catalogEnvironment());
         } else if (table instanceof PrimaryKeyFileStoreTable) {
-            view = new PrimaryKeyFileStoreTable(io, table.location(), table.schema(), table.catalogEnvironment());
+            view = new PaimonBoundedPlanningTable.PrimaryKey(
+                    io, table.location(), table.schema(), table.catalogEnvironment());
         } else {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
                     "Paimon metadata planning requires an SDK physical table");
