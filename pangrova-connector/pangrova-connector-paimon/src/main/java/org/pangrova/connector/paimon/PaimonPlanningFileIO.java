@@ -13,6 +13,9 @@ import org.pangrova.connector.api.metadata.SplitPlanningBudget.EncodedMetadataBu
 import org.pangrova.connector.api.query.ConnectorQueryOperation;
 
 import java.io.IOException;
+import java.io.NotSerializableException;
+import java.io.ObjectOutputStream;
+import java.io.Serial;
 import java.util.Objects;
 
 /** Read-only planning view. The final physical operation releases the query permit. */
@@ -34,6 +37,11 @@ final class PaimonPlanningFileIO implements FileIO {
         this.budget = budget;
         this.permit = permit;
         this.encodedMetadata = encodedMetadata;
+    }
+
+    @Serial
+    private void writeObject(ObjectOutputStream output) throws IOException {
+        throw new NotSerializableException("Paimon planning I/O belongs to an active query");
     }
 
     synchronized ConnectorException reject(ConnectorException failure) {

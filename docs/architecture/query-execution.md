@@ -377,7 +377,9 @@ It submits one window of at most 32 manifest reads per source, constrained by
 the configured scan parallelism, and consumes that window before submitting
 another. Full scans reconcile file identities across all windows so a deletion
 in a later manifest also removes an earlier addition. Append, primary-key and
-data-evolution scans share this submission bound. The connector rejects more
+data-evolution scans share this submission bound. Each planning table uses
+its query-owned FileIO, which rejects serialization because its cancellation
+and read budget belong to the running query. The connector rejects more
 than one million candidate entries or an incremental range spanning more than
 one million snapshots. A rejected scan fails as a whole.
 The direct JDBC catalog reads the metadata pointer during load. Catalog wrappers

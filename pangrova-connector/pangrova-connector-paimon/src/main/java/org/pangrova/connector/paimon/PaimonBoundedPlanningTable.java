@@ -64,15 +64,14 @@ final class PaimonBoundedPlanningTable {
 
     static final class Append extends AppendOnlyFileStoreTable {
         private static final long serialVersionUID = 1L;
-        private final transient PaimonPlanningFileIO planningIo;
 
         Append(PaimonPlanningFileIO io, Path path, TableSchema schema, CatalogEnvironment environment) {
             super(io, path, schema, environment);
-            this.planningIo = io;
         }
 
         @Override
         public SnapshotReader newSnapshotReader() {
+            var planningIo = (PaimonPlanningFileIO) fileIO();
             var store = store();
             var schema = schema();
             var options = coreOptions();
@@ -109,15 +108,14 @@ final class PaimonBoundedPlanningTable {
 
     static final class PrimaryKey extends PrimaryKeyFileStoreTable {
         private static final long serialVersionUID = 1L;
-        private final transient PaimonPlanningFileIO planningIo;
 
         PrimaryKey(PaimonPlanningFileIO io, Path path, TableSchema schema, CatalogEnvironment environment) {
             super(io, path, schema, environment);
-            this.planningIo = io;
         }
 
         @Override
         public SnapshotReader newSnapshotReader() {
+            var planningIo = (PaimonPlanningFileIO) fileIO();
             var store = store();
             var schema = schema();
             var options = coreOptions();

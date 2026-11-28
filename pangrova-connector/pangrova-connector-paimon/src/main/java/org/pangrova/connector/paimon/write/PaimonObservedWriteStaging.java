@@ -22,8 +22,10 @@ public final class PaimonObservedWriteStaging {
     public static boolean reclaim(PaimonOutputTableHandle handle, List<byte[]> fragments) throws IOException {
         Path root = PaimonLocalStagingAuthority.absolutePath(
                 new org.apache.paimon.fs.Path(handle.tableLocation()).toUri());
-        if (root == null || root.getParent() == null || !root.equals(root.normalize())) return false;
-        try (var parent = Files.newDirectoryStream(root.getParent())) {
+        if (root == null || !root.equals(root.normalize())) return false;
+        Path parentPath = root.getParent();
+        if (parentPath == null) return false;
+        try (var parent = Files.newDirectoryStream(parentPath)) {
             if (!(parent instanceof SecureDirectoryStream<Path> secureParent)) return false;
             String authority = PaimonLocalStagingAuthority.observe(secureParent);
             if (authority.isEmpty()) return false;

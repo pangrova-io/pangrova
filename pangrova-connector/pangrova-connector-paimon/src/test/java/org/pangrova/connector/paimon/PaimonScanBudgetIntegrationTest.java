@@ -24,7 +24,11 @@ import org.pangrova.connector.api.metadata.table.ColumnHandle;
 import org.pangrova.connector.api.metadata.SplitPlanningBudget.EncodedMetadataBudget;
 
 import java.io.IOException;
+import java.io.NotSerializableException;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -60,6 +64,15 @@ class PaimonScanBudgetIntegrationTest {
             var allowed = budget(2);
             assertThat(allowed.plan(table, null, null).stream()
                     .map(DataSplit.class::cast).mapToInt(split -> split.dataFiles().size()).sum()).isEqualTo(2);
+            allowed.withPlanningTable(table, null, (view, io) -> {
+                assertThat(view.fileIO()).isSameAs(io);
+                assertThatThrownBy(() -> {
+                    try (var output = new ObjectOutputStream(OutputStream.nullOutputStream())) {
+                        output.writeObject(io);
+                    }
+                }).isInstanceOf(NotSerializableException.class).hasMessageContaining("active query");
+                return List.of();
+            });
             assertCancellationDuringManifestRead(table);
         }
     }

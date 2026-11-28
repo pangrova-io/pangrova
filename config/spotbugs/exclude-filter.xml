@@ -713,6 +713,17 @@
         <Method name="selectClaimablePage" params="java.sql.Connection,org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection$Selection" returns="java.util.Optional"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
+    <!-- Both variants use fixed SQL, with page and stage identities bound as parameters. -->
+    <Match>
+        <Class name="org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection"/>
+        <Method name="selectClaimableCohort" params="java.sql.Connection,java.util.List,boolean" returns="java.util.List"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore"/>
+        <Method name="readLockedEvidence" params="java.sql.Connection,org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentGenerationAuthority,java.lang.Integer,boolean" returns="java.util.List"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
     <Match>
         <Class name="org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings"/>
         <Method name="findJob" params="java.sql.Connection,java.lang.String,java.lang.String,boolean" returns="java.util.Optional"/>
