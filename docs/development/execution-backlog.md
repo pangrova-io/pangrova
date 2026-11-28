@@ -76,7 +76,7 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
 |---|---|
 | N1 | `a11cb8f53` 完成 Common、JDBC、策略持久化和精确类加载白名单的切换。`n1-selected.log` 为 229 项通过，零失败、错误或跳过。扩大范围的首轮测试在旧 Native capability fixture 的 descriptor 身份校验处失败，见 `n1-focused.log`。 |
 | N2 | `6e270165c` 完成 Parser、Planner、Protocol Java、Indexing、生成与 Connector 更名。`n2-selected-corrected.log` 为 380 项通过。扩大编译范围时发现 Apache Commons Codec 的同名引用，已恢复该外部 SDK 引用。 |
-| N3 | `c70789b84` 完成启停、观测、AI、运维与测试夹具迁移。`n3-selected-independent.log` 记录 107 项，1 项 SPI 可达性失败。`baseline-spi-wiring-with-source.log` 在冻结基线复现相同四个独立库组件。加入显式消费者合同后，`57d6f3d37` 对应的 `reachability-final.log` 中 18 项通过，覆盖 SPI、ServiceLoader、Bootstrap 和 SQL 编译会话。Worker 启停的大范围复跑仍需新 Native capability fixture。 |
+| N3 | `c70789b84` 完成启停、观测、AI、运维与测试夹具迁移。`n3-selected-independent.log` 记录 107 项，1 项 SPI 可达性失败。`baseline-spi-wiring-with-source.log` 在冻结基线复现相同四个独立库组件。加入显式消费者合同后，`57d6f3d37` 对应的 `reachability-final.log` 中 18 项通过，覆盖 SPI、ServiceLoader、Bootstrap 和 SQL 编译会话。同源 Native 上复跑 Worker 和维护启停共 46 项通过，见 `n3-final-bootstrap-and-maintenance.log`。 |
 | N4 | 声明与路径扫描确认 61 个目标声明各唯一、22 个旧包无源码声明、11 个保留声明均在。JDBC Maven 模块名继续为 `org.pangrova.persistence.jdbc.support`。模块基线、SPI 注解、365 项文档类引用、Protobuf descriptor golden 和 244 项仓库工具回归通过。SpotBugs 过滤器的 JVM 类型路径和两处已有的精确 SQL 分类检查已同步，见 `spotbugs-filter-final.log`。 |
 | A4/B6 | `471cb357a` 扩展同一条 SQL 夹具的 PostgreSQL 计数、Native 文件读取和 Flight 阶段采样。以冻结基线的 Java 测试类路径执行 `javac --release 17` 通过。运行结果等待同源 Native。 |
 | A6 | `8490621ce` 在 Worker 注册表恢复时采纳同 incarnation 的较新负载样本，并保留本地退役状态。定向回归在构造 Worker 的旧 capability fixture 时被 descriptor 校验阻止，见 `a6-registry.log`。多 Coordinator 并发派发以及心跳与本地在途计数的重叠仍待验证。 |
@@ -164,6 +164,19 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
   两台 Worker 上收到精确 Native 确认，扫描算子输出从 10,485,760 行降到 8,658,946 行，
   实际读取均为 15,951,120 字节，回读结果相同，task 与租户已排空。此负载下过滤减少
   了扫描输出，已发起的 I/O 没有减少。见 `reachable-peer-and-late-read-metrics.log`。
+- `cbc17d6c6` 使用合格 Arrow/Flight 重新构建全部 153 个 Maven 模块，并以同一
+  runtime manifest 启动独立角色。基线和候选 manifest SHA-256 分别为
+  `f312eda89c9f52b8052728e9ce96a8705524a02d9f9245669740c61317484922` 和
+  `32010960598caf8488057f877fa5e59f50850b72770d83f0a9dee7de478e9acd`。
+  `final-production-smoke.log` 记录打包 Native 握手 1 项、跨独立 Coordinator
+  重放 1 项、晚到过滤 1 项、独立 Shuffle 合并 4 项通过。
+  四次认证重放返回同一回执，只有一次 journal 受理。经非 owner 入口恢复签名路由后
+  客户端完整读到 Flight EOF，精确 Worker 释放凭证齐全，租户槽位归零。
+  晚到过滤的物理读字节均为 15,951,120，扫描输出从 10,485,760 行降到 7,462,913 行。
+  Native S3 探针首轮失败在函数目录启动，补齐启动后两次成功读取并收到实际 403，
+  随后的进程退出在 AWS SDK 清理阶段崩溃。见 `final-s3-probe-direct.log`。
+- Coordinator、Shuffle 和上游依赖的 Checkstyle 与 SpotBugs 定向复验通过，
+  见 `updated-static-analysis-retry.log`。
 - 同版本交付提交集中到 [PR #127](https://github.com/pangrova-io/pangrova/pull/127)。
 
 Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
@@ -183,7 +196,7 @@ python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_*.py'
 
 | ID | 当前证据 | 剩余工作和关闭条件 |
 |---|---|---|
-| A1 · WP1.1 HTTP 受理、幂等与准入 | 普通新受理单条 INSERT，已验证本地 PostgreSQL、无幂等键写入和双 Worker | 组合两个独立 Coordinator、Worker 故障、响应丢失、未知提交、并发重放和 principal 隔离。核对原回执、唯一执行、租户槽位与正常路径 SQL 计数。见 B1/B3 |
+| A1 · WP1.1 HTTP 受理、幂等与准入 | 普通新受理单条 INSERT，真实双 Coordinator 并发重放取回同一签名回执并实际释放 | 在组合故障中覆盖 Worker 退出、响应丢失、未知提交及 principal 隔离。核对正常路径 SQL 计数。见 B1/B3 |
 | A2 · WP1.2 查询所有权与物理排空 | 已有签名回执定向转发、精确派发和退出凭证、租约与槽位同事务退还、本地 Flight 排空与持久接管 | 验证同机独立进程退出、旧实例迟到报告、租约过期、同名实例替换、接管与客户端重连。分别证明 Native 任务与结果、Shuffle、快照 pin 和槽位退役，并检查对外 DRAINED 的发布时间。覆盖已发布写入的成功保留和无运行所有者的回收。见 B1/B2/B6/B7 |
 | A3 · WP1.3 结果状态 | `PENDING`、`STREAM`、`NONE` 已贯通客户端与服务端，本地双 Worker 和独立 CLI 已有覆盖 | 在独立进程上验证空结果、无结果集、延迟 Ready、结果读完后写提交失败、取消恢复。不允许端点 Ready 与逻辑终态互相替代。见 B2/B6/B8 |
 | A4 · WP2 关键路径归因与容量 | 已有准备排队/执行、Worker 回报、胜出超时和全局物理排空等观测，本地真实 PostgreSQL 已验证排空计数不重复 | 跑同机固定到达率矩阵，覆盖短长查询、租户过载、目录阻塞、终态报告压力和 durable commit。关联真实提交、规划、ACK、JNI 创建、首末批、终态和排空，分离连接池、锁和实际执行时间。按 B3 证明饱和时独立查询与取消仍能推进 |
@@ -232,9 +245,9 @@ Java API 和 SPI 在同一版本统一切换，仓内声明、实现、消费者
 
 原清单的 `protocol.rest.task.convert` 已随 `83a27ff60` 删除，其转换器和测试由 canonical `SubmitTaskRequest` 及现有对称性测试承接。该条纳入回归覆盖，其他 22 个源包逐项实施。
 
-### 实施批次 {#java-naming-batches}
+### 已实施的批次 {#java-naming-batches}
 
-| 批次 | 变更范围与关闭条件 |
+| 批次 | 变更范围与定向验收 |
 |---|---|
 | N1 · Common、JDBC 与策略持久化 | 按下方分包和类型映射替换基础声明及直接调用方。更新 `SharedPackagePolicy` 中 `ThreadSafe` 和 `NotThreadSafe` 的精确白名单，验证 `PluginClassLoaderTest` 测到应用类路径真实存在的 `common.validation.Preconditions`。验证 JDBC 回滚、时间绑定、schema 初始化和策略隔离。 |
 | N2 · Parser、Planner、Protocol Java、Indexing、生成与 Connector | 按映射移动声明、测试和真实消费者。用生产入口验证 `StatementParser`、`SqlParser`、`ConnectorIndexCapabilities`、`SourceSnapshotPinner` 等涉及的解析诊断、计划、读取绑定、物化快照固定和写入回执。同步切换 SPI 文件路径、文件内容和反射入口。 |
