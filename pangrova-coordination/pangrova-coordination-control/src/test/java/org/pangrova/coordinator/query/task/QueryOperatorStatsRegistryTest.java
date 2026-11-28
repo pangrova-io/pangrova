@@ -82,7 +82,7 @@ class QueryOperatorStatsRegistryTest {
     }
 
     @Test
-    void nativeFlightPhasesSurviveTheBinaryReportWithNoOperatorCounters() {
+    void nativeFlightPhasesSurviveTheBinaryReportWithNoOperatorCounters() throws Exception {
         var registry = new QueryOperatorStatsRegistry();
         var issued = attempt(1, 0, 0, "output");
         var report = org.pangrova.protocol.v2.TaskReport.newBuilder().setAttempt(issued)
