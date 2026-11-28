@@ -7,6 +7,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.client.http.authentication.ClientAuthentication;
+import org.pangrova.common.client.enums.ResultProtocol;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.enums.QueryWaitTarget;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
@@ -14,6 +19,7 @@ import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.testkit.PangrovaClusterContainer;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
+import org.pangrova.transport.client.security.ResultTransportSecurity;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.Testcontainers;
 import org.testcontainers.containers.GenericContainer;
@@ -23,6 +29,8 @@ import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -40,6 +48,8 @@ import static org.awaitility.Awaitility.await;
 @Tag("chaos")
 class CoordinatorRestartChaosTest extends ContainerTestBase {
     private static final String WORKER = "e2e-worker-1";
+    private static final String WORKER_HOST = "worker-1";
+    private static final int WORKER_RESULT_PORT = 9090;
     private static final String WORKER_CONTROL_URL = "http://chaos-proxy:9090";
     private static final String CONFIG = "/opt/pangrova/config/";
     private static final Duration TIMEOUT = Duration.ofMinutes(3);
@@ -50,7 +60,9 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
         String imageId = required("pangrova.e2e.image-id");
         String commit = required("pangrova.e2e.local.source-commit");
         assertThat(commit).matches("[0-9a-f]{40}");
-        var docker = DockerClientFactory.instance().client();
+        var dockerFactory = DockerClientFactory.instance();
+        var docker = dockerFactory.client();
+        var mappedResultAddress = InetAddress.getByName(dockerFactory.dockerHostIpAddress());
         var inspected = docker.inspectImageCmd(image).exec();
         assertThat(inspected.getId()).isEqualTo(imageId);
         assertThat(inspected.getConfig().getLabels()).containsEntry("org.opencontainers.image.revision", commit);
@@ -68,7 +80,8 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
             var link = new ToxiproxyClient(proxy.getHost(), proxy.getControlPort()).createProxy("worker-control",
                     "0.0.0.0:9090", "host.testcontainers.internal:" + reports.port());
             var coordinatorIdentity = tls.issue("coordinator", "coordinator", false);
-            var workerIdentity = tls.issue("worker-1", "worker-1", false);
+            var workerIdentity = tls.issueForMappedEndpoint(WORKER_HOST, WORKER_HOST, mappedResultAddress);
+            var clientIdentity = tls.issue("result-client", "result-client", false);
             String secret = UUID.randomUUID().toString();
             cluster.configureCoordinator(container -> configure(container, "coordinator",
                     coordinatorConfig(security.processJdbcUrl(), secret), tls, coordinatorIdentity));
@@ -76,11 +89,13 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                 var coordinator = cluster.getCoordinator();
                 reports.connect(URI.create("http://" + coordinator.getHost() + ":" + coordinator.getMappedPort(8080)));
                 container.withEnv("PANGROVA_COORDINATOR_URL", WORKER_CONTROL_URL);
+                container.addExposedPort(WORKER_RESULT_PORT);
                 configure(container, "worker", workerConfig(secret), tls, workerIdentity);
             });
             cluster.start();
             var coordinator = cluster.getCoordinator();
             var worker = cluster.getWorkers().get(0);
+            var mappedResult = new InetSocketAddress(mappedResultAddress, worker.getMappedPort(WORKER_RESULT_PORT));
             assertThat(coordinator.getContainerInfo().getImageId()).isEqualTo(imageId);
             assertThat(worker.getContainerInfo().getImageId()).isEqualTo(imageId);
             var auth = ClientAuthentication.basic(ProcessSecurityAuthority.USER, ProcessSecurityAuthority.PASSWORD);
@@ -88,9 +103,12 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                     .header("Authorization", auth.authorizationHeader()).timeout(Duration.ofSeconds(5)).GET().build();
             var observer = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
             try (var client = PangrovaRestClient.builder().coordinatorHost(coordinator.getHost())
-                    .coordinatorPort(coordinator.getMappedPort(8080)).authentication(auth).build()) {
+                    .coordinatorPort(coordinator.getMappedPort(8080)).authentication(auth)
+                    .resultTransportSecurity(new ResultTransportSecurity(
+                            true, tls.root(), clientIdentity.certificateChain(), clientIdentity.privateKey()))
+                    .build()) {
                 awaitWorker(observer, workersRequest, true);
-                String completed = nativeQuery(client, reports, security);
+                String completed = nativeQuery(client, mappedResult, reports, security);
                 link.disable();
                 try {
                     awaitWorker(observer, workersRequest, false);
@@ -101,7 +119,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
 
                 // Hold the actual terminal task report before its delivery. The coordinator must still own RUNNING.
                 try (var held = reports.holdReports(report -> "FINISHED".equals(report.state()))) {
-                    String active = submit(client);
+                    String active = drainNativeQuery(client, mappedResult);
                     awaitNativeReport(reports, active, false);
                     await("active query before Worker loss").atMost(TIMEOUT)
                             .untilAsserted(() -> assertState(client, active, "RUNNING"));
@@ -115,10 +133,10 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                 }
                 docker.startContainerCmd(worker.getContainerId()).exec();
                 awaitWorker(observer, workersRequest, true);
-                nativeQuery(client, reports, security);
+                nativeQuery(client, mappedResult, reports, security);
 
                 try (var held = reports.holdReports(report -> "FINISHED".equals(report.state()))) {
-                    String active = submit(client);
+                    String active = drainNativeQuery(client, mappedResult);
                     awaitNativeReport(reports, active, false);
                     await("RUNNING is durable before Coordinator loss").atMost(TIMEOUT).untilAsserted(() -> {
                         assertState(client, active, "RUNNING");
@@ -132,7 +150,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                     assertThat(journalState(security, active)).isEqualTo("RUNNING");
                 }
                 awaitWorker(observer, workersRequest, true);
-                nativeQuery(client, reports, security);
+                nativeQuery(client, mappedResult, reports, security);
             }
         }
     }
@@ -162,9 +180,9 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
         });
     }
 
-    private static String nativeQuery(PangrovaRestClient client, ProcessStatusReportRelay reports,
-            ProcessSecurityAuthority security) throws Exception {
-        String id = submit(client);
+    private static String nativeQuery(PangrovaRestClient client, InetSocketAddress mappedResult,
+            ProcessStatusReportRelay reports, ProcessSecurityAuthority security) {
+        String id = drainNativeQuery(client, mappedResult);
         awaitNativeReport(reports, id, true);
         await("committed query " + id).atMost(TIMEOUT).untilAsserted(() -> {
             assertState(client, id, "FINISHED");
@@ -173,10 +191,33 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
         return id;
     }
 
-    private static String submit(PangrovaRestClient client) {
-        String id = client.submitQuery("SELECT 21 + 21", Map.of("catalog", "spec_catalog")).queryId();
+    private static String drainNativeQuery(PangrovaRestClient client, InetSocketAddress mappedResult) {
+        long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+        var query = client.beginQuery("SELECT 21 + 21", Map.of("catalog", "spec_catalog"));
+        String id = query.submission().queryId();
         assertThat(id).isNotBlank();
         assertThat(UUID.fromString(id).toString()).isEqualTo(id);
+        QueryStatusResponse status;
+        do {
+            status = query.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
+            assertThat(status.error()).as("query %s before reading its result", id).isNull();
+            assertThat(status.state()).as("query %s before reading its result", id)
+                    .isNotIn("FAILED", "CANCELLED");
+        } while (status.resultEndpoint() == null && !"FINISHED".equals(status.state()));
+        assertThat(status.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
+        var endpoint = status.resultEndpoint();
+        assertThat(endpoint).isNotNull();
+        assertThat(endpoint.host()).isEqualTo(WORKER_HOST);
+        assertThat(endpoint.port()).isEqualTo(WORKER_RESULT_PORT);
+        assertThat(endpoint.protocol()).isEqualTo(ResultProtocol.GRPC_TLS.value());
+        var mappedEndpoint = new ResultEndpoint(mappedResult.getAddress().getHostAddress(), mappedResult.getPort(),
+                endpoint.ticket(), endpoint.protocol());
+        // Native terminal evidence requires a committed Flight EOF, even when the status report is held.
+        try (var cursor = client.openResult(mappedEndpoint, deadline)) {
+            assertThat(cursor.next()).isTrue();
+            assertThat(cursor.value(0)).isEqualTo(42);
+            assertThat(cursor.next()).isFalse();
+        }
         return id;
     }
 
@@ -286,16 +327,16 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                 worker:
                   id: e2e-worker-1
                   host: 0.0.0.0
-                  advertised-host: worker-1
+                  advertised-host: %s
                   port: 8081
                   coordinator-url: "%s"
                   internal-auth-secret: "%s"
                   heartbeat-interval: 2s
                   transport:
-                    port: 9090
+                    port: %d
                     tls:
                       enabled: true
-                      identity: worker-1
+                      identity: %s
                       root-ca-path: /opt/pangrova/config/root.pem
                       certificate-chain-path: /opt/pangrova/config/role.pem
                       private-key-path: /opt/pangrova/config/role-key.pem
@@ -308,7 +349,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                   native:
                     cache:
                       enabled: false
-                """.formatted(WORKER_CONTROL_URL, secret);
+                """.formatted(WORKER_HOST, WORKER_CONTROL_URL, secret, WORKER_RESULT_PORT, WORKER_HOST);
     }
 
     private static String required(String property) {

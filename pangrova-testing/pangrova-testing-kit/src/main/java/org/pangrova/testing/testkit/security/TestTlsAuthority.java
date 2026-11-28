@@ -73,6 +73,15 @@ public final class TestTlsAuthority implements AutoCloseable {
         return issueWithSan(name, dnsIdentity == null ? ipSan : ipSan + ",DNS:" + dnsIdentity, expired);
     }
 
+    /** Issues a server certificate for its container identity and the IP of its mapped test port. */
+    public Identity issueForMappedEndpoint(String name, String dnsIdentity, InetAddress address) throws Exception {
+        if (!name.matches("[a-z0-9][a-z0-9-]*") || !dnsIdentity.matches("[A-Za-z0-9.-]+")
+                || address.isAnyLocalAddress() || address.isLinkLocalAddress()) {
+            throw new IllegalArgumentException("Invalid test certificate identity for a mapped port");
+        }
+        return issueWithSan(name, "DNS:" + dnsIdentity + ",IP:" + address.getHostAddress(), false);
+    }
+
     private Identity issueWithSan(String name, String san, boolean expired) throws Exception {
         generateKey(name, "CN=" + name, List.of("-validity", "30"));
         Path request = directory.resolve(name + ".csr");

@@ -44,6 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -215,7 +216,8 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         String datasetId = "feature-export-" + suffix;
         String policyVersion = "minimum-two-rows-" + suffix;
         String runId = "feature-export-" + suffix;
-        Instant now = Instant.now();
+        // The persisted release decision uses PostgreSQL timestamp precision.
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         var evaluations = org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores
                 .jdbc(stateStoreDataSource(),
                         ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource())).evaluations();

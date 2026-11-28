@@ -35,6 +35,16 @@ class TestTlsAuthorityIpSubjectAlternativeNameTest {
         }
     }
 
+    @Test
+    void mappedPortCertificateRetainsTheContainerDnsAndLoopbackIp() throws Exception {
+        InetAddress loopback = InetAddress.getByAddress(new byte[] {127, 0, 0, 1});
+        try (var authority = new TestTlsAuthority(workspace)) {
+            var identity = authority.issueForMappedEndpoint("worker", "worker-1", loopback);
+            assertThat(certificate(identity.certificateChain()).getSubjectAlternativeNames())
+                    .containsExactlyInAnyOrder(List.of(2, "worker-1"), List.of(7, "127.0.0.1"));
+        }
+    }
+
     private static X509Certificate certificate(Path path) throws Exception {
         try (var input = Files.newInputStream(path)) {
             return (X509Certificate) CertificateFactory.getInstance("X.509")
