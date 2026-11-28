@@ -73,7 +73,12 @@ final class ShuffleWriteSession implements AutoCloseable {
         // Only a confirmed immutable PUT may enter the inventory. On a transport failure
         // the write reservation remains durable for late object compensation.
         uncertain = true;
-        objects.putImmutable(next.objectKey(), batch::openCanonicalStream, next.sizeBytes(), next.checksum());
+        try {
+            objects.putImmutable(next.objectKey(), batch::openCanonicalStream, next.sizeBytes(), next.checksum());
+        } catch (ShuffleObjectStorage.RejectedPutException stopped) {
+            uncertain = false;
+            throw stopped;
+        }
         uncertain = false;
         pending.put(identity, next);
         return next;

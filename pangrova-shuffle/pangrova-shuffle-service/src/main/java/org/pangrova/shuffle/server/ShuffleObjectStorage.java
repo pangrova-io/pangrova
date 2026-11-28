@@ -31,6 +31,13 @@ interface ShuffleObjectStorage extends AutoCloseable {
 
     record ManifestWriteReceipt(String objectKey, UUID reservationId) {}
 
+    /** The storage service confirmed that this exact PUT could never publish an object. */
+    final class RejectedPutException extends RuntimeException {
+        RejectedPutException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     @Override
     void close();
 }

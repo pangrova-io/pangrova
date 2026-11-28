@@ -152,7 +152,10 @@ protects the object prefix through the configured call deadline plus 60 seconds
 for drain. Cleanup closes new admission, waits for protected writes and records
 the prefix for compensation before deleting objects. Exact expired reservations
 survive allocation removal. A confirmed late PUT settles its reservation
-without restoring publication authority. New manifest objects carry their
+without restoring publication authority. An explicit S3 `NoSuchBucket`
+response to the single PUT attempt proves that write stopped. The service
+settles its exact manifest reservation or closes the producer window after
+the worker handling the write exits. New manifest objects carry their
 write reservation UUID in S3 user metadata. The cleanup service reads that
 metadata before deleting a manifest and settles only the matching reservation
 for that object key. An older object without this metadata leaves the reservation

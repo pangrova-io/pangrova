@@ -75,6 +75,9 @@ interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
 
     void settleManifestWrite(String reservation, String shuffleId, String objectKey);
 
+    /** Acknowledges an exact PUT that the object store rejected, including after reservation expiry. */
+    void settleRejectedManifestWrite(String reservation, String shuffleId, String objectKey);
+
     @Override
     void close();
 }

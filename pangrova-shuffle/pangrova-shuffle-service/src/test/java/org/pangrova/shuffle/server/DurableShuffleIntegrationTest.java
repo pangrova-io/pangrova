@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
@@ -65,6 +66,7 @@ import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.interceptor.Context.BeforeExecution;
+import software.amazon.awssdk.core.interceptor.Context.BeforeTransmission;
 import software.amazon.awssdk.core.interceptor.ExecutionAttributes;
 import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -611,6 +613,75 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             store.settleManifestWrite(reservation, shuffle, key);
             store.completeCleanup(claimCleanup(store, command, lease));
             assertThat(store.findAllocation(shuffle)).isEmpty();
+        }
+    }
+
+    @Test
+    void missingBucketRejectionSettlesTheProducerWindowAndManifestPut() throws Exception {
+        String query = "rejected-put-" + UUID.randomUUID();
+        String shuffle = "shuffle-" + query;
+        seedAnchor(query, owner());
+        var healthy = openHarness();
+        var store = PostgresShuffleStore.create(config().database());
+        var putAttempts = new AtomicInteger();
+        var client = s3ClientBuilder().overrideConfiguration(configuration ->
+                configuration.retryPolicy(S3ShuffleObjectStorage.requestSafeRetries())
+                        .addExecutionInterceptor(new ExecutionInterceptor() {
+                            @Override
+                            public void beforeTransmission(BeforeTransmission context, ExecutionAttributes attributes) {
+                                if (context.request() instanceof PutObjectRequest) putAttempts.incrementAndGet();
+                            }
+                        })).build();
+        var missing = S3ShuffleObjectStorage.testing(client, "missing-" + UUID.randomUUID(), "integration");
+        try (var engine = healthy.engine;
+             var unavailable = new ShuffleServiceEngine(config(), store, store.batchStore(), missing,
+                     ShuffleCapabilityAuthority.testing(SECRET), Clock.systemUTC());
+             var rpc = WriteRpc.open(unavailable)) {
+            var registrationRequest = registrationFor(query);
+            var registered = engine.register(registrationRequest);
+            var producer = attempt(0, 1).toBuilder().setQueryOrJobId(query).build();
+            var grant = taskGrant(healthy, registered, producer, org.pangrova.protocol.v2.shuffle
+                    .ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE);
+            ByteString payload = ByteString.copyFrom(new byte[] {1, 2, 3, 4});
+            byte[] digest = ShuffleChecksums.sha256(payload.toByteArray());
+            rpc.send(new CompleteWriteBatch(shuffle, 0, 0, 1, producer, grant, payload, digest));
+            assertThatThrownBy(rpc::finish).hasRootCauseMessage("INTERNAL: Shuffle object bucket does not exist");
+            assertThat(putAttempts.get()).isOne();
+            awaitCondition(() -> writeReservations(shuffle) == 0);
+            assertThat(store.batchStore().readAttemptPage(shuffle, producer, 0, -1, 4)).isEmpty();
+
+            int batches = ShufflePartitionManifest.INLINE_BATCHES + 1;
+            var checksum = ShufflePartitionManifestChecksum.accumulator();
+            try (var writer = engine.writeSession(() -> false)) {
+                for (long sequence = 0; sequence < batches; sequence++) {
+                    writer.accept(new CompleteWriteBatch(shuffle, 0, sequence, 1, producer, grant, payload, digest));
+                    checksum.add(sequence, payload.size(), 1, digest);
+                }
+                writer.finish();
+            }
+            engine.commit(CommitProducerAttemptRequest.newBuilder().setShuffleId(shuffle)
+                    .setProducerAttempt(producer).setAccessCapability(grant)
+                    .addPartitions(PartitionCommitSummary.newBuilder().setPartitionId(0)
+                            .setExpectedLastSequence(batches - 1L).setTotalRows(batches)
+                            .setTotalBytes((long) batches * payload.size()).setTotalBatches(batches)
+                            .setOutputChecksum(ShuffleChecksums.protocol(checksum.finishNonEmpty()))).build());
+            var finalize = FinalizeShuffleRequest.newBuilder().setShuffleId(shuffle).setPlanEpoch(2)
+                    .setExecutionOwner(owner()).setExpectedProducerPartitions(1)
+                    .setExpectedProducerSetChecksum(registrationRequest.getExpectedProducerSetChecksum())
+                    .setAccessCapability(registered.getFinalizeCapability()).build();
+            assertThatThrownBy(() -> unavailable.finalizeShuffle(finalize))
+                    .isInstanceOf(ShuffleObjectStorage.RejectedPutException.class)
+                    .hasMessage("Shuffle object bucket does not exist");
+            assertThat(putAttempts.get()).isEqualTo(2);
+            assertThat(writeReservations(shuffle)).isZero();
+            assertThat(store.findAllocation(shuffle).orElseThrow().state()).isEqualTo(ShuffleAllocationState.REGISTERED);
+            assertThat(engine.finalizeShuffle(finalize).getTotalRows()).isEqualTo(batches);
+
+            var receipt = engine.cleanup(CleanupRequest.newBuilder().setQueryId(query).setExecutionOwner(owner())
+                    .setAccessCapability(registered.getCleanupCapability()).build());
+            assertThat(receipt.getUncertainWriteHandoff()).isFalse();
+            assertThat(writeReservations(shuffle)).isZero();
+            assertThat(hasTombstone(shuffle)).isFalse();
         }
     }
 

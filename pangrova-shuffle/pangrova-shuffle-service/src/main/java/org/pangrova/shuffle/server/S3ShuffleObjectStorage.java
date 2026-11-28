@@ -124,15 +124,19 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
         try {
             client.putObject(request, RequestBody.fromContentProvider(
                     data::get, sizeBytes, "application/octet-stream"));
-        } catch (S3Exception conflict) {
-            if (conflict.statusCode() != HTTP_CONFLICT
-                    && conflict.statusCode() != HTTP_PRECONDITION_FAILED) {
-                throw conflict;
+        } catch (S3Exception rejection) {
+            if (rejection.statusCode() == HTTP_NOT_FOUND && rejection.awsErrorDetails() != null
+                    && "NoSuchBucket".equals(rejection.awsErrorDetails().errorCode())) {
+                throw new RejectedPutException("Shuffle object bucket does not exist", rejection);
+            }
+            if (rejection.statusCode() != HTTP_CONFLICT
+                    && rejection.statusCode() != HTTP_PRECONDITION_FAILED) {
+                throw rejection;
             }
             byte[] existing = get(key, sizeBytes);
             if (!MessageDigest.isEqual(sha256, ShuffleChecksums.sha256(existing))) {
                 throw new IllegalStateException(
-                        "immutable shuffle object conflicts with existing content", conflict);
+                        "immutable shuffle object conflicts with existing content", rejection);
             }
         }
     }

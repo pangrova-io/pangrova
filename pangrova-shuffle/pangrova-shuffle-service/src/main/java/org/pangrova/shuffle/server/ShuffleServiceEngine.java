@@ -345,7 +345,12 @@ final class ShuffleServiceEngine implements AutoCloseable {
         String shuffleId = allocation.identity().shuffleId();
         String key = ShufflePartitionManifest.objectKey(shuffleId, digest);
         String reservation = lifecycle.beginManifestWrite(allocation, key, recoveryDelayMillis());
-        objects.putManifestNode(key, bytes, digest, UUID.fromString(reservation));
+        try {
+            objects.putManifestNode(key, bytes, digest, UUID.fromString(reservation));
+        } catch (ShuffleObjectStorage.RejectedPutException stopped) {
+            lifecycle.settleRejectedManifestWrite(reservation, shuffleId, key);
+            throw stopped;
+        }
         lifecycle.settleManifestWrite(reservation, shuffleId, key);
     }
 

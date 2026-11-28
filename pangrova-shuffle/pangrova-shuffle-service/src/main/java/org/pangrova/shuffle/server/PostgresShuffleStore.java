@@ -444,6 +444,11 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
+    public void settleRejectedManifestWrite(String reservation, String shuffleId, String objectKey) {
+        transitions.settleRejectedManifestWrite(reservation, shuffleId, objectKey);
+    }
+
+    @Override
     public CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease) {
         return transitions.beginCleanup(command, lease);
     }

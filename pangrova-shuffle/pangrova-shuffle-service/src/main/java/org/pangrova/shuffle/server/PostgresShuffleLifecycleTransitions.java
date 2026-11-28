@@ -101,7 +101,18 @@ final class PostgresShuffleLifecycleTransitions {
     }
 
     void settleManifestWrite(String reservation, String shuffleId, String key) {
-        boolean live = transaction(dataSource, connection -> {
+        // Keep an exact late acknowledgement even when the writer may no longer publish.
+        if (!removeManifestReservation(reservation, shuffleId, key)) {
+            throw new SecurityException("shuffle manifest write reservation expired or was lost");
+        }
+    }
+
+    void settleRejectedManifestWrite(String reservation, String shuffleId, String key) {
+        removeManifestReservation(reservation, shuffleId, key);
+    }
+
+    private boolean removeManifestReservation(String reservation, String shuffleId, String key) {
+        return transaction(dataSource, connection -> {
             String sql = """
                     DELETE FROM shuffle_write_intent
                     WHERE reservation_id = ?::uuid AND shuffle_id = ? AND object_key = ?
@@ -116,10 +127,6 @@ final class PostgresShuffleLifecycleTransitions {
                 }
             }
         });
-        // Keep an exact late acknowledgement even when the writer may no longer publish.
-        if (!live) {
-            throw new SecurityException("shuffle manifest write reservation expired or was lost");
-        }
     }
 
     void settleVisibleManifestWrites(String shuffleId, List<ManifestWriteReceipt> receipts) {
