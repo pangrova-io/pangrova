@@ -41,6 +41,11 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
   `SELECT SUM(id) AS answer FROM <table>`，每种查询 3 次预热、12 次采样，结果均应为
   `42`。此负载与 MinIO、独立 Shuffle、CDC 和更大的容量矩阵分别取证。
 
+### 范围决定
+
+2026-11-28 从 A7 移除 Apache ORC reader 的实现与验收。A7 的 Parquet、Iceberg、Lance
+和 Paimon 仍按下方的格式、范围和对象身份合同验收。
+
 ### 基线源码复核
 
 逐项扫描声明与包路径。61 个旧类型各有一处声明，22 个旧包合计 162 个带包声明的源码文件
@@ -55,7 +60,7 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
 | A4/B3 | `PersistentTenantOverloadE2ETest` 已有独立双 Coordinator 固定到达率路径，`AsyncSubmitSaturationE2ETest` 覆盖提交压力。需要同机当前版本的数据与阶段归因。 |
 | A5 | `PaimonAppendRangeScan` 和 `SplitPlanningBudget` 控制增量枚举，`PaimonScopedSplitExecutionTest` 覆盖固定上下文。需补对象存储故障与 I/O 关闭证据。 |
 | A6 | `WorkerHeartbeatBootstrap` 发布全 Worker 在途总量，`WorkerPlacementWork` 对该总量与本 Coordinator 本地计数取最大值。两者的重叠与外部负荷需要分别核对。参考 `SplitPlacementWeightTest` 和 `WorkerHeartbeatIdentityTest`。 |
-| A7/A8 | `NativeS3ReadEvidenceE2ETest` 是对象存储 I/O 与读取身份定向入口。JNI 架构页记录 Apache ORC 当前在准入处失败，因此真实 ORC 覆盖仍开放。 |
+| A7/A8 | `NativeS3ReadEvidenceE2ETest` 是对象存储 I/O 与读取身份定向入口。验收聚焦受支持格式、精确对象身份与删除语义。 |
 | A9 | `TaskRuntimeFilterWire` 与 `RuntimeFilterRpcIntegrationTest` 覆盖控制面，`IndependentLateRuntimeFilterE2ETest` 覆盖真实晚到过滤。主线已包含 build-key range 不可变快照修复 `b325de4c4`。 |
 | A10/B5 | `DurableStageShuffleEvidence` 记录持久交换证据，`RemoteShuffleSqlCoalescingE2ETest` 和 `AdaptiveQueryExecutionE2ETest` 提供真实 SQL 入口。 |
 | A11/B7 | `PostgresShuffleWindowPublication` 发布 producer window，`DurableShuffleIntegrationTest` 与 `PhysicalTwoWorkerShuffleE2ETest` 覆盖持久状态和数据面。未出现对象的止写证明仍开放。 |
@@ -73,7 +78,7 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
 | A4 · WP2 关键路径归因与容量 | 已有准备排队/执行、Worker 回报、胜出超时和全局物理排空等观测，本地真实 PostgreSQL 已验证排空计数不重复 | 跑同机固定到达率矩阵，覆盖短长查询、租户过载、目录阻塞、终态报告压力和 durable commit。关联真实提交、规划、ACK、JNI 创建、首末批、终态和排空，分离连接池、锁和实际执行时间。按 B3 证明饱和时独立查询与取消仍能推进 |
 | A5 · WP3.2 Paimon 枚举 | 普通读取、内部增量和直接追加共用阶段上限，已加入跨窗口删除合并与受阻读取用例 | 在最新候选统一复跑并加入对象存储流中断、超时、取消和 manifest 压力。核对固定快照、完整结果、I/O 实际关闭和元素/字节/并发额度，校准阶段预算 |
 | A6 · WP3.3 分片工作量与 Worker 放置 | 窗口合并持久认领，已纳入冻结 split、交换字节和精确在途计数。Worker 心跳包含各 Coordinator 已进入 Worker 的工作 | 补多 Coordinator 样本传播和并发放置验证。核对 Worker incarnation、样本新鲜度、ACK、派发前回滚和实际释放，解决在途与心跳重叠。按格式、冷热、删除文件和并发校准打包/放置，测分配等待和最长任务。共享样本不可扩大查询授权 |
-| A7 · WP3.4 物理读取覆盖 | Parquet/Iceberg 支持基于合法范围读取并共享对象长度，Lance/Paimon 已有各自的整文件或范围约束 | 验证真实 Apache ORC reader、受保护产物贯穿授权与读取的整对象身份、本地对象存储的 GET/HEAD 次数，以及删除文件较大时的成本与位置正确性。范围不得重叠或缺失，需核对整文件对照、删除语义、投影、压缩和对象版本不匹配。见 A8 |
+| A7 · WP3.4 物理读取覆盖 | Parquet/Iceberg 支持基于合法范围读取并共享对象长度，Lance/Paimon 已有各自的整文件或范围约束 | 验证受保护产物贯穿授权与读取的整对象身份、本地对象存储的 GET/HEAD 次数，以及删除文件较大时的成本与位置正确性。范围不得重叠或缺失，需核对整文件对照、删除语义、投影、压缩和对象版本不匹配。见 A8 |
 | A8 · WP3.1 物理 I/O 和权限 | Native 读取计数及 S3 body 字节已进入 attempt Profile，标准 Iceberg/Paimon 已有逐目录凭证和缓存隔离实现 | 复跑真实 MinIO 与独立 Native 进程夹具，再按标准 SQL 路径及其他 SDK 实测逻辑请求、实际请求/重试、返回字节、缓存与异常。验证同地址不同凭证、目录变更、撤权及缓存隔离。HTTP header/传输帧如未实测标为不可用 |
 | A9 · WP4 跨 Stage 动态过滤 | Iceberg/Paimon 同宽 TINYINT、SMALLINT、INTEGER、BIGINT 及多独立组合已实现，摘要有界。A9 已有定向 Java 和 Native 交换回归 | 以独立双 Worker 同源部署包验证晚到过滤、被接纳 attempt、Native 确认、split/row group/读取字节、结果与实际释放。覆盖共享 Stage、其他键、连接器及并行组合。按负载校准等待成本和晚到对已发 I/O 的影响，保持缺证、NULL、版本不匹配时的结果正确 |
 | A10 · WP5 AQE 与持久读取布局 | 单输入和对齐双输入已有真实 SQL 合并证据，持久单/双侧拆分、接管与最终发布有 PostgreSQL 回归 | 复跑同源部署的 Shuffle → JNI → Flight 混合范围和偏斜用例。验证更复杂输入、Join 类型、NULL、重复键、投机获胜、原有 epoch、重试、durable replay、读取覆盖、最终 producer cohort 和复制上界。用混合负载校准阈值与尾 task。见 B5 |
