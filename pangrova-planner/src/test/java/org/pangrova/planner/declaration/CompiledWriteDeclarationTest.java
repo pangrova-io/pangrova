@@ -7,7 +7,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.junit.jupiter.api.Test;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.planner.type.ConnectorColumnTypeMapper;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;

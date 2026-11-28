@@ -151,7 +151,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
                 (bindingSession, selector, check) -> {
                     var selected = (IcebergTableHandle) selector;
                     requireSameTable(handle, selected);
-                    return IcebergReadBindings.bindDiscoveredData(table, handle, selected, check);
+                    return IcebergReadBinder.bindDiscoveredData(table, handle, selected, check);
                 }, (type, refName) -> IcebergSnapshotResolver.resolveRefSnapshotId(table, type, refName));
     }
 
@@ -162,7 +162,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
             return Optional.empty();
         }
         var metadata = currentMetadata(catalogTables.resolveTable(handle));
-        return Optional.of(IcebergReadBindings.liveIdentity(metadata));
+        return Optional.of(IcebergReadBinder.liveIdentity(metadata));
     }
 
     @Override
@@ -171,7 +171,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
         if (!(table instanceof IcebergTableHandle handle)) {
             return Optional.empty();
         }
-        return Optional.of(IcebergReadBindings.currentVersion(currentMetadata(catalogTables.resolveTable(handle))));
+        return Optional.of(IcebergReadBinder.currentVersion(currentMetadata(catalogTables.resolveTable(handle))));
     }
 
     @Override
@@ -194,28 +194,28 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
                 String baseName = tableName.table().substring(0, separator);
                 var base = (IcebergTableHandle) catalogTables.getTableHandle(
                         new SchemaTableName(tableName.schema(), baseName));
-                return base == null ? null : IcebergPartitionReadBindings.select(
+                return base == null ? null : IcebergPartitionReadSelector.select(
                         catalogTables, base, catalogTables.resolveTable(base));
             }
             if ("entries".equalsIgnoreCase(tableName.table().substring(separator + 1))) {
                 String baseName = tableName.table().substring(0, separator);
                 IcebergTableHandle base = (IcebergTableHandle) catalogTables.getTableHandle(
                         new SchemaTableName(tableName.schema(), baseName));
-                return base == null ? null : IcebergFileReadBindings.selectEntries(
+                return base == null ? null : IcebergFileReadSelector.selectEntries(
                         base, catalogTables.resolveTable(base));
             }
             if ("files".equalsIgnoreCase(tableName.table().substring(separator + 1))) {
                 String baseName = tableName.table().substring(0, separator);
                 IcebergTableHandle base = (IcebergTableHandle) catalogTables.getTableHandle(
                         new SchemaTableName(tableName.schema(), baseName));
-                return base == null ? null : IcebergFileReadBindings.select(
+                return base == null ? null : IcebergFileReadSelector.select(
                         base, catalogTables.resolveTable(base));
             }
             if ("manifests".equalsIgnoreCase(tableName.table().substring(separator + 1))) {
                 String baseName = tableName.table().substring(0, separator);
                 IcebergTableHandle base = (IcebergTableHandle) catalogTables.getTableHandle(
                         new SchemaTableName(tableName.schema(), baseName));
-                return base == null ? null : IcebergManifestReadBindings.select(
+                return base == null ? null : IcebergManifestReadSelector.select(
                         base, catalogTables.resolveTable(base));
             }
             var kind = IcebergSystemTableKind.fromSuffix(
@@ -292,7 +292,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     @Override
     public ConnectorReadBinding bindRead(ConnectorSession session, ConnectorTableHandle table) {
-        return IcebergReadBindings.bind(catalogTables, table);
+        return IcebergReadBinder.bind(catalogTables, table);
     }
 
     @Override
@@ -300,7 +300,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
             ConnectorTableHandle selector, Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
         if (liveTable instanceof IcebergTableHandle live && selector instanceof IcebergTableHandle selected) {
             requireSameTable(live, selected);
-            return IcebergReadBindings.bindData(catalogTables.resolveTable(selected), selected, beforeSnapshotBinding);
+            return IcebergReadBinder.bindData(catalogTables.resolveTable(selected), selected, beforeSnapshotBinding);
         }
         return ConnectorMetadata.super.bindReadWithIdentityCheck(session, liveTable, selector, beforeSnapshotBinding);
     }
@@ -314,7 +314,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     @Override
     public void validateReadBinding(ConnectorSession session,
             org.pangrova.connector.api.metadata.table.ConnectorReadBinding binding) {
-        IcebergReadBindings.validate(catalogTables, binding);
+        IcebergReadBinder.validate(catalogTables, binding);
     }
 
     @Override

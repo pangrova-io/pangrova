@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.write;
 
 import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.protocol.write.NativeWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBinder;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
@@ -39,7 +39,7 @@ final class WorkerCatalogLifecycleFixture implements AutoCloseable {
         var write = WriteTaskOptions.newBuilder().setTargetTable(catalog.getDescriptor().name() + ".default." + table)
                 .setWriteMode("INSERT").setOutputBinding(binding);
         if (binding.hasLance()) write.setFileFormat(FileFormat.FILE_FORMAT_LANCE);
-        return NativeWriteBindings.bindAttempt(TaskRequest.newBuilder().setProtocol(authenticated.getProtocol())
+        return NativeWriteBinder.bindAttempt(TaskRequest.newBuilder().setProtocol(authenticated.getProtocol())
                 .setSecurity(security).setTaskKind(TaskKind.TASK_KIND_WRITE)
                 .setAttempt(authenticated.getAttempt().toBuilder().setTaskId(taskId).setQueryOrJobId(taskId))
                 .setExecutionOptions(TaskExecutionOptions.newBuilder().setWrite(write)).build());

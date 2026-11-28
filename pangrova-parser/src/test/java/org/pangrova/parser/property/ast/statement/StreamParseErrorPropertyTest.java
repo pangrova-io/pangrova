@@ -6,7 +6,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.parser.api.exception.ParseException;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.task.report;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.write.NativeWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBinder;
 import org.pangrova.protocol.write.PhysicalFileWriteReceipts;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
@@ -77,7 +77,7 @@ class PhysicalWriteTaskReportValidatorTest {
         return SubmitTaskRequest.from(TaskRequest.newBuilder().setAttempt(attempt).setTaskKind(TaskKind.TASK_KIND_WRITE)
                 .setExecutionOptions(TaskExecutionOptions.newBuilder().setWrite(WriteTaskOptions.newBuilder()
                         .setOutputBinding(WriteOutputBinding.newBuilder().setPhysical(
-                                NativeWriteBindings.bindPhysical(template, attempt))))).build());
+                                NativeWriteBinder.bindPhysical(template, attempt))))).build());
     }
 
     private static byte[] fragment(SubmitTaskRequest request, TaskAttemptId attempt) {

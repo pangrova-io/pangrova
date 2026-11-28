@@ -7,7 +7,7 @@ import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.RowField;
 import org.pangrova.types.RowType;
 import org.pangrova.types.Type;
@@ -103,7 +103,7 @@ public final class DdlTypeMapper {
         if (spec instanceof DataTypeSpec.VectorType vector) {
             return new org.pangrova.types.VectorType(vector.dimension(), vector.elementType());
         }
-        return PangrovaTypeMapping.toType(map(spec));
+        return PangrovaTypeConverter.toType(map(spec));
     }
 
     private static PangrovaType mapBaseType(BaseType baseType) {

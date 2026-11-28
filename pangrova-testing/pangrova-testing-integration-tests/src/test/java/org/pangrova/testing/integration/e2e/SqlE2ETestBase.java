@@ -2883,7 +2883,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         workerManager.getActiveWorkers().stream().map(
                                 org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()))
                 .withSessionPlanner((session, publicationRevision) -> {
-                    var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
+                    var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindingResolver(
                             metadataBootstrap.catalogRegistry(), session,
                             metadataBootstrap.catalogRegistry().tableStatistics());
                     var readerPin = new org.pangrova.coordinator.materialization.MaterializationReadPin(

@@ -824,7 +824,7 @@ artifacts:
       - org.pangrova.coordinator.query.execution.dispatch.task.branch
       - org.pangrova.coordinator.query.execution.dispatch.task.catalog
       - org.pangrova.coordinator.query.execution.dispatch.task.file
-      - org.pangrova.coordinator.query.execution.dispatch.task.semantic
+      - org.pangrova.coordinator.query.execution.dispatch.task.semanticview
       - org.pangrova.coordinator.query.execution.dispatch.task.storage
       - org.pangrova.coordinator.query.execution.dispatch.task.stream
       - org.pangrova.coordinator.query.execution.phase
@@ -1124,7 +1124,7 @@ artifacts:
       - org.pangrova.coordinator.query.execution.dispatch.task.branch
       - org.pangrova.coordinator.query.execution.dispatch.task.catalog
       - org.pangrova.coordinator.query.execution.dispatch.task.file
-      - org.pangrova.coordinator.query.execution.dispatch.task.semantic
+      - org.pangrova.coordinator.query.execution.dispatch.task.semanticview
       - org.pangrova.coordinator.query.execution.dispatch.task.storage
       - org.pangrova.coordinator.query.execution.dispatch.task.stream
       - org.pangrova.coordinator.query.execution.security
@@ -1827,7 +1827,7 @@ artifacts:
       - org.pangrova.indexing.strategies.hash.serializer
       - org.pangrova.indexing.strategies.ngram.provider
       - org.pangrova.indexing.strategies.ngram.serializer
-      - org.pangrova.indexing.strategies.normalize
+      - org.pangrova.indexing.strategies.normalization
       - org.pangrova.indexing.strategies.prefix.provider
       - org.pangrova.indexing.strategies.prefix.serializer
       - org.pangrova.indexing.strategies.rtree.provider
@@ -2309,13 +2309,13 @@ artifacts:
       - org.pangrova.parser.api.diagnostic
       - org.pangrova.parser.api.enums
       - org.pangrova.parser.api.exception
-      - org.pangrova.parser.api.parse
+      - org.pangrova.parser.api.syntax
       - org.pangrova.parser.build
       - org.pangrova.parser.build.type
       - org.pangrova.parser.diagnostic
       - org.pangrova.parser.format
       - org.pangrova.parser.lexical
-      - org.pangrova.parser.parse
+      - org.pangrova.parser.syntax
     pomDependencies:
       pangrova-common: compile
       pangrova-types: compile
@@ -2338,11 +2338,11 @@ artifacts:
       - org.pangrova.parser.api.ast.type
       - org.pangrova.parser.api.enums
       - org.pangrova.parser.api.exception
-      - org.pangrova.parser.api.parse
+      - org.pangrova.parser.api.syntax
       - org.pangrova.parser.build
       - org.pangrova.parser.build.type
       - org.pangrova.parser.format
-      - org.pangrova.parser.parse
+      - org.pangrova.parser.syntax
     providers:
       {}
   pangrova-persistence-ai-postgresql:
@@ -2646,7 +2646,7 @@ artifacts:
       - org.pangrova.persistence.generation.api.exception
       - org.pangrova.persistence.generation.api.exchange
       - org.pangrova.persistence.generation.api.execution
-      - org.pangrova.persistence.generation.api.generated
+      - org.pangrova.persistence.generation.api.generatedvalue
       - org.pangrova.persistence.generation.api.job
       - org.pangrova.persistence.generation.api.publication
     pomDependencies:
@@ -2680,7 +2680,7 @@ artifacts:
       - org.pangrova.persistence.generation.api.exception
       - org.pangrova.persistence.generation.api.exchange
       - org.pangrova.persistence.generation.api.execution
-      - org.pangrova.persistence.generation.api.generated
+      - org.pangrova.persistence.generation.api.generatedvalue
       - org.pangrova.persistence.generation.api.job
       - org.pangrova.persistence.generation.api.publication
     providers:
@@ -3418,10 +3418,10 @@ artifacts:
   pangrova-planner:
     path: pangrova-planner
     mainPackages:
-      - org.pangrova.planner.adaptive
+      - org.pangrova.planner.adaptivequery
       - org.pangrova.planner.advisor
       - org.pangrova.planner.analysis
-      - org.pangrova.planner.api.adaptive
+      - org.pangrova.planner.api.adaptivequery
       - org.pangrova.planner.api.enums
       - org.pangrova.planner.api.exception
       - org.pangrova.planner.api.fragment
@@ -3445,19 +3445,19 @@ artifacts:
       - org.pangrova.planner.exchange
       - org.pangrova.planner.extension
       - org.pangrova.planner.generation
-      - org.pangrova.planner.incremental
+      - org.pangrova.planner.incrementalquery
       - org.pangrova.planner.lineage
       - org.pangrova.planner.metadata
       - org.pangrova.planner.metadata.catalog
       - org.pangrova.planner.mv
       - org.pangrova.planner.optimization
-      - org.pangrova.planner.parse
       - org.pangrova.planner.rerank
       - org.pangrova.planner.retrieval
       - org.pangrova.planner.rewrite
       - org.pangrova.planner.rule
       - org.pangrova.planner.security
       - org.pangrova.planner.security.expression
+      - org.pangrova.planner.sqlnode
       - org.pangrova.planner.stability
       - org.pangrova.planner.statistics
       - org.pangrova.planner.substrait
@@ -3514,10 +3514,10 @@ artifacts:
         - pangrova-testing-kit
         - pangrova-types
     exportedPackages:
-      - org.pangrova.planner.adaptive
+      - org.pangrova.planner.adaptivequery
       - org.pangrova.planner.advisor
       - org.pangrova.planner.analysis
-      - org.pangrova.planner.api.adaptive
+      - org.pangrova.planner.api.adaptivequery
       - org.pangrova.planner.api.enums
       - org.pangrova.planner.api.exception
       - org.pangrova.planner.api.fragment
@@ -3535,11 +3535,11 @@ artifacts:
       - org.pangrova.planner.metadata.catalog
       - org.pangrova.planner.mv
       - org.pangrova.planner.optimization
-      - org.pangrova.planner.parse
       - org.pangrova.planner.rerank
       - org.pangrova.planner.retrieval
       - org.pangrova.planner.rewrite
       - org.pangrova.planner.security
+      - org.pangrova.planner.sqlnode
       - org.pangrova.planner.statistics
       - org.pangrova.planner.substrait
       - org.pangrova.planner.throttle

@@ -19,7 +19,7 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.function.BiFunction;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses.Analysis;
 import org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors;
 
 /**

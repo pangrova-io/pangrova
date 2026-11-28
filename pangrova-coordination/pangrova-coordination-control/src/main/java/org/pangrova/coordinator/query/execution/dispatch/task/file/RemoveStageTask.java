@@ -57,8 +57,8 @@ public final class RemoveStageTask implements MetadataTask<RemoveStageStatement>
             throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_NOT_CONFIGURED,
                     "REMOVE @stage requires an internal file-plane signing secret");
         }
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), context.session());
-        UserIdentity user = FileSpaceTaskSupport.requireUser(context.session());
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), context.session());
+        UserIdentity user = FileSpaceTaskAuthority.requireUser(context.session());
         Pattern pattern = pattern(statement.pattern());
         FileAccessGrant listing = access.grant(user, "stages", ref.catalog(), ref.schema(),
                 ref.table(), statement.path().orElse(""), "list");

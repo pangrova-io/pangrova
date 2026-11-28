@@ -19,7 +19,7 @@ import java.util.Map;
 /**
  * JDBC operations for file column statistics (L0 pruning support).
  */
-final class JdbcIndexStatisticsStore extends JdbcStoreSupport {
+final class JdbcIndexStatisticsStore extends JdbcIndexMetadataStoreBase {
 
     // PreparedStatement parameter indices beyond the single-digit range for the insert statement.
     private static final int PARAM_ROW_COUNT = 11;

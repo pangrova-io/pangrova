@@ -12,7 +12,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 import org.pangrova.generation.api.publication.GenerationManifest;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildDescriptor;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;

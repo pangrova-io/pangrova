@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.parser.parse.TimeTravelSqlClauses;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;

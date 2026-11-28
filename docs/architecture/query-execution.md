@@ -534,7 +534,7 @@ metadata scope. When Calcite requests the declaration, the same metadata provide
 can bind the discovered selector. Subsequent lookups of a bound table share the
 selected snapshot. Explicit enumeration lists tables. Catalog failures propagate as
 metadata errors.
-Each compilation owns one `PlanningReadBindings` instance shared by Calcite table
+Each compilation owns one `PlanningReadBindingResolver` instance shared by Calcite table
 declarations and cost statistics. It verifies table identity, the selected snapshot
 or incremental range, and retained query authority. Calcite's row types and row-count
 estimates use the same immutable binding. Requests that unwrap a connector declaration

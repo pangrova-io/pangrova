@@ -1,7 +1,7 @@
 package org.pangrova.worker.catalog;
 
-import org.pangrova.protocol.write.NativeWriteBindings;
-import org.pangrova.protocol.write.PhysicalFileWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBinder;
+import org.pangrova.protocol.write.PhysicalFileWriteBindingFactory;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.LanceWriteBinding;
@@ -23,7 +23,7 @@ final class NativeOutputAllocationValidation {
             if (request.getExecutionOptions().getWrite().getFileFormat() != physical.getFileFormat()
                     || physical.getFilesList().stream()
                             .anyMatch(file -> !file.getTaskAttempt().equals(request.getAttempt()))
-                    || !NativeWriteBindings.attemptPrefix(
+                    || !NativeWriteBinder.attemptPrefix(
                                     physical.getAllocationPrefix(), request.getAttempt())
                             .equals(physical.getAttemptPrefix())) {
                 throw mismatch();
@@ -34,7 +34,7 @@ final class NativeOutputAllocationValidation {
         validate(binding, handle);
         var allocation = handle.nativeWriteAllocation().orElseThrow();
         if (request.getExecutionOptions().getWrite().getFileFormat() != FileFormat.FILE_FORMAT_LANCE
-                || !NativeWriteBindings.attemptPrefix(
+                || !NativeWriteBinder.attemptPrefix(
                                 allocation.stagingPrefix(), request.getAttempt())
                         .equals(binding.getTransactionStagingPrefix())) {
             throw mismatch();
@@ -50,7 +50,7 @@ final class NativeOutputAllocationValidation {
                                                 "Physical binding requires the exact connector "
                                                         + "physical output handle"));
         var expected =
-                PhysicalFileWriteBindings.template(allocation).toBuilder()
+                PhysicalFileWriteBindingFactory.template(allocation).toBuilder()
                         .setCatalog(binding.getCatalog())
                         .setOutputHandle(binding.getOutputHandle())
                         .build();
@@ -59,7 +59,7 @@ final class NativeOutputAllocationValidation {
                 throw mismatch();
             }
             expected =
-                    NativeWriteBindings.bindPhysical(
+                    NativeWriteBinder.bindPhysical(
                             expected, binding.getFiles(0).getTaskAttempt());
         }
         if (!expected.equals(binding)) {
@@ -85,7 +85,7 @@ final class NativeOutputAllocationValidation {
         var accepted = handle.acceptedWriteBaseSnapshot();
         if (binding.hasBaseSnapshot() != accepted.isPresent()
                 || (accepted.isPresent()
-                        && !org.pangrova.protocol.source.SourceSnapshotBindings.encode(
+                        && !org.pangrova.protocol.source.SourceSnapshotCodec.encode(
                                         accepted.orElseThrow(), binding.getCatalog())
                                 .equals(binding.getBaseSnapshot()))) {
             throw mismatch();

@@ -432,7 +432,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         byte[] bytes = codec.serialize(append.output());
         var decoded = (LanceOutputHandle) codec.deserialize(1, bytes);
         assertThat(codec.serialize(decoded)).containsExactly(bytes);
-        var actual = org.pangrova.protocol.source.SourceSnapshotBindings.encode(decoded.acceptedBase(), fixture.catalog());
+        var actual = org.pangrova.protocol.source.SourceSnapshotCodec.encode(decoded.acceptedBase(), fixture.catalog());
         assertThat(actual).isEqualTo(base);
         assertThat(actual.getAcceptedOriginCatalogRevision()).isEqualTo(1);
         assertThat(actual.getCatalog()).isEqualTo(fixture.catalog());

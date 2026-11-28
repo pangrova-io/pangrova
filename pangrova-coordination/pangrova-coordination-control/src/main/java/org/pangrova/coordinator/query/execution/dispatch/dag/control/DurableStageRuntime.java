@@ -28,7 +28,7 @@ import org.pangrova.persistence.generation.api.execution.GenerationStageExecutio
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.InputRange;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
-import org.pangrova.planner.api.adaptive.PartitionGroup;
+import org.pangrova.planner.api.adaptivequery.PartitionGroup;
 import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;

@@ -9,7 +9,7 @@ import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
-import org.pangrova.generation.execution.template.FrozenStageBindings;
+import org.pangrova.generation.execution.template.GenerationStageTemplateCodec;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.AiInvocationOperatorBinder;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
@@ -19,9 +19,9 @@ import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmissionStore;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmission;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildSubmissionStore;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildSubmission;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.planner.generation.GenerationPlan;
@@ -249,7 +249,7 @@ public final class DurableGeneratedValueBuildService {
         var models = authorizationScope.definitionSnapshot().map(DeferredAuthorizationScope.DefinitionSnapshot::models)
                 .orElseThrow(() -> new IllegalArgumentException(
                             "Generated durable stage requires observed model authority"));
-        var template = FrozenStageBindings.freeze(
+        var template = GenerationStageTemplateCodec.freeze(
                 new BoundExecutionPlan(plan.planBytes(), bindings.getBindingsList()), models);
         return GenerationDispatchSpecFactory.create(
                 identity.jobId(),

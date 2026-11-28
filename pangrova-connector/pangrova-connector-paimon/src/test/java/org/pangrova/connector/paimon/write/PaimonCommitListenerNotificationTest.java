@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.connector.paimon.PaimonMetadata;
-import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+import org.pangrova.testfixtures.tableformat.PaimonCommitFixture;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.data.ConnectorPageSink;
@@ -150,7 +150,7 @@ class PaimonCommitListenerNotificationTest {
         List<String> columns = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
         sink.appendPage(new Page(columns, rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        PaimonCommitTestSupport.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
+        PaimonCommitFixture.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
         sink.close();
     }
 

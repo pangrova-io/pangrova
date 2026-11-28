@@ -11,7 +11,7 @@ import java.util.Optional;
 
 import org.pangrova.planner.type.StandardTypeRegistry;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.Type;
 import org.pangrova.types.TypeSignature;
 import org.pangrova.types.primitive.BigIntType;
@@ -63,8 +63,8 @@ class TypeSystemPropertyTest {
     @Property(tries = 10)
     void bridgeRoundTripPreservesIdentity(
             @ForAll("roundTripPangrovaTypes") PangrovaType original) {
-        Type converted = PangrovaTypeMapping.toType(original);
-        PangrovaType roundTripped = PangrovaTypeMapping.toPangrovaType(converted);
+        Type converted = PangrovaTypeConverter.toType(original);
+        PangrovaType roundTripped = PangrovaTypeConverter.toPangrovaType(converted);
         assertEquals(original, roundTripped,
                 "Round-trip failed for " + original);
     }

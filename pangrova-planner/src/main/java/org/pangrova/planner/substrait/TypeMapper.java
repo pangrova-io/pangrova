@@ -6,7 +6,7 @@ import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.primitive.VarcharType;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -31,7 +31,7 @@ public class TypeMapper {
      * Converts a Calcite RelDataType to the parameterized Pangrova
      * {@link org.pangrova.types.Type}. For DECIMAL and VARCHAR,
      * preserves precision/scale/length. For simple types, bridges via
-     * {@link PangrovaTypeMapping}.
+     * {@link PangrovaTypeConverter}.
      *
      * @param calciteType the Calcite type to convert
      * @return the corresponding parameterized Pangrova Type
@@ -65,7 +65,7 @@ public class TypeMapper {
         String name = sqlType.getName();
         try {
             PangrovaType pangrovaType = PangrovaType.fromSqlTypeName(name);
-            return PangrovaTypeMapping.toType(pangrovaType);
+            return PangrovaTypeConverter.toType(pangrovaType);
         } catch (IllegalArgumentException e) {
             throw new SubstraitConversionException(
                     PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,

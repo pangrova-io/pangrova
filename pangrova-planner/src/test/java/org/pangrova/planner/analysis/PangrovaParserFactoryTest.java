@@ -1,7 +1,7 @@
 package org.pangrova.planner.analysis;
 
 import org.pangrova.parser.api.ast.Statement;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlSelect;
 import org.junit.jupiter.api.Test;

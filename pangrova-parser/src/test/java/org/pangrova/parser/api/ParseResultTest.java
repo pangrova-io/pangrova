@@ -5,7 +5,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.pangrova.parser.api.ast.statement.ShowCatalogsStatement;
 import org.pangrova.parser.api.diagnostic.ParseError;
-import org.pangrova.parser.api.parse.ParseResult;
+import org.pangrova.parser.api.syntax.ParseResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

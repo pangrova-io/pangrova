@@ -216,7 +216,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
             throw new IllegalArgumentException("Dataset scan requires accepted membership");
         }
         var reference =
-                org.pangrova.protocol.source.SourceSnapshotBindings.decode(
+                org.pangrova.protocol.source.SourceSnapshotCodec.decode(
                         request.getAcceptedSnapshot(), request.getCatalog());
         if (!reference.tenant().equals(request.getSecurity().getTenantId())
                 || reference.version() != request.getVersion()
@@ -312,7 +312,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
         requireReservedIdentityAndCursor(request);
         if (binding.hasBaseSnapshot()) {
             var base =
-                    org.pangrova.protocol.source.SourceSnapshotBindings.decode(
+                    org.pangrova.protocol.source.SourceSnapshotCodec.decode(
                             binding.getBaseSnapshot(), binding.getCatalog());
             if (!base.tenant().equals(reservation.getTenantId())
                     || !base.tableId().equals(reservation.getTableId())
@@ -376,7 +376,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
             }
             // Validates the complete owner/control/plan/attempt fence; recovery may
             // intentionally carry winners from an earlier execution owner.
-            org.pangrova.protocol.write.NativeWriteBindings.attemptPrefix("control-validation", attempt);
+            org.pangrova.protocol.write.NativeWriteBinder.attemptPrefix("control-validation", attempt);
         }
     }
 

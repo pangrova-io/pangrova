@@ -227,7 +227,7 @@ class QualityReadSqlIntegrationTest extends ContainerTestBase {
         @Override
         public QualityQueryResult execute(QualityReadRequest request, QualityExecutionIdentity identity) {
             String sql = QualityReadSql.render(request);
-            assertThat(new org.pangrova.parser.parse.AntlrSqlParser().parse(sql))
+            assertThat(new org.pangrova.parser.syntax.AntlrSqlParser().parse(sql))
                     .as("generated SQL must use the actual production grammar").isNotNull();
             QualityQueryType type = request.type();
             assertThat(identity).isEqualTo(new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));

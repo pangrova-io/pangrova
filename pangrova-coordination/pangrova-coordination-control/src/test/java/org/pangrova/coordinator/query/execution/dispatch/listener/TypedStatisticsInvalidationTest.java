@@ -5,7 +5,7 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.api.enums.StatementCategory;
 import org.pangrova.query.dispatch.StatementCompletionEvent;
 import org.pangrova.query.dispatch.StatementResult;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.planner.statistics.PlannerTableStatistics;
 import org.pangrova.planner.statistics.StatisticsCollector;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;

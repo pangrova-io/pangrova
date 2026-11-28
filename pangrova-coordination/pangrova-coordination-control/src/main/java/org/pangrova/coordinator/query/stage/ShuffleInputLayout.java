@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.stage;
 
-import org.pangrova.planner.api.adaptive.CoalesceResult;
-import org.pangrova.planner.api.adaptive.PartitionGroup;
+import org.pangrova.planner.api.adaptivequery.CoalesceResult;
+import org.pangrova.planner.api.adaptivequery.PartitionGroup;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;
 
 import java.util.List;

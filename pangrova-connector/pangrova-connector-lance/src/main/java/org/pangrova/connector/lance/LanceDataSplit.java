@@ -37,7 +37,7 @@ public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Parti
                 FileSplitDetail.newBuilder().setFileFormat(FileFormat.FILE_FORMAT_LANCE)
                         .setScanPartition(ScanPartitionDetail.newBuilder().setPartitionId(partition.id())
                                 .setPhysicalRows(partition.physicalRows()).setManifestSha256(checksum(manifestSha256))
-                                .setAcceptedSnapshot(org.pangrova.protocol.source.SourceSnapshotBindings.encode(
+                                .setAcceptedSnapshot(org.pangrova.protocol.source.SourceSnapshotCodec.encode(
                                         snapshot, catalogBinding()))
                                 .setPhysicalSchemaSha256(checksum(table.schemaFence()))).build()))
                 .toBuilder().setCatalog(catalogBinding()).build();

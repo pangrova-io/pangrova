@@ -80,7 +80,7 @@ final class PostgresGenerationCompletion {
         }
         validateAndInsertOutputs(connection, job, page, completion);
         markSucceeded(connection, completion);
-        PostgresGenerationJobStoreSupport.advanceCompletionBarrier(connection, job, completion.completedAt());
+        PostgresGenerationJobStoreTransitions.advanceCompletionBarrier(connection, job, completion.completedAt());
         return true;
     }
 
@@ -108,9 +108,9 @@ final class PostgresGenerationCompletion {
         List<String> expectedSources = page.kind() == GenerationPageKind.RELATIONAL_COMPUTE ? List.of()
                 : INPUTS.loadSplits(connection, completion.tenantId(), completion.jobId(), completion.pageId())
                         .stream().map(GenerationSplit::dataObjectId).toList();
-        PostgresGenerationJobStoreSupport.validateOutputCoverage(job, page, expectedSources, completion.outputs());
+        PostgresGenerationJobStoreTransitions.validateOutputCoverage(job, page, expectedSources, completion.outputs());
         for (GenerationOutput output : completion.outputs()) {
-            PostgresGenerationJobStoreSupport.insertOutput(
+            PostgresGenerationJobStoreTransitions.insertOutput(
                     connection, completion.tenantId(),
                     completion.jobId(), completion.pageId(), output);
         }

@@ -226,7 +226,7 @@ class SpiWiringVerificationTest {
         assertThat(importedClasses.contain("org.pangrova.metadata.testinfra.TestCatalogRegistry")).isFalse();
         assertThat(importedClasses.contain("org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleOutputCollector")).isFalse();
         assertThat(importedClasses.contain("org.pangrova.coordinator.query.execution.dispatch.dag.handler.RuntimeFilterStageHandler")).isFalse();
-        assertThat(importedClasses.contain("org.pangrova.coordinator.query.execution.dispatch.adaptive.SettableDynamicFilter")).isFalse();
+        assertThat(importedClasses.contain("org.pangrova.coordinator.query.execution.dispatch.adaptivequery.SettableDynamicFilter")).isFalse();
         assertThat(reachableClassNames).contains(
                 "org.pangrova.ai.worker.context.WorkerAiCallbackScope",
                 "org.pangrova.ai.worker.function.AiFunctionFailureProjector",

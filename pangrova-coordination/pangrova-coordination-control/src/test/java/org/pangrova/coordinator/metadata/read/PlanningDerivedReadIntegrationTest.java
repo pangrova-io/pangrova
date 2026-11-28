@@ -4,7 +4,7 @@ import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
-import org.pangrova.planner.metadata.catalog.PlanningReadBindings;
+import org.pangrova.planner.metadata.catalog.PlanningReadBindingResolver;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -37,7 +37,7 @@ class PlanningDerivedReadIntegrationTest extends ContainerTestBase {
         try (var fixture = new ReadBindingSdkFixture(warehouse)) {
             var table = fixture.create("rows");
             ReadBindingSdkFixture.write(table, 3);
-            var owner = new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), fixture.session);
+            var owner = new PlanningReadBindingResolver(fixture.bootstrap.catalogRegistry(), fixture.session);
             var selected = owner.resolve("bound", "db", "rows").orElseThrow();
             var definition = new ConnectorDerivedQuery(
                     "SELECT COUNT(*) AS record_count, SUM(id) AS id_sum FROM selected_input",
@@ -71,7 +71,7 @@ class PlanningDerivedReadIntegrationTest extends ContainerTestBase {
             assertThat(plan.splitSources()).singleElement().satisfies(source ->
                     assertThat(source.readBinding()).containsSame(selected));
             ReadBindingSdkFixture.write(table, 5);
-            assertThat(new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), fixture.session)
+            assertThat(new PlanningReadBindingResolver(fixture.bootstrap.catalogRegistry(), fixture.session)
                     .resolve("bound", "db", "rows").orElseThrow().statistics().rowCount()).isEqualTo(8);
             assertThat(selected.statistics().rowCount()).isEqualTo(3);
             assertThat(fixture.splits(plan.splitSources().get(0).readBinding().orElseThrow(), Map.of()))

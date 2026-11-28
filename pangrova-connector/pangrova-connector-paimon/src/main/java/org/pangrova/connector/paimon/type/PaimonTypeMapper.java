@@ -2,7 +2,7 @@ package org.pangrova.connector.paimon.type;
 
 import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.VectorType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.apache.paimon.types.ArrayType;
@@ -76,7 +76,7 @@ public final class PaimonTypeMapper {
     /**
      * Converts a Paimon DataType to the parameterized {@link org.pangrova.types.Type}.
      * For DECIMAL, ARRAY, MAP, and ROW, preserves full parameter information.
-     * For simple types, bridges via {@link PangrovaTypeMapping}.
+     * For simple types, bridges via {@link PangrovaTypeConverter}.
      *
      * @param paimonType the Paimon type to convert
      * @return the corresponding parameterized Type
@@ -148,7 +148,7 @@ public final class PaimonTypeMapper {
     public static org.pangrova.types.Type toParameterizedType(
             DataType paimonType, String columnName, Map<String, String> tableProperties) {
         if (isVariantColumn(paimonType, columnName, tableProperties)) {
-            return PangrovaTypeMapping.toType(PangrovaType.VARIANT);
+            return PangrovaTypeConverter.toType(PangrovaType.VARIANT);
         }
         if (isVectorColumn(paimonType, columnName, tableProperties)) {
             return parseVectorFromMetadata(paimonType, columnName, tableProperties);

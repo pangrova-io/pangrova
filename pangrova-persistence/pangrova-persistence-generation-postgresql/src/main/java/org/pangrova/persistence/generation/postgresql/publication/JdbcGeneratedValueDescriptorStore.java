@@ -2,7 +2,7 @@ package org.pangrova.persistence.generation.postgresql.publication;
 
 import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildDescriptor;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 import javax.sql.DataSource;

@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Exercises the registered index accessors against real Paimon files. */
-class PaimonIndexAccessorTest extends PaimonDeleteTestSupport {
+class PaimonIndexAccessorTest extends PaimonDeleteFixture {
 
     @Test
     void registeredFileSystemAccessorReadsWritesAndDeletesIndexFiles() throws Exception {

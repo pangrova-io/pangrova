@@ -7,7 +7,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.RowType;
 import org.pangrova.types.Type;
 import org.pangrova.types.VectorType;
@@ -66,6 +66,6 @@ public final class PaimonDeclaredTypes {
         if (type instanceof CharType character) {
             return new org.apache.paimon.types.CharType(character.length());
         }
-        return PaimonTypeMapper.toPaimonType(PangrovaTypeMapping.toPangrovaType(type));
+        return PaimonTypeMapper.toPaimonType(PangrovaTypeConverter.toPangrovaType(type));
     }
 }

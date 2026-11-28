@@ -13,7 +13,7 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Exact SDK schema evidence, including the pinned version's rollback/reuse boundary; not Native SQL acceptance. */
-class PaimonReadSchemaIdentityIntegrationTest extends PaimonDeleteTestSupport {
+class PaimonReadSchemaIdentityIntegrationTest extends PaimonDeleteFixture {
     @Test
     void currentAndHistoricalEvidenceUseTheirActualSelectedSchema() throws Exception {
         createTable(false, true);

@@ -42,7 +42,7 @@ import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerat
 
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
 @org.pangrova.common.api.annotation.Internal
-public final class PostgresGenerationJobStore extends PostgresGenerationJobStoreSupport
+public final class PostgresGenerationJobStore extends PostgresGenerationJobStoreTransitions
         implements GenerationJobStore, GenerationJobSubmissionTransactions {
 
     private final PostgresGenerationJobReader reader;

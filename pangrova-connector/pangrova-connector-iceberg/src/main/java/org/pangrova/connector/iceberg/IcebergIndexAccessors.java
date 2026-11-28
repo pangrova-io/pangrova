@@ -5,7 +5,7 @@ import org.pangrova.connector.iceberg.fs.IcebergFileSystemAccessor;
 import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
 import org.pangrova.connector.iceberg.index.IcebergSnapshotAwareMetadata;
 import org.pangrova.connector.api.index.ColumnValueReader;
-import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.ConnectorIndexCapabilities;
 import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.pangrova.connector.api.index.NativeIndexCapability;
 import org.pangrova.connector.api.index.NativeIndexEvaluator;
@@ -44,7 +44,7 @@ import java.util.Set;
  * evaluation, snapshot-aware metadata, data file listing, and per-file
  * statistics extraction.
  */
-final class IcebergIndexAccessors implements ConnectorIndexSupport {
+final class IcebergIndexAccessors implements ConnectorIndexCapabilities {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergIndexAccessors.class);
 

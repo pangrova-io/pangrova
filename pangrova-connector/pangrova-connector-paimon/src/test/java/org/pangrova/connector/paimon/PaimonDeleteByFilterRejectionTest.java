@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Capability rejection must precede even builder creation and leave snapshots and data unchanged. */
-class PaimonDeleteByFilterRejectionTest extends PaimonDeleteTestSupport {
+class PaimonDeleteByFilterRejectionTest extends PaimonDeleteFixture {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("unsupportedFilters")

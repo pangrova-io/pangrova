@@ -13,7 +13,7 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;

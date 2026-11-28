@@ -15,7 +15,7 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
-import org.pangrova.parser.parse.TimeTravelSqlClauses;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.query.api.session.QuerySession;
 

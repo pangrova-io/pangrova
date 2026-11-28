@@ -129,7 +129,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
                 .setDatasetUri(snapshot.datasetUri()).setVersion(version).setPhysicalSchemaSha256(Checksum.newBuilder()
                         .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(ByteString.copyFrom(schemaFingerprint)))
-                .setAcceptedSnapshot(org.pangrova.protocol.source.SourceSnapshotBindings.encode(snapshot, binding))
+                .setAcceptedSnapshot(org.pangrova.protocol.source.SourceSnapshotCodec.encode(snapshot, binding))
                 .setDeadlineEpochMs(deadline).setPageSize(pageSize).setHasCursor(afterPartitionId.isPresent());
         afterPartitionId.ifPresent(request::setAfterPartitionId);
         var response = client.call(endpoint(), command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_DATASET_SCAN_PARTITIONS,
@@ -287,7 +287,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
                     .setTenantId(reservation.base().key().tenant())
                     .setManifestRelativePath(reservation.manifestRelativePath());
             reservation.baseSnapshot().ifPresent(base -> allocation.setBaseSnapshot(
-                    org.pangrova.protocol.source.SourceSnapshotBindings.encode(base, binding.getLance().getCatalog())));
+                    org.pangrova.protocol.source.SourceSnapshotCodec.encode(base, binding.getLance().getCatalog())));
             var request = PrepareDistributedWriteRequest.newBuilder().setSecurity(security).setOutputBinding(binding)
                     .setExecutionId(intent.queryId()).setCommitFingerprint(intent.commitFingerprint())
                     .setReservation(allocation)
@@ -354,7 +354,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             var acceptedBase = output.acceptedWriteBaseSnapshot();
             if ((base > 0) != acceptedBase.isPresent()
                     || binding.getLance().hasBaseSnapshot() != acceptedBase.isPresent()
-                    || (acceptedBase.isPresent() && !org.pangrova.protocol.source.SourceSnapshotBindings.encode(
+                    || (acceptedBase.isPresent() && !org.pangrova.protocol.source.SourceSnapshotCodec.encode(
                             acceptedBase.orElseThrow(), binding.getLance().getCatalog())
                             .equals(binding.getLance().getBaseSnapshot()))) {
                 throw new IllegalArgumentException("Native output accepted base differs from durable intent");
@@ -429,7 +429,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
                 throw new IllegalArgumentException("Unknown source preparation header fields");
             }
             requireSha256(header.getObjectsSha256());
-            var reference = org.pangrova.protocol.source.SourceSnapshotBindings.decode(header.getCandidate(), catalog);
+            var reference = org.pangrova.protocol.source.SourceSnapshotCodec.decode(header.getCandidate(), catalog);
             if (!reference.membershipId().equals(fingerprint)
                     || reference.acceptedOriginRevision() != catalog.getCatalogRevision()) {
                 throw new IllegalArgumentException("Candidate membership differs");

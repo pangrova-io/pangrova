@@ -38,7 +38,7 @@ public final class MaterializationService {
     private final KernelPorts ports;
     private final MaterializationSchedules schedules;
     private final MaterializationRemoval removal;
-    private final MaterializationDefinitionPlanning definitions;
+    private final MaterializationDefinitionPlanner definitions;
     private final MaterializationAttemptExecutor attemptExecutor;
     private final RefreshResolutionPolicy resolutionPolicy;
 
@@ -61,7 +61,7 @@ public final class MaterializationService {
         this.ports = ports;
         this.schedules = new MaterializationSchedules(ports.repository());
         this.removal = new MaterializationRemoval(ports.repository(), ports.authorizer(), ports.clock(), schedules);
-        this.definitions = new MaterializationDefinitionPlanning(ports.planner());
+        this.definitions = new MaterializationDefinitionPlanner(ports.planner());
         this.attemptExecutor = new MaterializationAttemptExecutor(ports, executionLease,
                 sourcePinTtl);
         this.resolutionPolicy = new RefreshResolutionPolicy(ports.extensions());

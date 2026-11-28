@@ -10,7 +10,7 @@ import java.time.Instant;
 import java.util.List;
 
 /** Durable keyset progress; descriptor mutations remain owned by lifecycle fences. */
-final class JdbcIndexMaintenanceScanStore extends JdbcStoreSupport {
+final class JdbcIndexMaintenanceScanStore extends JdbcIndexMetadataStoreBase {
     private static final String PAGE_PREFIX = "SELECT * FROM index_descriptors WHERE state=? AND index_id<=? ";
     private static final String PAGE_SUFFIX = "ORDER BY index_id LIMIT ?";
     private static final String FIRST_PAGE = PAGE_PREFIX + PAGE_SUFFIX;

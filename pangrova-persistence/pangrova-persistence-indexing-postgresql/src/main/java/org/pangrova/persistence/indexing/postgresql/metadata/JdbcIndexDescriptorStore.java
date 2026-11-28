@@ -41,7 +41,7 @@ import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
  * JDBC operations for {@link IndexDescriptor} CRUD, schema evolution,
  * and state queries.
  */
-final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
+final class JdbcIndexDescriptorStore extends JdbcIndexMetadataStoreBase {
     private static final int BUILD_PRINCIPAL_PARAMETER = 17;
     private static final int BUILD_SCOPE_PARAMETER = 18;
     private static final int SOURCE_SCHEMA_FINGERPRINT_PARAMETER = 19;

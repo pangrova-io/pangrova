@@ -359,12 +359,12 @@ public interface ConnectorMetadata
      * Returns the consolidated index support interface for this connector.
      *
      * <p>Connectors that support Pangrova's independent indexing layer override
-     * this to return their {@link org.pangrova.connector.api.index.ConnectorIndexSupport}
+     * this to return their {@link org.pangrova.connector.api.index.ConnectorIndexCapabilities}
      * implementation, which bundles all index-related capabilities.</p>
      *
      * @return the index support, or empty if not supported
      */
-    default java.util.Optional<org.pangrova.connector.api.index.ConnectorIndexSupport> getIndexSupport() {
+    default java.util.Optional<org.pangrova.connector.api.index.ConnectorIndexCapabilities> getIndexSupport() {
         return java.util.Optional.empty();
     }
 

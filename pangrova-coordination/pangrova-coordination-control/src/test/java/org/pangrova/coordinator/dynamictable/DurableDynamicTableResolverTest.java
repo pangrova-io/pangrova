@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.materialization.PlanningMaterializations;
 import org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 

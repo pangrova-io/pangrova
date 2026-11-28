@@ -30,7 +30,7 @@ import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.coordinator.query.audit.TableControlAuditEmitter;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.security.api.enums.AuditEventType;

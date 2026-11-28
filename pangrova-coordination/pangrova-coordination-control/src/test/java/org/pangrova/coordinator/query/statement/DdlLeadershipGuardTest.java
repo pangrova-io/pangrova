@@ -127,7 +127,7 @@ class DdlLeadershipGuardTest {
     @Test
     void storageProfileMutationsCannotRunOnStandbyWhenLeadershipRoutingIsEnabled() {
         var guard = new DdlLeadershipGuard(standbyService, STANDBY_ID);
-        var parser = new org.pangrova.parser.parse.AntlrSqlParser();
+        var parser = new org.pangrova.parser.syntax.AntlrSqlParser();
         for (String sql : List.of("CREATE STORAGE PROFILE staging WITH ('type'='S3', 'bucket'='example')",
                 "DROP STORAGE PROFILE IF EXISTS staging")) {
             assertThatThrownBy(() -> guard.requireLeaderForDdl(parser.parse(sql)))
@@ -244,7 +244,7 @@ class DdlLeadershipGuardTest {
 
     @Test
     void viewAndEmbeddingModelMutationsRequireLeaderRouting() {
-        var parser = new org.pangrova.parser.parse.AntlrSqlParser();
+        var parser = new org.pangrova.parser.syntax.AntlrSqlParser();
         assertThat(StatementClassifier.requiresLeaderRouting(parser.parse("CREATE VIEW v AS SELECT 1"))).isTrue();
         assertThat(StatementClassifier.requiresLeaderRouting(parser.parse("DROP VIEW v"))).isTrue();
         assertThat(StatementClassifier.requiresLeaderRouting(

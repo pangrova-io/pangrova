@@ -20,7 +20,7 @@ import org.pangrova.file.access.FileGrantAudit;
 import org.pangrova.query.dispatch.StatementExecutionContext;
 import org.pangrova.query.dispatch.StatementResult;
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.statement.ListStageStatement;
 import org.pangrova.security.api.authorization.FileSpaceAccessControl;
 import org.pangrova.security.api.identity.UserIdentity;

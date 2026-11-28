@@ -2,7 +2,7 @@ package org.pangrova.testing.benchmark.jmh;
 
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;

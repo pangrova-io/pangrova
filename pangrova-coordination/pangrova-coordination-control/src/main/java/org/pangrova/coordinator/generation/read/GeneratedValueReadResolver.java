@@ -6,7 +6,7 @@ import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
 import org.pangrova.coordinator.generation.read.GeneratedValueGenerationBindingResolver.ResolvedRead;
 
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildMetadataStore;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.planner.analysis.SplitSourceDescriptor;
 import org.pangrova.protocol.execution.BoundExecutionPlan;

@@ -66,12 +66,12 @@ public final class StageTasks {
     private static StatementResult create(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             CreateStageStatement statement, StatementExecutionContext context) {
         QuerySession session = context.session();
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), session);
         FileSpaceDefinition definition = new FileSpaceDefinition(FileSpaceType.STAGE,
                 ref.catalog(), ref.schema(), ref.table(), statement.external(),
                 statement.storageProfile().orElse(""), statement.url().orElse(""),
                 statement.directoryEnabled(), statement.comment().orElse(""),
-                FileSpaceTaskSupport.requireUser(session).principal());
+                FileSpaceTaskAuthority.requireUser(session).principal());
         boolean existed = registry.find(FileSpaceType.STAGE, ref.catalog(), ref.schema(),
                 ref.table()).isPresent();
         FileSpace space = registry.create(definition, statement.ifNotExists());
@@ -88,8 +88,8 @@ public final class StageTasks {
             org.pangrova.file.directory.StageDirectoryRefreshService refresh,
             AlterStageStatement statement, StatementExecutionContext context) {
         QuerySession session = context.session();
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
-        FileSpace current = FileSpaceTaskSupport.require(registry, FileSpaceType.STAGE, ref);
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), session);
+        FileSpace current = FileSpaceTaskAuthority.require(registry, FileSpaceType.STAGE, ref);
         AlterStageAction action = statement.action();
         if (action instanceof AlterStageAction.Rename rename) {
             return rename(registry, audit, context, ref, current, rename);
@@ -99,7 +99,7 @@ public final class StageTasks {
                 throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_NOT_CONFIGURED,
                         "ALTER STAGE ... REFRESH requires the file plane and directory index");
             }
-            long files = refresh.refresh(FileSpaceTaskSupport.requireUser(session), current,
+            long files = refresh.refresh(FileSpaceTaskAuthority.requireUser(session), current,
                     requested.subpath().orElse(""));
             audit.altered(context.auditAttribution(), current, "REFRESH", Map.of("files", Long.toString(files),
                     "subpath", requested.subpath().orElse("")));
@@ -151,12 +151,12 @@ public final class StageTasks {
 
     private static StatementResult drop(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             DropStageStatement statement, StatementExecutionContext context) {
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), context.session());
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), context.session());
         Optional<FileSpace> existing = registry.find(FileSpaceType.STAGE, ref.catalog(),
                 ref.schema(), ref.table());
         if (existing.isEmpty()) {
             if (!statement.ifExists()) {
-                throw FileSpaceTaskSupport.notFound(FileSpaceType.STAGE, ref);
+                throw FileSpaceTaskAuthority.notFound(FileSpaceType.STAGE, ref);
             }
             return new StatementResult(List.of(), List.of(),
                     "Stage does not exist: " + ref, StatementCategory.DDL);
@@ -170,13 +170,13 @@ public final class StageTasks {
     private static StatementResult show(FileSpaceRegistry registry, AccessControl accessControl,
             ShowStagesStatement statement, StatementExecutionContext context) {
         QuerySession session = context.session();
-        UserIdentity user = FileSpaceTaskSupport.requireUser(session);
-        AccessControl ac = FileSpaceTaskSupport.requireAccessControl(accessControl);
-        FileSpaceTaskSupport.Scope scope =
-                FileSpaceTaskSupport.resolveScope(statement.qualifiedName(), session);
+        UserIdentity user = FileSpaceTaskAuthority.requireUser(session);
+        AccessControl ac = FileSpaceTaskAuthority.requireAccessControl(accessControl);
+        FileSpaceTaskAuthority.Scope scope =
+                FileSpaceTaskAuthority.resolveScope(statement.qualifiedName(), session);
         List<TypedRow> rows = registry.list(FileSpaceType.STAGE, scope.catalog(), scope.schema())
                 .stream()
-                .filter(space -> FileSpaceTaskSupport.canUseStage(ac, user, space))
+                .filter(space -> FileSpaceTaskAuthority.canUseStage(ac, user, space))
                 .map(space -> {
                     TypedRow.Builder row = TypedRow.builder();
                     row.putRaw("name", space.name());
@@ -195,10 +195,10 @@ public final class StageTasks {
     private static StatementResult describe(FileSpaceRegistry registry, AccessControl accessControl,
             DescribeStageStatement statement, StatementExecutionContext context) {
         QuerySession session = context.session();
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
-        FileSpace space = FileSpaceTaskSupport.require(registry, FileSpaceType.STAGE, ref);
-        UserIdentity user = FileSpaceTaskSupport.requireUser(session);
-        FileSpaceTaskSupport.requireAccessControl(accessControl)
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), session);
+        FileSpace space = FileSpaceTaskAuthority.require(registry, FileSpaceType.STAGE, ref);
+        UserIdentity user = FileSpaceTaskAuthority.requireUser(session);
+        FileSpaceTaskAuthority.requireAccessControl(accessControl)
                 .checkCanUseStage(user, space.catalog(), space.schema(), space.name());
         TypedRow.Builder row = TypedRow.builder();
         row.putRaw("name", space.name());

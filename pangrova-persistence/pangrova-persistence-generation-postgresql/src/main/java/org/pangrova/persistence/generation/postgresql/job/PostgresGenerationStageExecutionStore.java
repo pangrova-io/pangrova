@@ -32,7 +32,7 @@ import java.util.function.Function;
 
 /** Same-authority transaction boundary for preparing exact partitions in the shared stage engine. */
 @Internal
-public final class PostgresGenerationStageExecutionStore extends PostgresGenerationJobStoreSupport
+public final class PostgresGenerationStageExecutionStore extends PostgresGenerationJobStoreTransitions
         implements GenerationStageExecutionStore {
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;

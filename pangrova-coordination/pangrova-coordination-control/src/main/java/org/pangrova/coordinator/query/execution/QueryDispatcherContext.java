@@ -10,7 +10,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
+import org.pangrova.planner.adaptivequery.AdaptiveQueryConfig;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;

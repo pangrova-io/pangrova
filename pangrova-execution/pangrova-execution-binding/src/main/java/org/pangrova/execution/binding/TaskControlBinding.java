@@ -6,7 +6,7 @@ import java.util.function.LongSupplier;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.protocol.write.NativeWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBinder;
 
 /** Seals task and shuffle execution identity together before transport or durable issuance. */
 public final class TaskControlBinding {
@@ -29,7 +29,7 @@ public final class TaskControlBinding {
             }
         }
         if (!requiresControlBinding(canonical, controlEpochSupplier, executionOwnerResolver)) {
-            return request.withBoundTask(NativeWriteBindings.bindAttempt(canonical));
+            return request.withBoundTask(NativeWriteBinder.bindAttempt(canonical));
         }
         long controlEpoch = attempt.getControlEpoch() > 0
                 ? attempt.getControlEpoch()
@@ -53,7 +53,7 @@ public final class TaskControlBinding {
                         .setControlEpoch(controlEpoch)
                         .setExecutionOwner(canonicalOwner));
         bindShuffleExecutionOwner(bound, canonical, canonicalOwner);
-        return request.withBoundTask(NativeWriteBindings.bindAttempt(bound.build()));
+        return request.withBoundTask(NativeWriteBinder.bindAttempt(bound.build()));
     }
 
     private static boolean requiresControlBinding(TaskRequest request, LongSupplier controlEpochSupplier,

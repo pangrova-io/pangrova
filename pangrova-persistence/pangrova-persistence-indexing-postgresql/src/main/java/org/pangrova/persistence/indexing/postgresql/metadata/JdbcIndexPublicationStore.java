@@ -34,7 +34,7 @@ import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
 import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** Transactional validation and activation of immutable index generations. */
-final class JdbcIndexPublicationStore extends JdbcStoreSupport {
+final class JdbcIndexPublicationStore extends JdbcIndexMetadataStoreBase {
 
     private final JdbcIndexDescriptorStore descriptors;
 

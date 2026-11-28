@@ -21,8 +21,8 @@ import org.pangrova.connector.paimon.write.PaimonPhysicalWriteAllocations;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
-import org.pangrova.protocol.write.PhysicalFileWriteBindings;
-import org.pangrova.protocol.write.NativeWriteBindings;
+import org.pangrova.protocol.write.PhysicalFileWriteBindingFactory;
+import org.pangrova.protocol.write.NativeWriteBinder;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
@@ -89,7 +89,7 @@ class PaimonPhysicalAllocationIntegrationTest {
             assertThat(column.nullable()).isTrue();
             assertThat(column.declaredType().children()).singleElement()
                     .satisfies(child -> assertThat(child.nullable()).isTrue());
-            var template = PhysicalFileWriteBindings.template(allocation);
+            var template = PhysicalFileWriteBindingFactory.template(allocation);
             assertThat(template.getColumns(1).getLogicalType()).isEqualTo(
                     org.pangrova.protocol.type.VectorLogicalType.create(7, doubled
                             ? org.pangrova.protocol.type.VectorLogicalType.FLOAT64
@@ -107,13 +107,13 @@ class PaimonPhysicalAllocationIntegrationTest {
         byte[] persisted = codec.serialize(output);
         var restored = (PaimonOutputTableHandle) codec.deserialize(codec.codecVersion(), persisted);
         assertThat(codec.serialize(restored)).isEqualTo(persisted);
-        var template = PhysicalFileWriteBindings.template(restored.nativePhysicalWriteAllocation().orElseThrow());
-        assertThat(template).isEqualTo(PhysicalFileWriteBindings.template(allocation));
+        var template = PhysicalFileWriteBindingFactory.template(restored.nativePhysicalWriteAllocation().orElseThrow());
+        assertThat(template).isEqualTo(PhysicalFileWriteBindingFactory.template(allocation));
         var attempt = TaskAttemptId.newBuilder().setQueryOrJobId("physical-allocation")
                 .setTaskId("write-task").setPlanEpoch(1).setControlEpoch(2).setFencingToken(3)
                 .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId("coordinator")
                         .setOwnerIncarnation("incarnation").setFencingToken(4)).build();
-        var bound = NativeWriteBindings.bindPhysical(template, attempt);
+        var bound = NativeWriteBinder.bindPhysical(template, attempt);
         var file = bound.getFiles(0);
         assertThat(file.getTaskAttempt()).isEqualTo(attempt);
         assertThat(file.getOpaqueLocation()).startsWith(template.getAllocationPrefix() + "/")
@@ -122,7 +122,7 @@ class PaimonPhysicalAllocationIntegrationTest {
         assertThat(file.getRestoredMaxSequence()).isEqualTo(template.getFiles(0).getRestoredMaxSequence());
         assertThat(file.getRestoredFileSetChecksum()).isEqualTo(template.getFiles(0).getRestoredFileSetChecksum());
         assertThat(file.getAllocationChecksum()).isNotEqualTo(template.getFiles(0).getAllocationChecksum());
-        assertThat(NativeWriteBindings.bindPhysical(template, attempt.toBuilder().setAttemptId(1).build())
+        assertThat(NativeWriteBinder.bindPhysical(template, attempt.toBuilder().setAttemptId(1).build())
                 .getFiles(0).getOpaqueLocation()).isNotEqualTo(file.getOpaqueLocation());
     }
 

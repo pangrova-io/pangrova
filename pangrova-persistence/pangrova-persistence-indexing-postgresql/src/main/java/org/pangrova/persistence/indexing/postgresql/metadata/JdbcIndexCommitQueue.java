@@ -19,7 +19,7 @@ import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
 import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** Maintains the durable per-table commit-event queue and its fenced head. */
-final class JdbcIndexCommitQueue extends JdbcStoreSupport {
+final class JdbcIndexCommitQueue extends JdbcIndexMetadataStoreBase {
     private static final int TABLE_SEQUENCE_PARAMETER = 11;
 
     private static final String TABLE_KEY =

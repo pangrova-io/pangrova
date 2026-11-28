@@ -10,8 +10,8 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
-import org.pangrova.protocol.write.PhysicalFileWriteBindings;
-import org.pangrova.protocol.write.NativeWriteBindings;
+import org.pangrova.protocol.write.PhysicalFileWriteBindingFactory;
+import org.pangrova.protocol.write.NativeWriteBinder;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -42,7 +42,7 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
         requireSession(session);
         var handle = requireHandle(output);
         var pinned = handle.nativePhysicalWriteAllocation().orElseThrow();
-        if (!PhysicalFileWriteBindings.template(pinned).equals(PhysicalFileWriteBindings.template(allocation))) {
+        if (!PhysicalFileWriteBindingFactory.template(pinned).equals(PhysicalFileWriteBindingFactory.template(allocation))) {
             throw new IllegalArgumentException("Physical output differs from its persisted SDK allocation");
         }
         validateCurrentAllocation(load(handle), allocation);
@@ -85,7 +85,7 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
             throw new IllegalArgumentException("Physical publication differs from its authorized durable context");
         }
         var physical = output.getPhysical();
-        var expected = PhysicalFileWriteBindings.template(handle.nativePhysicalWriteAllocation().orElseThrow())
+        var expected = PhysicalFileWriteBindingFactory.template(handle.nativePhysicalWriteAllocation().orElseThrow())
                 .toBuilder().setCatalog(physical.getCatalog()).setOutputHandle(physical.getOutputHandle()).build();
         var codec = new PaimonOutputHandleCodec();
         if (!output.hasPhysical() || !physical.equals(expected)
@@ -100,10 +100,10 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
             NativePhysicalFileReceipt receipt, String executionId) {
         try {
             var attempt = TaskAttemptId.parseFrom(receipt.allocation().taskAttempt());
-            var expected = NativeWriteBindings.bindPhysical(PhysicalFileWriteBindings.template(allocation), attempt);
+            var expected = NativeWriteBinder.bindPhysical(PhysicalFileWriteBindingFactory.template(allocation), attempt);
             var metrics = receipt.metrics();
             if (!attempt.getQueryOrJobId().equals(executionId)
-                    || !expected.getFilesList().contains(PhysicalFileWriteBindings.fileAllocation(receipt.allocation()))
+                    || !expected.getFilesList().contains(PhysicalFileWriteBindingFactory.fileAllocation(receipt.allocation()))
                     || metrics.schemaId() != allocation.schema().schemaId()
                     || metrics.sizeBytes() < MINIMUM_LANCE_FILE_BYTES
                     || metrics.encodingMajor() != 0 || metrics.encodingMinor() != 3

@@ -23,7 +23,7 @@ import org.pangrova.ai.control.exception.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.ai.control.exception.ModelDropUnavailableException;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.dispatch.StatementExecutionContext;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.statement.CreateEmbeddingModelStatement;
 import org.pangrova.parser.api.ast.statement.AlterEmbeddingModelStatement;
 import org.pangrova.parser.api.ast.statement.DropEmbeddingModelStatement;

@@ -18,7 +18,7 @@ import org.apache.calcite.sql.type.SqlTypeUtil;
 import org.apache.calcite.sql2rel.SqlToRelConverter;
 import org.apache.calcite.sql2rel.StandardConvertletTable;
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.pangrova.connector.api.metadata.table.ConnectorDerivedTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
@@ -89,7 +89,7 @@ final class DerivedQueryExpansion extends RelShuttleImpl {
                 new PlannerViewExpander(parser, catalog, cluster, operators), validator, catalog, cluster,
                 StandardConvertletTable.INSTANCE, PlannerViewExpander.converterConfig());
         RelNode expanded = converter.convertQuery(validated, false, false).project();
-        expanded = DecorrelationSupport.safeDecorrelate(expanded);
+        expanded = PlannerDecorrelator.safeDecorrelate(expanded);
         expanded = SubqueryRelationalExpansion.expand(expanded);
         if (!containsFrozenInput(expanded)) {
             throw invalid("Connector derived query must retain a frozen source for authorization");

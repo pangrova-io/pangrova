@@ -22,7 +22,7 @@ import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadat
 /**
  * JDBC operations for {@link IndexFileMapping} CRUD and queries.
  */
-final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
+final class JdbcIndexFileMappingStore extends JdbcIndexMetadataStoreBase {
 
     JdbcIndexFileMappingStore(DataSource dataSource) {
         super(dataSource);

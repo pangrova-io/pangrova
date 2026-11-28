@@ -7,7 +7,7 @@ import org.pangrova.types.RowType;
 import org.pangrova.types.VectorType;
 import org.pangrova.types.primitive.DecimalType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.RowField;
@@ -226,7 +226,7 @@ public final class IcebergTypeMapper {
     /**
      * Converts an Iceberg type to the parameterized {@link org.pangrova.types.Type}.
      * For DECIMAL, ARRAY, MAP, and STRUCT, preserves full parameter information.
-     * For simple types, bridges via {@link PangrovaTypeMapping}.
+     * For simple types, bridges via {@link PangrovaTypeConverter}.
      *
      * @param icebergType the Iceberg type to convert
      * @return the corresponding parameterized Type
@@ -237,7 +237,7 @@ public final class IcebergTypeMapper {
         }
         PangrovaType special = mapSpecialType(icebergType);
         if (special != null) {
-            return PangrovaTypeMapping.toType(special);
+            return PangrovaTypeConverter.toType(special);
         }
         if (icebergType.isPrimitiveType()) {
             return mapPrimitiveToParameterized(icebergType.asPrimitiveType());
@@ -267,7 +267,7 @@ public final class IcebergTypeMapper {
             Types.DecimalType dt = (Types.DecimalType) primitive;
             return new DecimalType(dt.precision(), dt.scale());
         }
-        return PangrovaTypeMapping.toType(mapPrimitiveToPangrova(primitive));
+        return PangrovaTypeConverter.toType(mapPrimitiveToPangrova(primitive));
     }
 
     private static org.pangrova.types.Type mapComplexToParameterized(
@@ -402,7 +402,7 @@ public final class IcebergTypeMapper {
             Type valIceberg = toIcebergTypeFromParameterizedType(mapType.valueType(), baseFieldId + 2);
             return Types.MapType.ofOptional(baseFieldId, baseFieldId + 1000, keyIceberg, valIceberg);
         }
-        PangrovaType at = PangrovaTypeMapping.toPangrovaType(paramType);
+        PangrovaType at = PangrovaTypeConverter.toPangrovaType(paramType);
         return toIcebergType(at);
     }
 

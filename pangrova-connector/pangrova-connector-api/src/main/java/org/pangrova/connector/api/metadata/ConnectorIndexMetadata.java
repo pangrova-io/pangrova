@@ -2,7 +2,7 @@ package org.pangrova.connector.api.metadata;
 
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.index.ColumnValueReader;
-import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.ConnectorIndexCapabilities;
 import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.pangrova.connector.api.index.NativeIndexCapability;
 import org.pangrova.connector.api.index.NativeIndexEvaluator;
@@ -48,7 +48,7 @@ public interface ConnectorIndexMetadata {
     }
 
     /** Returns the consolidated index support interface. */
-    default Optional<ConnectorIndexSupport> getIndexSupport() {
+    default Optional<ConnectorIndexCapabilities> getIndexSupport() {
         return Optional.empty();
     }
 

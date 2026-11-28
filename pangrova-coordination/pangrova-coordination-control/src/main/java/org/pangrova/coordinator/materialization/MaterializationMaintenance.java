@@ -33,7 +33,7 @@ import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.CommitRecovery;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
 import org.pangrova.materialization.api.port.PhysicalGenerationStore;
-import org.pangrova.materialization.api.port.SourcePinning;
+import org.pangrova.materialization.api.port.SourceSnapshotPinner;
 import org.pangrova.materialization.usecase.GcPolicy;
 import org.pangrova.materialization.usecase.GenerationGarbageCollector;
 import org.pangrova.materialization.usecase.MaterializationReconciler;
@@ -114,7 +114,7 @@ public final class MaterializationMaintenance implements AutoCloseable {
     }
 
     /** Construction-time collaborators of the maintenance loops. */
-    public record Dependencies(PhysicalGenerationStore store, SourcePinning sourcePinning,
+    public record Dependencies(PhysicalGenerationStore store, SourceSnapshotPinner sourcePinning,
             ScheduledExecutorService ticker, ExecutorService controlExecutor,
             ExecutorService refreshExecutor, Settings settings) {
 

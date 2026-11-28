@@ -5,7 +5,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlSelect;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

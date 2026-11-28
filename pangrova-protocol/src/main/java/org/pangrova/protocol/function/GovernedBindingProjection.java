@@ -37,7 +37,7 @@ public final class GovernedBindingProjection {
         var expected = values(layoutId, binding);
         for (var argument : layout.arguments()) {
             if (argument.source().equals("VALUE_EXPRESSION")) continue;
-            var observed = GovernedScalarEncoding.decode(
+            var observed = GovernedScalarDecoder.decode(
                     encodedValues.get(layout.ordinal(argument.name())), argument.encoding());
             if (!expected.get(argument.name()).equals(observed)) {
                 throw new IllegalArgumentException("Callback differs from admitted binding: " + argument.name());
@@ -73,7 +73,7 @@ public final class GovernedBindingProjection {
                 throw new IllegalArgumentException("Unknown or repeated binding path");
             }
             if (i + 1 == argument.path().size()) {
-                return GovernedScalarEncoding.field(field, current.getField(field), argument.encoding());
+                return GovernedScalarDecoder.field(field, current.getField(field), argument.encoding());
             }
             if (field.getJavaType() != com.google.protobuf.Descriptors.FieldDescriptor.JavaType.MESSAGE
                     || (!argument.allowAbsentMessage() && !current.hasField(field))) {

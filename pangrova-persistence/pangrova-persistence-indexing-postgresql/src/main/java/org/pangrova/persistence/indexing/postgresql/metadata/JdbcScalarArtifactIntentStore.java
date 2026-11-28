@@ -17,7 +17,7 @@ import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 /** Durable handoff between one scalar writer, its mapping transaction and the orphan collector. */
-final class JdbcScalarArtifactIntentStore extends JdbcStoreSupport {
+final class JdbcScalarArtifactIntentStore extends JdbcIndexMetadataStoreBase {
     private static final String IDENTITY = "artifact_digest=? AND index_id=? AND generation=? "
             + "AND attempt_owner=? AND data_file_path=? AND artifact_path=?";
     private static final String SELECT_IDENTITY =

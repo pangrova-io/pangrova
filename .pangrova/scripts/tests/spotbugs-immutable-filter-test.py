@@ -516,7 +516,7 @@ def main():
                                cache, dispatcher))
         registry = 'org.pangrova.metadata.catalog.registry.CatalogRegistry'
         sync = 'org.pangrova.metadata.outbox.MetadataSyncService'
-        support = 'org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceSupport'
+        support = 'org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceBase'
         expected_projection_di = {
             (registry, registry_params, 'store', deployment),
             (registry, registry_params, 'eventDispatcher', dispatcher),

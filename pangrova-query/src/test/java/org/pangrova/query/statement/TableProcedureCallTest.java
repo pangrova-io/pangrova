@@ -5,7 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.statement.maintenance.CallStatement;
 
 import static org.assertj.core.api.Assertions.assertThat;

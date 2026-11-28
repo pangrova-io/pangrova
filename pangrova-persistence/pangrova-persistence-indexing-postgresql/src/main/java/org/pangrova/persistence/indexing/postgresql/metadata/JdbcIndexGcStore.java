@@ -25,7 +25,7 @@ import java.util.Set;
  * JDBC operations for GC-related queries: orphan marking, stale file mappings,
  * cache events, and circuit breaker state.
  */
-final class JdbcIndexGcStore extends JdbcStoreSupport {
+final class JdbcIndexGcStore extends JdbcIndexMetadataStoreBase {
 
     private static final String REMOVE_ORPHAN_MAPPINGS = """
         WITH candidates(data_file_path, index_file_path, generation, last_verified_at, created_at) AS (

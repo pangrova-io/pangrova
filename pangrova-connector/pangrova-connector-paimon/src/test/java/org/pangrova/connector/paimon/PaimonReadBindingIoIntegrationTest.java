@@ -68,7 +68,7 @@ class PaimonReadBindingIoIntegrationTest {
                     .withTimeTravelSnapshot(Long.toString(snapshotId));
             io.snapshotPath = table.snapshotManager().snapshotPath(snapshotId);
 
-            var bound = PaimonReadBindings.bind(catalog, selector);
+            var bound = PaimonReadBinder.bind(catalog, selector);
             assertThat(bound.declaration().metadata().columns()).containsExactly("id");
             assertThat(bound.statistics().rowCount()).isEqualTo(1);
             assertThat(bound.statistics().columnStats().get("id").ndv()).isEqualTo(withStatistics ? 1 : -1);
@@ -76,7 +76,7 @@ class PaimonReadBindingIoIntegrationTest {
                     .as("snapshot existence probes, snapshot opens").containsExactly(0, 2);
 
             io.deleteAfterRead = true;
-            assertThatThrownBy(() -> PaimonReadBindings.bind(catalog, selector))
+            assertThatThrownBy(() -> PaimonReadBinder.bind(catalog, selector))
                     .isInstanceOfSatisfying(ConnectorException.class, failure -> assertThat(failure.getErrorCode())
                             .isEqualTo(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND));
         }

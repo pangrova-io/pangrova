@@ -64,6 +64,6 @@ public class PaimonPageSourceProvider implements ConnectorPageSourceProvider {
                 || !JsonSerdeUtil.toFlatJson(fileStore.rowType()).equals(handle.rowTypeJson())) {
             throw new IllegalStateException("Paimon reader table does not match the selected handle");
         }
-        PaimonReadBindings.validateSelected(fileStore, handle);
+        PaimonReadBinder.validateSelected(fileStore, handle);
     }
 }

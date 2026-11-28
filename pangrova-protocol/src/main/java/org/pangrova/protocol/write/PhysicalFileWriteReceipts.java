@@ -45,7 +45,7 @@ public final class PhysicalFileWriteReceipts {
             if (!attempts.add(fragment.getTaskAttempt())) {
                 throw new IllegalArgumentException("Duplicate physical write task-attempt fragment");
             }
-            var bound = NativeWriteBindings.bindPhysical(template, fragment.getTaskAttempt());
+            var bound = NativeWriteBinder.bindPhysical(template, fragment.getTaskAttempt());
             validateRows(bound, fragment);
             for (var receipt : fragment.getFilesList()) {
                 if (!locations.add(receipt.getAllocation().getOpaqueLocation())) {
@@ -73,7 +73,7 @@ public final class PhysicalFileWriteReceipts {
         validateFragment(bound, fragment);
         if (!fragment.getTaskAttempt().equals(expected)
                 || !bound.getAttemptPrefix().equals(
-                        NativeWriteBindings.attemptPrefix(bound.getAllocationPrefix(), expected))
+                        NativeWriteBinder.attemptPrefix(bound.getAllocationPrefix(), expected))
                 || bound.getFilesList().stream().anyMatch(file -> !file.getTaskAttempt().equals(expected))) {
             throw new IllegalArgumentException("Physical receipt differs from its dispatched task attempt");
         }
@@ -180,10 +180,10 @@ public final class PhysicalFileWriteReceipts {
         var partition = DataSplit.newBuilder().addAllPartitionValues(file.getPartitionList()).build();
         var allocation = new NativePhysicalFileAllocation(new NativePhysicalFileAllocation.Location(
                 file.getOpaqueLocation(), file.getFileName(), file.getFileSource()),
-                partition.getPartitionValuesCount() == 0 ? new byte[0] : PhysicalFileWriteBindings.bytes(partition),
+                partition.getPartitionValuesCount() == 0 ? new byte[0] : PhysicalFileWriteBindingFactory.bytes(partition),
                 file.getBucketId(), file.getFileOrdinal(), file.getRestoredMaxSequence(),
                 file.getRestoredFileSetChecksum().getDigest().toByteArray(),
-                PhysicalFileWriteBindings.bytes(file.getTaskAttempt()));
+                PhysicalFileWriteBindingFactory.bytes(file.getTaskAttempt()));
         var metrics = new NativePhysicalFileReceipt.Metrics(receipt.getSizeBytes(), receipt.getPhysicalRows(),
                 receipt.getSchemaId(), receipt.getEncodingMajor(), receipt.getEncodingMinor(),
                 receipt.getMinSequence(), receipt.getMaxSequence());

@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `jdbc.datasource`, `jdbc.migration` and `jdbc.operation` while retaining the Maven
   coordinates and automatic module name. Recompile external Java plugins against the
   matching Coordinator and Worker release.
+- **BREAKING** Java parser contracts now live in `org.pangrova.parser.api.syntax`,
+  and the connector index capability interface is `ConnectorIndexCapabilities`.
+  Update Java imports before recompiling extensions for this release.
 - Generated-value sidecars now use one nullable segment-v2 contract and matching
   Java/Native build/overlay capability version 2.0.0. Readers reject old formats;
   sidecars must be rebuilt, not silently reinterpreted. Final SQL/distributed

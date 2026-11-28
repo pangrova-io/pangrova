@@ -17,7 +17,7 @@ import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.NativeWriteAllocation;
 import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
-import org.pangrova.protocol.write.PhysicalFileWriteBindings;
+import org.pangrova.protocol.write.PhysicalFileWriteBindingFactory;
 
 /** Builds the immutable connector write contract dispatched to Workers. */
 public final class ConnectorWriteBindingFactory {
@@ -96,13 +96,13 @@ public final class ConnectorWriteBindingFactory {
                 .setAllocationStagingPrefix(nativeOutput.stagingPrefix())
                 .addAllWriteColumnNames(nativeOutput.writeColumnNames());
         baseSnapshot.ifPresent(base -> binding.setBaseSnapshot(
-                org.pangrova.protocol.source.SourceSnapshotBindings.encode(base, catalog)));
+                org.pangrova.protocol.source.SourceSnapshotCodec.encode(base, catalog)));
         return WriteOutputBinding.newBuilder().setLance(binding).build();
     }
 
     private static WriteOutputBinding physical(CatalogExecutionBinding catalog,
             SerializedConnectorOutputHandle serialized, NativePhysicalWriteAllocation allocation) {
-        var binding = PhysicalFileWriteBindings.template(allocation);
+        var binding = PhysicalFileWriteBindingFactory.template(allocation);
         if (!binding.getColumnsList().stream().map(column -> column.getName()).toList()
                 .equals(serialized.getWriteColumnNamesList())) {
             throw new IllegalArgumentException("Physical allocation columns differ from connector handle");

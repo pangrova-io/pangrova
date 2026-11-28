@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** Real SDK commits plus explicit fault injection distinguish commit errors from capability rejection. */
-class PaimonDeleteByFilterFailureTest extends PaimonDeleteTestSupport {
+class PaimonDeleteByFilterFailureTest extends PaimonDeleteFixture {
 
     private static final StoredRow EAST = new StoredRow(1, "east", "one", "target");
     private static final StoredRow WEST = new StoredRow(2, "west", "two", "retained");

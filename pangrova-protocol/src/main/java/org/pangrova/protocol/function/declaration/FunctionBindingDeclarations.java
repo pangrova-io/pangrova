@@ -27,7 +27,7 @@ public final class FunctionBindingDeclarations {
     private final Map<String, JsonNode> structural = new HashMap<>();
     private final Map<String, JsonNode> bindings = new HashMap<>();
     private final Map<String, GovernedArgumentLayout> governedLayouts = new HashMap<>();
-    private final DeclaredSqlBindings sqlBindings;
+    private final DeclaredSqlBindingIndex sqlBindings;
     private final ByteString declarationSha256;
 
     private FunctionBindingDeclarations() {
@@ -48,7 +48,7 @@ public final class FunctionBindingDeclarations {
         for (JsonNode binding : bindings.values()) {
             if (binding.has("rewrite")) DeclaredFunctionRewrite.parse(binding.get("rewrite"), bindings.values());
         }
-        sqlBindings = new DeclaredSqlBindings(bindings.values());
+        sqlBindings = new DeclaredSqlBindingIndex(bindings.values());
         loadStructuralContracts(root.get("structuralContracts"));
     }
 

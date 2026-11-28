@@ -8,7 +8,7 @@ import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.index.ColumnValueReader;
 import org.pangrova.connector.api.index.CommitListener;
-import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.ConnectorIndexCapabilities;
 import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.pangrova.connector.api.index.NativeIndexCapability;
 import org.pangrova.connector.api.index.NativeIndexEvaluator;
@@ -276,7 +276,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         }
         var manifest = table.io().newInputFile(snapshot.manifestListLocation());
         byte[] checksum = java.util.HexFormat.of().parseHex(
-                IcebergManifestReadBindings.digest(manifest, manifest.getLength()));
+                IcebergManifestReadSelector.digest(manifest, manifest.getLength()));
         return new org.pangrova.connector.api.commit.NativeWriteFinalization(
                 org.pangrova.connector.api.enums.NativeWriteCommitOutcome.COMMITTED,
                 snapshot.snapshotId(), checksum);
@@ -443,7 +443,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     }
 
     @Override
-    public Optional<ConnectorIndexSupport> getIndexSupport() {
+    public Optional<ConnectorIndexCapabilities> getIndexSupport() {
         return Optional.of(indexAccessors);
     }
 

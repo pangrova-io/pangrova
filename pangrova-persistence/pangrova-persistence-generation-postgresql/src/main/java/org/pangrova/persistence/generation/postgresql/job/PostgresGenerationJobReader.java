@@ -18,7 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
-final class PostgresGenerationJobReader extends PostgresGenerationJobStoreSupport {
+final class PostgresGenerationJobReader extends PostgresGenerationJobStoreTransitions {
 
     private static final int OUTPUT_LOOKUP_BATCH_SIZE = 500;
 

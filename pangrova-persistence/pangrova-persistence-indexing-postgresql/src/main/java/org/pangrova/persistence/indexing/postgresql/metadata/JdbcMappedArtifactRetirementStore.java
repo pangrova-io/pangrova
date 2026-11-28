@@ -15,7 +15,7 @@ import org.pangrova.persistence.indexing.api.metadata.IndexCleanup.MappedArtifac
 import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 /** Durable mapped-artifact retirement receipt, shared by transactional removal and maintenance. */
-final class JdbcMappedArtifactRetirementStore extends JdbcStoreSupport {
+final class JdbcMappedArtifactRetirementStore extends JdbcIndexMetadataStoreBase {
     private static final String TABLE = "mapped_index_artifact_retirements";
     private static final String COLUMNS =
             "retirement_id,index_id,tenant_id,catalog_name,schema_name,table_name,"

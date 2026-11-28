@@ -17,7 +17,7 @@ import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
 import org.pangrova.table.ownership.TableControlService;
 import org.pangrova.table.config.TableControlSettings;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.statement.ShowTableControlsStatement;
 import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.session.ConnectorSession;

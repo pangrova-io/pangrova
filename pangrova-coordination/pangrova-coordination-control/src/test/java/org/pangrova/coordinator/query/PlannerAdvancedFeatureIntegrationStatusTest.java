@@ -126,11 +126,11 @@ class PlannerAdvancedFeatureIntegrationStatusTest {
         @Test
         @DisplayName("AQE classes are loadable")
         void adaptiveQueryClassesExist() throws ClassNotFoundException {
-            Class.forName("org.pangrova.planner.adaptive.AdaptiveQueryExecutor");
-            Class.forName("org.pangrova.planner.adaptive.PartitionCoalescer");
-            Class.forName("org.pangrova.planner.adaptive.SkewJoinHandler");
-            Class.forName("org.pangrova.planner.adaptive.ShuffleStageStats");
-            Class.forName("org.pangrova.planner.api.adaptive.ReOptimizationResult");
+            Class.forName("org.pangrova.planner.adaptivequery.AdaptiveQueryExecutor");
+            Class.forName("org.pangrova.planner.adaptivequery.PartitionCoalescer");
+            Class.forName("org.pangrova.planner.adaptivequery.SkewJoinHandler");
+            Class.forName("org.pangrova.planner.adaptivequery.ShuffleStageStats");
+            Class.forName("org.pangrova.planner.api.adaptivequery.ReOptimizationResult");
         }
 
         @Test

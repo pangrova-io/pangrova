@@ -108,13 +108,13 @@ public class IcebergSplitManager implements ConnectorSplitManager {
             DynamicFilter dynamicFilter,
             Constraint constraint) {
         if (table instanceof IcebergFileTableHandle files) {
-            IcebergFileReadBindings.validate(files, resolveTable(files.baseTable()));
+            IcebergFileReadSelector.validate(files, resolveTable(files.baseTable()));
             return new FixedSplitSource(files.manifests().stream()
                     .map(manifest -> (ConnectorSplit) new IcebergFileTableSplit(files, manifest))
                     .toList());
         }
         if (table instanceof IcebergManifestTableHandle manifests) {
-            IcebergManifestReadBindings.validate(manifests, resolveTable(manifests.baseTable()));
+            IcebergManifestReadSelector.validate(manifests, resolveTable(manifests.baseTable()));
             return new FixedSplitSource(manifests.empty() ? List.of()
                     : List.of(new IcebergManifestTableSplit(manifests)));
         }
@@ -125,7 +125,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         }
         IcebergTableHandle icebergTable = (IcebergTableHandle) table;
         Table icebergSdkTable = resolveTable(icebergTable);
-        IcebergReadBindings.validateSelected(icebergSdkTable, icebergTable);
+        IcebergReadBinder.validateSelected(icebergSdkTable, icebergTable);
         return planBoundSplits(session, icebergTable, icebergSdkTable, constraint, null);
     }
 
@@ -140,7 +140,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
                     transaction, session, metadata, binding, dynamicFilter, constraint, budget);
         }
         Table table = IcebergCatalogTables.resolveTable(catalog, handle);
-        IcebergReadBindings.validate(table, handle, binding);
+        IcebergReadBinder.validate(table, handle, binding);
         return planBoundSplits(session, handle, table, constraint, budget);
     }
 
@@ -234,7 +234,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
                                             ConnectorSession session) {
         // Explicit snapshot on handle takes precedence (e.g. from optimizer)
         if (handle.snapshotId().isPresent()) {
-            Snapshot explicit = IcebergReadBindings.selectedSnapshot(table, handle);
+            Snapshot explicit = IcebergReadBinder.selectedSnapshot(table, handle);
             pinIfQueryPresent(session, handle, explicit);
             return explicit;
         }

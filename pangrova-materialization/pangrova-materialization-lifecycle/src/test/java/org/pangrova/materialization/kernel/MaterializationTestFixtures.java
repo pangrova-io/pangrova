@@ -37,7 +37,7 @@ import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.extension.MaterializationExtensionRegistry;
-import org.pangrova.materialization.api.port.SourcePinning;
+import org.pangrova.materialization.api.port.SourceSnapshotPinner;
 import org.pangrova.connector.api.materialization.ChangeProof;
 import org.pangrova.connector.api.enums.ChangeSetMode;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
@@ -238,7 +238,7 @@ public final class MaterializationTestFixtures {
     }
 
     /** Records every pin and unpin so tests can assert exact holds and releases. */
-    public static final class RecordingPins implements SourcePinning {
+    public static final class RecordingPins implements SourceSnapshotPinner {
 
         private final List<PinnedSource> pinned = new java.util.ArrayList<>();
         private final List<PinnedSource> released = new java.util.ArrayList<>();
@@ -342,8 +342,8 @@ public final class MaterializationTestFixtures {
     }
 
     /** Fails every pin exactly like a connector without snapshot-retention support. */
-    public static SourcePinning unpinnableSources() {
-        return new SourcePinning() {
+    public static SourceSnapshotPinner unpinnableSources() {
+        return new SourceSnapshotPinner() {
             @Override
             public PinnedSource pin(String tenant, SourceRef source, SourceSnapshotRef expected,
                     String pinOwner) {

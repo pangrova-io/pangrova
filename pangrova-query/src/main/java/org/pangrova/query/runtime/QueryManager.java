@@ -495,7 +495,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private QueryStateMachine newCandidateStateMachine(String queryId, QuerySession session, String sql) {
         QueryStateMachine sm = new QueryStateMachine(true, session != null && session.userIdentity() != null
                 ? session.userIdentity().principal() : "anonymous");
-        sm.bindSql(org.pangrova.parser.parse.SqlDiagnostics.forReporting(sql));
+        sm.bindSql(org.pangrova.parser.syntax.SqlDiagnostics.forReporting(sql));
         sm.setTransitionOperations(() -> () -> { });
         installShuffleTerminalSeal(sm);
         return sm;
@@ -675,7 +675,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     public QueryStateMachine registerInternalExecution(QuerySession session, String sql) {
         String queryId = session.queryId();
         var state = new QueryStateMachine(false, session.userIdentity().principal());
-        state.bindSql(org.pangrova.parser.parse.SqlDiagnostics.forReporting(sql));
+        state.bindSql(org.pangrova.parser.syntax.SqlDiagnostics.forReporting(sql));
         auditBridge.prepareSubmittedLineage(queryId, state.getSql(), session, state);
         if (!publishOwnedStateMachine(queryId, state)) {
             throw new QueryRejectedException("Query already registered: queryId=" + queryId);

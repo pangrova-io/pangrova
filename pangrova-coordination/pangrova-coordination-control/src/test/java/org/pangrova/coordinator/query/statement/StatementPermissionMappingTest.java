@@ -9,7 +9,7 @@ import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.InsertStatement;
 import org.pangrova.parser.api.ast.Literal;
 import org.pangrova.parser.api.ast.Statement;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.statement.AlterTableStatement;
 import org.pangrova.parser.api.ast.statement.CreateTableStatement;
 import org.pangrova.parser.api.ast.statement.DropMaterializedViewStatement;

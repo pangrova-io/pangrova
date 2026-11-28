@@ -30,7 +30,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /** Reads and validates Native source coverage from one atomically published artifact job. */
-final class JdbcIndexGenerationCoverageStore extends JdbcStoreSupport implements IndexGenerationCoverage {
+final class JdbcIndexGenerationCoverageStore extends JdbcIndexMetadataStoreBase implements IndexGenerationCoverage {
 
     private static final String VECTOR_INDEX = "VECTOR_INDEX";
     private static final String TEXT_INDEX = "TEXT_INDEX";

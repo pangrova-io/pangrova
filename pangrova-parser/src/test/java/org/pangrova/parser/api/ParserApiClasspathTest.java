@@ -15,11 +15,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ParserApiClasspathTest {
     @Test
     void contractsLinkWithoutRuntimeOrCentralSpi() throws Exception {
-        URL types = org.pangrova.parser.api.parse.SqlParser.class.getProtectionDomain().getCodeSource().getLocation();
+        URL types = org.pangrova.parser.api.syntax.SqlParser.class.getProtectionDomain().getCodeSource().getLocation();
         URL common = Experimental.class.getProtectionDomain().getCodeSource().getLocation();
         URL engineTypes = org.pangrova.types.VectorType.class.getProtectionDomain().getCodeSource().getLocation();
         Path classes = Path.of(types.toURI());
-        assertThat(classes.resolve("org/pangrova/parser/parse/AntlrSqlParser.class")).isRegularFile();
+        assertThat(classes.resolve("org/pangrova/parser/syntax/AntlrSqlParser.class")).isRegularFile();
         try (var loader = new URLClassLoader(new URL[]{types, common, engineTypes}, ClassLoader.getPlatformClassLoader());
              var files = Files.walk(classes.resolve("org/pangrova/parser/api"))) {
             List<Path> classFiles = files.filter(path -> path.toString().endsWith(".class")).toList();

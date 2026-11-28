@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.type;
 
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
@@ -144,37 +144,37 @@ final class PaimonToPangrovaTypeVisitors {
 
         @Override
         public org.pangrova.types.Type visit(BooleanType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.BOOLEAN);
+            return PangrovaTypeConverter.toType(PangrovaType.BOOLEAN);
         }
 
         @Override
         public org.pangrova.types.Type visit(TinyIntType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.TINYINT);
+            return PangrovaTypeConverter.toType(PangrovaType.TINYINT);
         }
 
         @Override
         public org.pangrova.types.Type visit(SmallIntType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.SMALLINT);
+            return PangrovaTypeConverter.toType(PangrovaType.SMALLINT);
         }
 
         @Override
         public org.pangrova.types.Type visit(IntType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.INTEGER);
+            return PangrovaTypeConverter.toType(PangrovaType.INTEGER);
         }
 
         @Override
         public org.pangrova.types.Type visit(BigIntType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.BIGINT);
+            return PangrovaTypeConverter.toType(PangrovaType.BIGINT);
         }
 
         @Override
         public org.pangrova.types.Type visit(FloatType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.FLOAT);
+            return PangrovaTypeConverter.toType(PangrovaType.FLOAT);
         }
 
         @Override
         public org.pangrova.types.Type visit(DoubleType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.DOUBLE);
+            return PangrovaTypeConverter.toType(PangrovaType.DOUBLE);
         }
 
         @Override
@@ -199,32 +199,32 @@ final class PaimonToPangrovaTypeVisitors {
 
         @Override
         public org.pangrova.types.Type visit(BinaryType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.VARBINARY);
+            return PangrovaTypeConverter.toType(PangrovaType.VARBINARY);
         }
 
         @Override
         public org.pangrova.types.Type visit(VarBinaryType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.VARBINARY);
+            return PangrovaTypeConverter.toType(PangrovaType.VARBINARY);
         }
 
         @Override
         public org.pangrova.types.Type visit(DateType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.DATE);
+            return PangrovaTypeConverter.toType(PangrovaType.DATE);
         }
 
         @Override
         public org.pangrova.types.Type visit(TimeType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.TIME);
+            return PangrovaTypeConverter.toType(PangrovaType.TIME);
         }
 
         @Override
         public org.pangrova.types.Type visit(TimestampType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.TIMESTAMP);
+            return PangrovaTypeConverter.toType(PangrovaType.TIMESTAMP);
         }
 
         @Override
         public org.pangrova.types.Type visit(LocalZonedTimestampType t) {
-            return PangrovaTypeMapping.toType(PangrovaType.TIMESTAMP_TZ);
+            return PangrovaTypeConverter.toType(PangrovaType.TIMESTAMP_TZ);
         }
 
         @Override
@@ -244,7 +244,7 @@ final class PaimonToPangrovaTypeVisitors {
         public org.pangrova.types.Type visit(MultisetType mt) {
             return new org.pangrova.types.MapType(
                     mt.getElementType().accept(this),
-                    PangrovaTypeMapping.toType(PangrovaType.INTEGER));
+                    PangrovaTypeConverter.toType(PangrovaType.INTEGER));
         }
 
         @Override
@@ -258,7 +258,7 @@ final class PaimonToPangrovaTypeVisitors {
 
         @Override
         public org.pangrova.types.Type visit(VariantType variantType) {
-            return PangrovaTypeMapping.toType(PangrovaType.VARIANT);
+            return PangrovaTypeConverter.toType(PangrovaType.VARIANT);
         }
 
         @Override
@@ -276,7 +276,7 @@ final class PaimonToPangrovaTypeVisitors {
 
         @Override
         public org.pangrova.types.Type visit(org.apache.paimon.types.BlobType blobType) {
-            return PangrovaTypeMapping.toType(PangrovaType.VARBINARY);
+            return PangrovaTypeConverter.toType(PangrovaType.VARBINARY);
         }
     }
 }

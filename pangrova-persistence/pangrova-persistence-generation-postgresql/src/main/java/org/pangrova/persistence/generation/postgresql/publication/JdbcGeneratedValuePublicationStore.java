@@ -17,9 +17,9 @@ import org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats;
 import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueGenerationReference;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildMetadataStore;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueGenerationReference;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 import javax.sql.DataSource;

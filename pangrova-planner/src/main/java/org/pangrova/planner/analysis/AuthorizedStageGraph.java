@@ -40,7 +40,7 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
         transfers = List.copyOf(transfers.stream().sorted(Comparator.comparingInt(StageTransfer::upstreamStageId)
                 .thenComparingInt(StageTransfer::downstreamStageId).thenComparing(StageTransfer::exchangeId)).toList());
         validate(stages, transfers);
-        AuthorizedStageExchangeBindings.validate(stages, transfers);
+        AuthorizedStageExchangeBinder.validate(stages, transfers);
     }
 
     /** Stage payload has no planner framework node and can be durably replayed without SQL recompilation. */
@@ -152,7 +152,7 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
         Objects.requireNonNull(graph, "graph");
         Objects.requireNonNull(compiler, "compiler");
         return new AuthorizedStageGraph(terminalPurpose,
-                AuthorizedStageExchangeBindings.bind(graph, compiler, outputNames), graph.transfers());
+                AuthorizedStageExchangeBinder.bind(graph, compiler, outputNames), graph.transfers());
     }
 
     /**
@@ -163,20 +163,20 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
      */
     public static void validateExchangeContracts(Map<Integer, SerializedPlanFragment> plans,
             List<StageTransfer> transfers) {
-        AuthorizedStageExchangeBindings.validate(Map.copyOf(plans), List.copyOf(transfers));
+        AuthorizedStageExchangeBinder.validate(Map.copyOf(plans), List.copyOf(transfers));
     }
 
     /** Rechecks persisted skew eligibility in the same pass that verifies the canonical exchange contracts. */
     public static void validateExchangeContracts(Map<Integer, SerializedPlanFragment> plans,
             List<StageTransfer> transfers, Map<Integer, List<String>> splittableHashInputs) {
-        AuthorizedStageExchangeBindings.validate(
+        AuthorizedStageExchangeBinder.validate(
                 Map.copyOf(plans), List.copyOf(transfers), Map.copyOf(splittableHashInputs));
     }
 
     /** Binds a live consumer to the canonical schemas of its dispatched producer plans. */
     public static CompiledStagePlan bindLiveExchangeInputs(int stageId, CompiledStagePlan consumer,
             List<StageTransfer> incoming, Map<Integer, List<ByteString>> producerPlans) {
-        return AuthorizedStageExchangeBindings.bindLive(stageId, consumer, incoming, producerPlans);
+        return AuthorizedStageExchangeBinder.bindLive(stageId, consumer, incoming, producerPlans);
     }
 
     /** Returns a stable digest covering stage payloads, scheduling coordinates, exact sources and exchanges. */

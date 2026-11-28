@@ -5,7 +5,7 @@ import java.util.Objects;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.diagnostic.ParseError;
-import org.pangrova.parser.api.parse.ParseResult;
+import org.pangrova.parser.api.syntax.ParseResult;
 
 /**
  * Explicit ANTLR diagnostic view for Core tooling. The tree is invocation-local and

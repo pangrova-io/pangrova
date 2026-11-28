@@ -3,8 +3,8 @@ package org.pangrova.planner.analysis;
 import org.junit.jupiter.api.Test;
 import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlSelect;
-import org.pangrova.parser.parse.AntlrSqlParser;
-import org.pangrova.planner.parse.AstToSqlNodeConverter;
+import org.pangrova.parser.syntax.AntlrSqlParser;
+import org.pangrova.planner.sqlnode.AstToSqlNodeConverter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

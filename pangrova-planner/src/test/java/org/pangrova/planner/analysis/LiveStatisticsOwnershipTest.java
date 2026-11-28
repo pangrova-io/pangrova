@@ -3,12 +3,12 @@ package org.pangrova.planner.analysis;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
+import org.pangrova.planner.adaptivequery.AdaptiveQueryConfig;
+import org.pangrova.planner.adaptivequery.AdaptiveQueryExecutor;
 import org.pangrova.planner.api.enums.JoinStrategy;
-import org.pangrova.planner.adaptive.PartitionCoalescer;
-import org.pangrova.planner.adaptive.ShuffleStageStats;
-import org.pangrova.planner.adaptive.StageReplanCoordinator;
+import org.pangrova.planner.adaptivequery.PartitionCoalescer;
+import org.pangrova.planner.adaptivequery.ShuffleStageStats;
+import org.pangrova.planner.adaptivequery.StageReplanCoordinator;
 import org.pangrova.planner.cost.StatisticsBasedCostEstimator;
 import org.pangrova.planner.statistics.CardinalityFeedbackStore;
 import org.pangrova.planner.api.statistics.ColumnStatistics;

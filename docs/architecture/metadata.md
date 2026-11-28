@@ -807,7 +807,7 @@ Pangrova may write, drop, or maintain it.
   persists them in `table_control_statistics`, keyed by `table_id` and bound to the version
   token observed during collection. The collection aborts if the version changes mid-run, if the
   connector reports no version token, or if it reports no usable statistics; nothing is stored
-  under a fabricated zero. The planner's `PlanningReadBindings` uses a persisted row only
+  under a fabricated zero. The planner's `PlanningReadBindingResolver` uses a persisted row only
   when its stable ID and version match both the admitted control record and the bound
   connector version. The optimizer otherwise uses the selected source's connector estimates. `UNLINK` and `DROP TABLE` purge the row with the other table-scoped state, so a
   reused name cannot inherit old cardinalities.
@@ -888,7 +888,7 @@ mutation and its invalidation are atomic, including its operation receipt and cu
 request to delete omitted schemas. Failed/unknown persistence outcomes must not become
 empty results or successful local-cache notifications.
 
-Provider-internal `PostgresCatalogPersistenceSupport` shares transaction handling.
+Provider-internal `PostgresCatalogPersistenceBase` shares transaction handling.
 Its package is excluded from consumer exports. RuntimeException/Error during rollback
 is attached to the original failure, and shared resources are not closed by repositories.
 This helper is not a domain SQL callback API. The projection workflow has its own typed

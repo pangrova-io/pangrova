@@ -15,7 +15,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql2rel.SqlToRelConverter;
 import org.apache.calcite.sql2rel.StandardConvertletTable;
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 
 /** One conversion's view expansion, retaining its cluster, catalog bindings and parser semantics. */

@@ -59,12 +59,12 @@ public final class VolumeTasks {
     private static StatementResult create(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             CreateVolumeStatement statement, StatementExecutionContext context) {
         QuerySession session = context.session();
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), session);
         FileSpaceDefinition definition = new FileSpaceDefinition(FileSpaceType.VOLUME,
                 ref.catalog(), ref.schema(), ref.table(), statement.external(),
                 statement.storageProfile().orElse(""), statement.location().orElse(""),
                 false, statement.comment().orElse(""),
-                FileSpaceTaskSupport.requireUser(session).principal());
+                FileSpaceTaskAuthority.requireUser(session).principal());
         boolean existed = registry.find(FileSpaceType.VOLUME, ref.catalog(), ref.schema(),
                 ref.table()).isPresent();
         FileSpace space = registry.create(definition, statement.ifNotExists());
@@ -80,8 +80,8 @@ public final class VolumeTasks {
     private static StatementResult alter(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             AlterVolumeStatement statement, StatementExecutionContext context) {
         QuerySession session = context.session();
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
-        FileSpace current = FileSpaceTaskSupport.require(registry, FileSpaceType.VOLUME, ref);
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), session);
+        FileSpace current = FileSpaceTaskAuthority.require(registry, FileSpaceType.VOLUME, ref);
         AlterVolumeAction action = statement.action();
         if (action instanceof AlterVolumeAction.Rename rename) {
             return rename(registry, audit, statement, context, ref, current, rename);
@@ -125,12 +125,12 @@ public final class VolumeTasks {
 
     private static StatementResult drop(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             DropVolumeStatement statement, StatementExecutionContext context) {
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), context.session());
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), context.session());
         Optional<FileSpace> existing = registry.find(FileSpaceType.VOLUME, ref.catalog(),
                 ref.schema(), ref.table());
         if (existing.isEmpty()) {
             if (!statement.ifExists()) {
-                throw FileSpaceTaskSupport.notFound(FileSpaceType.VOLUME, ref);
+                throw FileSpaceTaskAuthority.notFound(FileSpaceType.VOLUME, ref);
             }
             return new StatementResult(List.of(), List.of(),
                     "Volume does not exist: " + ref, StatementCategory.DDL);
@@ -144,13 +144,13 @@ public final class VolumeTasks {
     private static StatementResult show(FileSpaceRegistry registry, AccessControl accessControl,
             ShowVolumesStatement statement, StatementExecutionContext context) {
         QuerySession session = context.session();
-        UserIdentity user = FileSpaceTaskSupport.requireUser(session);
-        AccessControl ac = FileSpaceTaskSupport.requireAccessControl(accessControl);
-        FileSpaceTaskSupport.Scope scope =
-                FileSpaceTaskSupport.resolveScope(statement.qualifiedName(), session);
+        UserIdentity user = FileSpaceTaskAuthority.requireUser(session);
+        AccessControl ac = FileSpaceTaskAuthority.requireAccessControl(accessControl);
+        FileSpaceTaskAuthority.Scope scope =
+                FileSpaceTaskAuthority.resolveScope(statement.qualifiedName(), session);
         List<TypedRow> rows = registry.list(FileSpaceType.VOLUME, scope.catalog(), scope.schema())
                 .stream()
-                .filter(space -> FileSpaceTaskSupport.canReadVolume(ac, user, space))
+                .filter(space -> FileSpaceTaskAuthority.canReadVolume(ac, user, space))
                 .map(space -> {
                     TypedRow.Builder row = TypedRow.builder();
                     row.putRaw("name", space.name());
@@ -168,10 +168,10 @@ public final class VolumeTasks {
     private static StatementResult describe(FileSpaceRegistry registry, AccessControl accessControl,
             DescribeVolumeStatement statement, StatementExecutionContext context) {
         QuerySession session = context.session();
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
-        FileSpace space = FileSpaceTaskSupport.require(registry, FileSpaceType.VOLUME, ref);
-        UserIdentity user = FileSpaceTaskSupport.requireUser(session);
-        FileSpaceTaskSupport.requireAccessControl(accessControl)
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), session);
+        FileSpace space = FileSpaceTaskAuthority.require(registry, FileSpaceType.VOLUME, ref);
+        UserIdentity user = FileSpaceTaskAuthority.requireUser(session);
+        FileSpaceTaskAuthority.requireAccessControl(accessControl)
                 .checkCanReadVolume(user, space.catalog(), space.schema(), space.name());
         TypedRow.Builder row = TypedRow.builder();
         row.putRaw("name", space.name());

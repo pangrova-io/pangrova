@@ -5,7 +5,7 @@ import org.pangrova.indexing.api.evaluation.CatalogIndexEvaluation;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.index.ColumnValueReader;
-import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.ConnectorIndexCapabilities;
 import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.pangrova.connector.api.index.NativeIndexCapability;
 import org.pangrova.connector.api.index.NativeIndexEvaluator;
@@ -20,7 +20,7 @@ import java.util.Optional;
  * Resolves connector-specific accessors (FileSystemAccessor, ColumnValueReader,
  * NativeIndexEvaluator) from the catalog registry.
  *
- * <p>Prefers the consolidated {@link ConnectorIndexSupport} interface when
+ * <p>Prefers the consolidated {@link ConnectorIndexCapabilities} interface when
  * available, falling back to individual {@link ConnectorMetadata} methods
  * for backward compatibility with connectors that have not yet migrated.</p>
  *
@@ -70,7 +70,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
      */
     public FileSystemAccessor resolve(String catalogName) {
         ConnectorMetadata metadata = getMetadata(catalogName);
-        Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
+        Optional<ConnectorIndexCapabilities> support = metadata.getIndexSupport();
         if (support.isPresent()) {
             return support.get().getFileSystemAccessor()
                     .orElseThrow(() -> new IllegalArgumentException(
@@ -90,7 +90,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
      */
     public ColumnValueReader resolveColumnValueReader(String catalogName) {
         ConnectorMetadata metadata = getMetadata(catalogName);
-        Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
+        Optional<ConnectorIndexCapabilities> support = metadata.getIndexSupport();
         if (support.isPresent()) {
             return support.get().getColumnValueReader()
                     .orElseThrow(() -> new IllegalArgumentException(
@@ -110,7 +110,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
     @Override
     public NativeIndexEvaluator resolveNativeIndexEvaluator(String catalogName) {
         ConnectorMetadata metadata = getMetadata(catalogName);
-        Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
+        Optional<ConnectorIndexCapabilities> support = metadata.getIndexSupport();
         if (support.isPresent()) {
             return support.get().getNativeIndexEvaluator().orElse(null);
         }
@@ -126,7 +126,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
     @Override
     public List<NativeIndexCapability> resolveNativeCapabilities(String catalogName) {
         ConnectorMetadata metadata = getMetadata(catalogName);
-        Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
+        Optional<ConnectorIndexCapabilities> support = metadata.getIndexSupport();
         if (support.isPresent()) {
             return support.get().nativeIndexCapabilities();
         }
@@ -143,7 +143,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
      */
     public List<String> listDataFiles(String catalogName, String schemaName, String tableName) {
         ConnectorMetadata metadata = getMetadata(catalogName, schemaName);
-        Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
+        Optional<ConnectorIndexCapabilities> support = metadata.getIndexSupport();
         if (support.isPresent()) {
             return support.get().listDataFiles(catalogName, schemaName, tableName);
         }
@@ -194,7 +194,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
     public org.pangrova.connector.api.index.SnapshotAwareMetadata resolveSnapshotAwareMetadata(
             String catalogName, String schemaName, String tableName) {
         ConnectorMetadata metadata = getMetadata(catalogName, schemaName);
-        Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
+        Optional<ConnectorIndexCapabilities> support = metadata.getIndexSupport();
         if (support.isPresent()) {
             return support.get().getSnapshotAwareMetadata(schemaName, tableName).orElse(null);
         }
@@ -226,7 +226,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
     public org.pangrova.connector.api.index.SnapshotPinProvider resolveSnapshotPinProvider() {
         requireScope();
         return getMetadata(session.getCatalog().orElseThrow()).getIndexSupport()
-                .flatMap(ConnectorIndexSupport::getSnapshotPinProvider).orElse(null);
+                .flatMap(ConnectorIndexCapabilities::getSnapshotPinProvider).orElse(null);
     }
 
     /**
