@@ -1760,6 +1760,19 @@
          in the owning DTOs. Only the observed class/method/signature/field/type/bug
          tuples are classified; mutable payloads and all other findings stay checked.
          Contract: https://protobuf.dev/reference/java/java-generated/ -->
+    <!-- Durable replay retains the immutable report from the original attempt. -->
+    <Match>
+        <Class name="org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime$RestoredTask"/>
+        <Method name="report" params="" returns="org.pangrova.protocol.v2.TaskReport"/>
+        <Field name="report" type="org.pangrova.protocol.v2.TaskReport"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime$RestoredTask"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.protocol.v2.TaskReport" returns="void"/>
+        <Field name="report" type="org.pangrova.protocol.v2.TaskReport"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
     <!-- The read binding retains a built publication. The separate producer digest is copied. -->
     <Match>
         <Class name="org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead"/>
