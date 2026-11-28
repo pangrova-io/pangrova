@@ -326,25 +326,6 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
                 context.commitFingerprint(), snapshot.snapshotId());
     }
 
-    /**
-     * A-EOS-02: discards worker-staged data files that were written but never published (the 2PC
-     * abort/discard leg), so an aborted streaming prepare leaves no orphans.
-     */
-    @Override
-    public void abortDistributedWrite(ConnectorSession session,
-                                      ConnectorOutputTableHandle outputHandle,
-                                      List<byte[]> fragments) {
-        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
-        TableIdentifier tableId = TableIdentifier.of(handle.schemaName(), handle.tableName());
-        Table icebergTable = catalog.loadTable(tableId);
-        icebergTable.refresh();
-        if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(icebergTable))) {
-            throw new IllegalStateException(
-                    "Iceberg table UUID changed since the distributed write was planned");
-        }
-        writeCommitter.abortDistributedWrite(icebergTable, handle, fragments);
-    }
-
     @Override
     public boolean supportsTargetedDelete() {
         return true;

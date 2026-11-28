@@ -125,7 +125,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
     }
 
     @Test
-    void abortDeletesOnlyUnpublishedStagedFiles() throws Exception {
+    void abortWithoutADurableCatalogBarrierPreservesUnpublishedFiles() throws Exception {
         createTable(false, false);
         var metadata = metadata();
         ConnectorOutputTableHandle output = metadata.beginInsert(SESSION, handle(metadata));
@@ -134,9 +134,13 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         List<Path> staged = stagedDataFiles((FileStoreTable) freshTable(), fragment);
         assertThat(staged).isNotEmpty().allMatch(Files::exists);
 
-        metadata.abortDistributedWrite(SESSION, output, List.of(fragment));
+        var fragments = List.of(fragment);
+        var context = PaimonCommitTestSupport.context(
+                metadata, SESSION, output, fragments);
+        assertThatThrownBy(() -> metadata.abortDistributedWrite(SESSION, output, fragments, context))
+                .isInstanceOf(UnsupportedOperationException.class);
 
-        assertThat(staged).allMatch(path -> !Files.exists(path));
+        assertThat(staged).allMatch(Files::exists);
         assertThat(readRows()).isEmpty();
     }
 
@@ -150,7 +154,11 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         List<Path> staged = stagedDataFiles((FileStoreTable) freshTable(), fragment);
         writeRows(new StoredRow(2, "west", "two", "committed"));
 
-        metadata.abortDistributedWrite(SESSION, output, List.of(fragment));
+        var fragments = List.of(fragment);
+        var context = PaimonCommitTestSupport.context(
+                metadata, SESSION, output, fragments);
+        assertThatThrownBy(() -> metadata.abortDistributedWrite(SESSION, output, fragments, context))
+                .isInstanceOf(UnsupportedOperationException.class);
 
         assertThat(staged).allMatch(Files::exists);
         assertThat(readRows()).containsExactly(new StoredRow(2, "west", "two", "committed"));

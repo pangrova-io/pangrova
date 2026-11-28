@@ -162,26 +162,6 @@ public interface ConnectorWriteMetadata {
     }
 
     /**
-     * A-EOS-02 (2PC abort/discard leg): discards data STAGED by a distributed write but not yet
-     * published — i.e. fragments whose {@link #finishDistributedWrite} has not been, and will not
-     * be, called. Deletes the staged data files so a prepared-but-aborted streaming batch leaves no
-     * orphans, making {@code abort} a real compensation rather than a no-op.
-     *
-     * <p>Best-effort default is a no-op; connectors that write staged files before the catalog
-     * publish override this to delete them. Must be safe to call on fragments that were never
-     * published.
-     *
-     * @param session      the current session context
-     * @param outputHandle handle from beginInsert/beginOverwrite/beginDelete
-     * @param fragments    commit metadata whose staged (unpublished) files must be discarded
-     */
-    default void abortDistributedWrite(ConnectorSession session,
-                                       ConnectorOutputTableHandle outputHandle,
-                                       java.util.List<byte[]> fragments) {
-        // Default: no-op. Connectors with pre-publish staging override to delete staged files.
-    }
-
-    /**
      * Installs a durable abort barrier for the exact journaled intent. Returning proves
      * that this intent can never become visible; it does not authorize object deletion.
      */

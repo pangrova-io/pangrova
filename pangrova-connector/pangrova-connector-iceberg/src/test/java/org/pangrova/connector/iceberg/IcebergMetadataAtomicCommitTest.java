@@ -511,7 +511,7 @@ class IcebergMetadataAtomicCommitTest {
     // --- helpers ---
 
     @Test
-    void abortDistributedWrite_deletesStagedFilesAndCreatesNoSnapshot() throws Exception {
+    void abortWithoutADurableCatalogBarrierPreservesStagedFilesAndCreatesNoSnapshot() throws Exception {
         Table table = createTable("staged_abort");
         int snapshotsBefore = countSnapshots(table);
         IcebergOutputTableHandle handle = beginInsert("staged_abort");
@@ -525,11 +525,12 @@ class IcebergMetadataAtomicCommitTest {
                 .as("staged file should exist before abort").isTrue();
 
         byte[] fragment = buildAppendFragmentBytes(table, "staged-abort-0.parquet", 5, 1024);
-        metadata.abortDistributedWrite(SESSION, handle, List.of(fragment));
+        var fragments = List.of(fragment);
+        var context = context("staged-abort", handle, fragments);
+        assertThatThrownBy(() -> metadata.abortDistributedWrite(SESSION, handle, fragments, context))
+                .isInstanceOf(UnsupportedOperationException.class);
 
-        // A-EOS-02: abort deletes the staged file and publishes NO snapshot (true 2PC discard).
-        assertThat(table.io().newInputFile(stagedPath).exists())
-                .as("aborted staged file must be deleted").isFalse();
+        assertThat(table.io().newInputFile(stagedPath).exists()).isTrue();
         assertThat(countSnapshots(table))
                 .as("abort must not create a snapshot").isEqualTo(snapshotsBefore);
     }

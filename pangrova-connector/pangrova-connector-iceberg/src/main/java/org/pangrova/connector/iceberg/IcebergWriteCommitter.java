@@ -164,23 +164,6 @@ final class IcebergWriteCommitter {
     }
 
     /**
-     * A-EOS-02: discards worker-staged data files that were written but never
-     * published (the 2PC abort/discard leg). Deletes the files referenced by the
-     * fragments without touching any snapshot, so an aborted streaming prepare
-     * leaves no orphans.
-     */
-    void abortDistributedWrite(Table icebergTable,
-                               IcebergOutputTableHandle handle,
-                               List<byte[]> fragments) {
-        IcebergCollectedFragments collected =
-                IcebergFragmentParser.collectAllFragments(icebergTable, handle, fragments);
-        cleanupOrphanFiles(icebergTable, handle, collected);
-        LOG.info("event=distributed_write_aborted table={}.{} dataFiles={} deleteFiles={}",
-                handle.schemaName(), handle.tableName(),
-                collected.dataFiles().size(), collected.deleteFiles().size());
-    }
-
-    /**
      * Deletes rows matching the filter via Iceberg's row-filter delete, committed
      * with the same timeout and retry protection as distributed writes. This path
      * carries no durable commit context, so a timed-out commit whose snapshot
