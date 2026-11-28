@@ -4,8 +4,9 @@
 #include <stdexcept>
 
 #include "engine/resource/TaskBudgetReadFile.h"
-#include "engine/split/PathUtils.h"
+#include "engine/resource/WorkerStorageBinding.h"
 #include "velox/common/config/Config.h"
+#include "engine/split/PathUtils.h"
 #include "velox/common/file/FileSystems.h"
 
 namespace pangrova::velox {
@@ -31,9 +32,11 @@ std::shared_ptr<facebook::velox::ReadFile> MetadataReadContext::open(const std::
   auto opening = budget_ ? std::make_optional(budget_->begin(0, resource::TaskObjectReadBudget::Operation::METADATA))
                          : std::nullopt;
   const auto path = split::metadataObjectPath(uri);
-  if (path.starts_with("s3://")
-      && (!file_system_config_ || !file_system_config_->valueExists("hive.s3.aws-access-key"))) {
-    throw std::runtime_error("Native S3 read requires configured filesystem credentials");
+  if (path.starts_with("s3://") && !file_system_config_) {
+    throw std::runtime_error("Native S3 metadata read requires the exact Worker-local catalog");
+  }
+  if (file_system_config_) {
+    resource::validateStorageLocation(file_system_config_->get<std::string>("pangrova.s3.warehouse").value(), uri);
   }
   auto filesystem = facebook::velox::filesystems::getFileSystem(path, file_system_config_);
   if (!filesystem) throw std::runtime_error("No Native filesystem for metadata URI");

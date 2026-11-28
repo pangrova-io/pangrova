@@ -217,7 +217,7 @@ std::unordered_map<std::string, std::string> buildFileSystemConfigMap(
   properties["hive.s3.ssl.enabled"] =
       config.s3_ssl_enabled ? "true" : "false";
   if (!config.s3_security_token.empty()) {
-    properties["hive.s3.security-token"] = config.s3_security_token;
+    properties["hive.s3.aws-session-token"] = config.s3_security_token;
   }
 
   return properties;

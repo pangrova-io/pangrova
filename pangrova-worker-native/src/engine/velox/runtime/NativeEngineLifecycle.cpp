@@ -53,6 +53,7 @@
 // Velox filesystem registration headers.
 #if __has_include("velox/connectors/hive/storage_adapters/s3fs/RegisterS3FileSystem.h")
 #include "velox/connectors/hive/storage_adapters/s3fs/RegisterS3FileSystem.h"
+#include "velox/connectors/hive/storage_adapters/s3fs/S3Config.h"
 #define PANGROVA_HAS_VELOX_S3FS 1
 #else
 #define PANGROVA_HAS_VELOX_S3FS 0
@@ -366,7 +367,15 @@ void NativeEngineLifecycle::registerVeloxFileSystems(
   facebook::velox::filesystems::registerLocalFileSystem();
 #endif
 #if PANGROVA_HAS_VELOX_S3FS
-  facebook::velox::filesystems::registerS3FileSystem();
+  facebook::velox::filesystems::registerS3FileSystem(
+      [](const std::shared_ptr<const facebook::velox::config::ConfigBase>& properties, std::string_view path) {
+        if (!properties) throw std::invalid_argument("Native S3 filesystem requires storage settings");
+        constexpr std::size_t prefix_length = sizeof("s3://") - 1;
+        const auto bucket = path.substr(prefix_length, path.find('/', prefix_length) - prefix_length);
+        const auto authority = properties->get<std::string>("pangrova.s3.authority");
+        if (authority) return authority.value() + ":" + std::string(bucket);
+        return facebook::velox::filesystems::S3Config::cacheKey(bucket, properties);
+      });
 #endif
 #if PANGROVA_HAS_VELOX_HDFSFS
   facebook::velox::filesystems::registerHdfsFileSystem();

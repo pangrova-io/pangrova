@@ -7,6 +7,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace facebook::velox::config {
+class ConfigBase;
+}
+
 namespace pangrova::protocol::v2 {
 class DeletionVectorReference;
 class IndexEvalHintDetail;
@@ -158,6 +162,7 @@ struct SplitConfig {
   std::string data_object_id;   // Stable object identity within source_snapshot.
   // JNI-local catalog credentials.
   std::string storage_binding;
+  std::shared_ptr<const facebook::velox::config::ConfigBase> file_system_config;
   // Only Lance's C FFI needs a serialized read unit.
   std::string lance_read_unit;
   std::shared_ptr<const std::vector<protocol::v2::IndexEvalHintDetail>> index_hints;

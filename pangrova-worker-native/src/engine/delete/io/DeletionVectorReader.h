@@ -11,6 +11,10 @@
 #include <roaring64map.hh>
 #include <string>
 
+namespace pangrova::velox {
+class MetadataReadContext;
+}
+
 namespace pangrova::delete_filter::io {
 
 // Puffin file constants (Iceberg v3 deletion vector container format).
@@ -53,7 +57,8 @@ class DeletionVectorReader {
  private:
   // Read entire file content via Velox FileSystem API.
   // Supports local, S3, HDFS, GCS paths based on registered filesystems.
-  static std::string readFileBytes(const std::string& filePath);
+  static std::string readFileBytes(const std::string& filePath,
+      const pangrova::velox::MetadataReadContext* reads);
 
   // Parse Puffin footer to extract blob metadata.
   // Returns the offset and length of the matching blob payload.
@@ -63,7 +68,8 @@ class DeletionVectorReader {
     uint64_t cardinality;
   };
   static BlobLocation parsePuffinFooter(
-      const std::string& fileContent, const std::string& dataFilePath);
+      const std::string& fileContent, const std::string& dataFilePath,
+      const pangrova::velox::MetadataReadContext* reads = nullptr);
 
   // Validate Puffin magic bytes at the given offset.
   static void validatePuffinMagic(

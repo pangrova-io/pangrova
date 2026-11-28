@@ -56,7 +56,11 @@ std::pair<std::string, std::filesystem::path> storageLocation(const std::string&
 
 void validateStorageLocation(const protocol::v2::ObjectStoreExecutionBinding& binding,
                                     const std::string& uri) {
-  const auto [root_kind, root] = storageLocation(binding.warehouse_uri());
+  validateStorageLocation(binding.warehouse_uri(), uri);
+}
+
+void validateStorageLocation(const std::string& warehouse, const std::string& uri) {
+  const auto [root_kind, root] = storageLocation(warehouse);
   const auto [kind, path] = storageLocation(uri);
   auto root_part = root.begin(), path_part = path.begin();
   for (; root_part != root.end() && path_part != path.end(); ++root_part, ++path_part) {
@@ -67,7 +71,7 @@ void validateStorageLocation(const protocol::v2::ObjectStoreExecutionBinding& bi
   }
 }
 
-std::string workerLocalStorage(
+const protocol::v2::ObjectStoreExecutionBinding& requireWorkerLocalStorage(
     const google::protobuf::RepeatedPtrField<protocol::v2::ObjectStoreExecutionBinding>& bindings,
     const protocol::v2::CatalogExecutionBinding& catalog,
     const std::string& tenant, const std::string& uri) {
@@ -80,7 +84,14 @@ std::string workerLocalStorage(
     selected = &binding;
   }
   if (!selected) throw std::invalid_argument("Dataset access requires exact Worker-local catalog storage");
-  return selected->SerializeAsString();
+  return *selected;
+}
+
+std::string workerLocalStorage(
+    const google::protobuf::RepeatedPtrField<protocol::v2::ObjectStoreExecutionBinding>& bindings,
+    const protocol::v2::CatalogExecutionBinding& catalog,
+    const std::string& tenant, const std::string& uri) {
+  return requireWorkerLocalStorage(bindings, catalog, tenant, uri).SerializeAsString();
 }
 
 }  // namespace pangrova::resource

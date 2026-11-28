@@ -258,7 +258,7 @@ void PangrovaVeloxDataSource::addSplit(
   batch_calibrated_ = false;
 
   if (splitConfig.system_table.has_value()) {
-    const MetadataReadContext reads(read_budget_, cancellation_token_, file_system_config_);
+    const MetadataReadContext reads(read_budget_, cancellation_token_, splitConfig.file_system_config);
     if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_MANIFESTS) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
         throw std::runtime_error("Iceberg manifests split requires metadata Avro format");
@@ -426,8 +426,12 @@ void PangrovaVeloxDataSource::prepareSplitState(
   // Clear any filters from a previous split first.
   delete_filters_.clear();
   if (config.iceberg.has_value()) {
+    std::optional<MetadataReadContext> deleteReads;
+    if (config.file_system_config && !config.iceberg->delete_files.empty()) {
+      deleteReads.emplace(read_budget_, cancellation_token_, config.file_system_config);
+    }
     delete_filters_ = delete_filter::RowDeleteFilterFactory::create(
-        config.iceberg.value(), config.file_path);
+        config.iceberg.value(), config.file_path, deleteReads ? &*deleteReads : nullptr);
   }
   // Paimon changelog mode: when changelog_mode=true, the split's
   // Parquet file contains a _row_kind column (TINYINT: 0=+I, 1=-U,
@@ -474,11 +478,11 @@ void PangrovaVeloxDataSource::createReaderPair(
       split::stripFilePrefix(splitConfig.file_path));
   const auto format = resolveFileFormat(splitConfig.file_format);
 
-  if (cleanPath.starts_with("s3://")
-      && (!file_system_config_ || !file_system_config_->valueExists("hive.s3.aws-access-key"))) {
-    throw std::runtime_error("Native S3 read requires configured filesystem credentials");
+  if (cleanPath.starts_with("s3://") && !splitConfig.file_system_config) {
+    throw std::runtime_error("Native S3 read requires the exact Worker-local catalog");
   }
-  auto fileSystem = facebook::velox::filesystems::getFileSystem(cleanPath, file_system_config_);
+  const auto& fileSystemConfig = splitConfig.file_system_config ? splitConfig.file_system_config : file_system_config_;
+  auto fileSystem = facebook::velox::filesystems::getFileSystem(cleanPath, fileSystemConfig);
   if (!fileSystem) {
     throw std::runtime_error(
         "No registered Velox filesystem for data object: " + cleanPath);
@@ -561,13 +565,18 @@ void PangrovaVeloxDataSource::createReaderPair(
     // Match Velox FileHandle's path and directory identity for the full reader
     // lifetime; scan-level tracking remains optional.
     const auto separator = cleanPath.rfind('/');
-    const auto group = separator == std::string::npos
-        ? cleanPath : cleanPath.substr(0, separator);
+    auto group = separator == std::string::npos ? cleanPath : cleanPath.substr(0, separator);
     auto ioStats = std::make_shared<facebook::velox::dwio::common::IoStatistics>();
+    auto cachePath = cleanPath;
+    if (splitConfig.file_system_config) {
+      const auto authority = splitConfig.file_system_config->get<std::string>("pangrova.s3.authority").value();
+      cachePath = authority + ":" + cachePath;
+      group = authority + ":" + group;
+    }
     input = std::make_unique<facebook::velox::dwio::common::CachedBufferedInput>(
         readFile,
         facebook::velox::dwio::common::MetricsLog::voidLog(),
-        facebook::velox::StringIdLease(facebook::velox::fileIds(), cleanPath),
+        facebook::velox::StringIdLease(facebook::velox::fileIds(), cachePath),
         cache,
         std::shared_ptr<facebook::velox::cache::ScanTracker>(),
         facebook::velox::StringIdLease(facebook::velox::fileIds(), group),
@@ -1022,6 +1031,7 @@ void PangrovaVeloxDataSource::initializeMergeReader(
         split::SplitConfig fileConfig;
         fileConfig.file_path = path;
         fileConfig.file_format = file.file_format;
+        fileConfig.file_system_config = split.file_system_config;
         createReaderPair(fileConfig, reader, rowReader, physical_type, &uuidPlan);
         // Filtering an update before primary-key merge can resurrect older rows.
         // Keep non-key predicates in the relational FilterNode after the merge.

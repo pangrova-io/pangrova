@@ -11,12 +11,15 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
+import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.IcebergReadMode;
 import org.pangrova.protocol.v2.IcebergSplitDetail;
+import org.pangrova.protocol.v2.ObjectStoreExecutionBinding;
 import org.pangrova.protocol.v2.RuntimeInitConfig;
+import org.pangrova.protocol.v2.S3ExecutionSettings;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
@@ -33,6 +36,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -78,6 +82,9 @@ class NativeS3ReadEvidenceE2ETest extends ContainerTestBase {
             assertThat(measured.getS3SdkAttempts()).isEqualTo(pinned.getS3SdkAttempts() + 1);
             assertThat(measured.getS3SdkRetries()).isZero();
             assertThat(pinned.getS3SdkRetries()).isZero();
+            var rejected = TaskReport.parseFrom(Files.readAllBytes(directory.resolve("rejected.report")));
+            assertThat(rejected.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
+            assertThat(rejected.getNativeObjectReads().getS3SdkAttempts()).isPositive();
         }
     }
 
@@ -100,7 +107,7 @@ class NativeS3ReadEvidenceE2ETest extends ContainerTestBase {
         var log = directory.resolve("native-s3.log");
         var process = new ProcessBuilder(java.toString(), "-cp",
                 System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
-                NativeProbe.class.getName(), directory.toString(), endpoint.getAuthority(), Long.toString(size))
+                NativeProbe.class.getName(), directory.toString(), endpoint.toString(), Long.toString(size))
                 .redirectErrorStream(true).redirectOutput(log.toFile()).start();
         try {
             assertThat(process.waitFor(70, TimeUnit.SECONDS)).as("Native S3 process finished").isTrue();
@@ -124,28 +131,27 @@ class NativeS3ReadEvidenceE2ETest extends ContainerTestBase {
         return report.getNativeObjectReads();
     }
 
-    /** The production Native singleton receives one storage configuration for this process. */
+    /** Uses the production JNI-only catalog binding in a fresh Native process. */
     public static final class NativeProbe {
         private NativeProbe() {}
 
         public static void main(String[] args) throws Exception {
             var directory = Path.of(args[0]);
             long bytes = Long.parseLong(args[2]);
-            var configuration = RuntimeInitConfig.newBuilder().setMaxMemoryBytes(MEMORY).setIoThreadCount(2)
-                    .setS3Endpoint(args[1]).setS3Region(Region.US_EAST_1.id())
-                    .setS3PathStyleAccess(true).setS3SslEnabled(false)
-                    .setS3AccessKey(ACCESS_KEY).setS3SecretKey(SECRET_KEY).build();
+            var configuration = RuntimeInitConfig.newBuilder().setMaxMemoryBytes(MEMORY).setIoThreadCount(2).build();
             NativeRuntime.initNativeRuntime(configuration.toByteArray(),
                     new NativeMemoryCoordinator(MEMORY, new MemoryArbitrator(MEMORY, 0)));
             try {
-                scan(directory.resolve("unqualified.report"), bytes, 0);
-                scan(directory.resolve("pinned.report"), bytes, bytes);
+                scan(directory.resolve("unqualified.report"), bytes, 0, args[1], ACCESS_KEY);
+                scan(directory.resolve("pinned.report"), bytes, bytes, args[1], ACCESS_KEY);
+                scan(directory.resolve("rejected.report"), bytes, bytes, args[1], "denied-native-fixture");
             } finally {
                 NativeRuntime.shutdownNativeRuntime();
             }
         }
 
-        private static void scan(Path receipt, long bytes, long pinnedBytes) throws Exception {
+        private static void scan(Path receipt, long bytes, long pinnedBytes, String endpoint, String accessKey)
+                throws Exception {
             var plan = Plan.newBuilder();
             org.pangrova.protocol.substrait.SubstraitProtocolVersion.stamp(plan);
             var read = plan.addRelationsBuilder().getRootBuilder().addNames("id").getInputBuilder().getReadBuilder();
@@ -154,12 +160,20 @@ class NativeS3ReadEvidenceE2ETest extends ContainerTestBase {
             read.getNamedTableBuilder().addNames("scan");
             byte[] substrait = plan.build().toByteArray();
             var uri = "s3://" + BUCKET + "/" + OBJECT;
+            var catalog = CatalogExecutionBinding.newBuilder().setCatalogName("lake").setCatalogIncarnationId("s3-test")
+                    .setCatalogRevision(1).setConnectorProvider("iceberg")
+                    .setConfigurationFingerprint(ProtocolChecksums.sha256(endpoint.getBytes(StandardCharsets.UTF_8)))
+                    .build();
             var request = TaskRequest.parseFrom(CanonicalNativeTask.valuesRequest()).toBuilder()
                     .setSubstraitPlan(ByteString.copyFrom(substrait))
                     .setSubstraitPlanChecksum(ProtocolChecksums.sha256(substrait))
+                    .addWorkerLocalStorageBindings(ObjectStoreExecutionBinding.newBuilder().setCatalog(catalog)
+                            .setTenantId("e2e").setWarehouseUri("s3://" + BUCKET + "/snapshot-1")
+                            .setS3(S3ExecutionSettings.newBuilder().setEndpoint(endpoint).setRegion(Region.US_EAST_1.id())
+                                    .setAccessKey(accessKey).setSecretKey(SECRET_KEY).setPathStyleAccess(true)))
                     .addSplits(DataSplit.newBuilder().setSplitId(receipt.getFileName().toString())
                             .setConnectorId("iceberg").setSourceId("scan").setSourceSnapshot("1")
-                            .setDataObjectId(uri).setOpaqueLocation(uri).setLength(bytes)
+                            .setDataObjectId(uri).setOpaqueLocation(uri).setLength(bytes).setCatalog(catalog)
                             .setFileDetail(FileSplitDetail.newBuilder().setFileFormat(FileFormat.FILE_FORMAT_PARQUET)
                                     .setIceberg(IcebergSplitDetail.newBuilder().setSnapshotId(1)
                                             .setReadMode(IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT)

@@ -1,6 +1,8 @@
 // Deserializes the canonical v2 TaskRequest into Native executor configuration.
 #include "command/task/TaskRequestParser.h"
 #include "engine/resource/WorkerStorageBinding.h"
+#include "engine/split/PathUtils.h"
+#include "velox/common/config/Config.h"
 #include "command/task/PhysicalWriteAdmission.h"
 #include "command/task/WorkerLocalCopyInput.h"
 
@@ -111,6 +113,30 @@ std::string hex(const std::string& bytes) {
     result[i * 2 + 1] = digits[value & 0x0fU];
   }
   return result;
+}
+
+std::shared_ptr<const facebook::velox::config::ConfigBase> s3ReadConfig(
+    const proto::ObjectStoreExecutionBinding& binding) {
+  const auto& s3 = binding.s3();
+  const std::string_view scheme = s3.tls_enabled() ? "https://" : "http://";
+  if (!binding.has_s3() || !s3.endpoint().starts_with(scheme)
+      || s3.endpoint().size() <= scheme.size() || s3.region().empty()
+      || s3.access_key().empty() || s3.secret_key().empty()) {
+    throw std::invalid_argument("Worker-local S3 read storage settings are incomplete");
+  }
+  const auto authority = binding.SerializeAsString();
+  return std::make_shared<const facebook::velox::config::ConfigBase>(
+      std::unordered_map<std::string, std::string>{
+          {"hive.s3.endpoint", s3.endpoint().substr(scheme.size())},
+          {"hive.s3.endpoint.region", s3.region()},
+          {"hive.s3.aws-access-key", s3.access_key()},
+          {"hive.s3.aws-secret-key", s3.secret_key()},
+          {"hive.s3.aws-session-token", s3.security_token()},
+          {"hive.s3.path-style-access", s3.path_style_access() ? "true" : "false"},
+          {"hive.s3.ssl.enabled", s3.tls_enabled() ? "true" : "false"},
+          {"hive.s3.aws-imds-enabled", "false"},
+          {"pangrova.s3.warehouse", binding.warehouse_uri()},
+          {"pangrova.s3.authority", hex(sha256(authority.data(), authority.size()))}});
 }
 
 std::pair<std::string, std::string> dependencyFingerprints(
@@ -1901,12 +1927,37 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
   config.splits.reserve(request.splits_size());
   std::unordered_set<std::string> split_ids;
   std::unordered_set<std::string> manifest_partitions;
+  std::unordered_map<const proto::ObjectStoreExecutionBinding*,
+      std::shared_ptr<const facebook::velox::config::ConfigBase>> s3_read_configs;
   for (const auto& split : request.splits()) {
     if (!split_ids.emplace(split.split_id()).second) {
       throw std::runtime_error("TaskRequest contains duplicate DataSplit split_id");
     }
     auto parsed = parseSplit(split, request);
     const auto& detail = split.file_detail();
+    if (split.has_catalog() && parsed.file_format != split::FileFormatType::LANCE
+        && split::normalizeToS3Uri(parsed.file_path).starts_with("s3://")) {
+      const auto& storage = pangrova::resource::requireWorkerLocalStorage(
+          request.worker_local_storage_bindings(), split.catalog(), request.security().tenant_id(), parsed.file_path);
+      if (parsed.iceberg) {
+        for (const auto& deletion : parsed.iceberg->delete_files) {
+          pangrova::resource::validateStorageLocation(storage, deletion.file_path);
+          if (!deletion.dv_file_path.empty()) {
+            pangrova::resource::validateStorageLocation(storage, deletion.dv_file_path);
+          }
+        }
+      }
+      if (parsed.paimon) {
+        for (const auto& level : parsed.paimon->lsm_levels) {
+          for (const auto& file : level.files) {
+            pangrova::resource::validateStorageLocation(storage, file.file_path);
+          }
+        }
+      }
+      auto [found, inserted] = s3_read_configs.try_emplace(&storage);
+      if (inserted) found->second = s3ReadConfig(storage);
+      parsed.file_system_config = found->second;
+    }
     if (parsed.file_format == split::FileFormatType::LANCE) {
       const auto partition_key = split.source_id() + '\0' + split.source_snapshot() + '\0' +
           split.opaque_location() + '\0' + (detail.has_scan_partition()
