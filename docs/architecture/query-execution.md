@@ -293,6 +293,9 @@ Generation service discovery. A provider failure, cancellation or authorization
 rejection propagates to the query. A real table scan without its configured catalog
 registry fails; a source-free plan can legitimately have no connector splits.
 Whole-table OVERWRITE/UPDATE enumeration keeps its unpruned path.
+Calcite table copies that share one query-local read binding also share
+the ownership check for that binding. Preparation revalidates it before
+enumeration and again before dispatch.
 For a bound Iceberg data scan, the split manager validates the chosen snapshot and
 opens the file plan on the first batch request. Full, historical and incremental
 scans convert only the splits requested by the consumer. The Coordinator applies a

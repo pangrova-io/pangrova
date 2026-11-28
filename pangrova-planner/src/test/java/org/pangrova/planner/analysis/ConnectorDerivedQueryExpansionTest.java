@@ -63,6 +63,38 @@ class ConnectorDerivedQueryExpansionTest {
     }
 
     @Test
+    void copiedCalciteTablesVerifyOneOwnerAtEachDispatchBoundary() {
+        var selected = source("orders", VALUES, "version-one");
+        var checks = new java.util.concurrent.atomic.AtomicInteger();
+        var binding = new AtomicReference<>(selected);
+        var table = org.pangrova.planner.metadata.catalog.MetadataResolvedTable.fromReadBinding(() -> {
+            checks.incrementAndGet();
+            return binding.get();
+        });
+        var types = new org.apache.calcite.jdbc.JavaTypeFactoryImpl();
+        var cluster = org.apache.calcite.plan.RelOptCluster.create(new org.apache.calcite.plan.volcano.VolcanoPlanner(),
+                new org.apache.calcite.rex.RexBuilder(types));
+        var schema = com.google.common.collect.ImmutableList.of("catalog", "schema", "orders");
+        var first = org.apache.calcite.prepare.RelOptTableImpl.create(null, table.getRowType(types), table, schema);
+        var second = first.copy(first.getRowType());
+        assertThat(second).isNotSameAs(first);
+        var left = org.apache.calcite.rel.logical.LogicalTableScan.create(cluster, first, List.of());
+        var right = org.apache.calcite.rel.logical.LogicalTableScan.create(cluster, second, List.of());
+        var union = org.apache.calcite.rel.logical.LogicalUnion.create(List.of(left, right), true);
+
+        checks.set(0);
+        var sources = PlanSplitSourceExtractor.prepare(union);
+        assertThat(sources.descriptors()).singleElement()
+                .satisfies(descriptor -> assertThat(descriptor.readBinding()).contains(selected));
+        assertThat(checks.get()).isOne();
+        sources.requireCurrent();
+        assertThat(checks.get()).isEqualTo(2);
+        binding.set(source("orders", VALUES, "version-two"));
+        assertThatThrownBy(sources::requireCurrent).hasMessageContaining("binding changed");
+        assertThat(checks.get()).isEqualTo(3);
+    }
+
+    @Test
     void repeatedReferencesAndNestedDefinitionsRetainTheSameSelectedSource() {
         var source = source("orders", VALUES, "version-one");
         var inner = derived("inner_summary", VALUES, "SELECT key_id, amount FROM leaf",
