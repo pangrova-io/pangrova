@@ -1,7 +1,8 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.connector.api.enums.CommitEventType;
-import org.apache.paimon.table.Table;
+import org.apache.paimon.table.FileStoreTable;
+import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 
 /**
  * Overwrites data in a Paimon table atomically.
@@ -10,12 +11,8 @@ import org.apache.paimon.table.Table;
  */
 public final class PaimonOverwritePageSink extends AbstractPaimonPageSink {
 
-    PaimonOverwritePageSink(Table table, String schemaName, String tableName,
-                            String tempDir, java.util.Map<String, String> overwritePartition) {
-        super(new PaimonPageSinkContext(
-                table.newBatchWriteBuilder().withOverwrite(overwritePartition),
-                new PaimonRowConverter(table.rowType()),
-                schemaName, tableName, tempDir));
+    PaimonOverwritePageSink(FileStoreTable table, PaimonOutputTableHandle output, String tempDir) {
+        super(new PaimonPageSinkContext(table, output, table.newBatchWriteBuilder().withOverwrite(output.overwritePartition()), tempDir));
     }
 
     @Override

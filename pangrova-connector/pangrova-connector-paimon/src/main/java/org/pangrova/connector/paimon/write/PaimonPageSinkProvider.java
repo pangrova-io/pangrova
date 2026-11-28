@@ -12,6 +12,7 @@ import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 import java.util.Map;
@@ -44,9 +45,8 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle);
-        return new PaimonPageSink(freshTable, handle.schemaName(),
-                handle.tableName(), tempDir);
+        FileStoreTable freshTable = loadFreshTable(handle);
+        return new PaimonPageSink(freshTable, handle, tempDir);
     }
 
     @Override
@@ -55,8 +55,8 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle);
-        return new PaimonCdcPageSink(freshTable, handle.schemaName(), handle.tableName(), tempDir);
+        FileStoreTable freshTable = loadFreshTable(handle);
+        return new PaimonCdcPageSink(freshTable, handle, tempDir);
     }
 
     @Override
@@ -65,9 +65,8 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle);
-        return new PaimonOverwritePageSink(freshTable, handle.schemaName(),
-                handle.tableName(), tempDir, handle.overwritePartition());
+        FileStoreTable freshTable = loadFreshTable(handle);
+        return new PaimonOverwritePageSink(freshTable, handle, tempDir);
     }
 
     @Override
@@ -76,16 +75,15 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle);
-        return new PaimonDeletePageSink(freshTable, handle.schemaName(),
-                handle.tableName(), tempDir);
+        FileStoreTable freshTable = loadFreshTable(handle);
+        return new PaimonDeletePageSink(freshTable, handle, tempDir);
     }
 
     /**
      * Loads a fresh table from the catalog and fences a drop/recreate or schema change that
      * happened after the write was planned.
      */
-    private Table loadFreshTable(PaimonOutputTableHandle handle) {
+    private FileStoreTable loadFreshTable(PaimonOutputTableHandle handle) {
         Identifier id = Identifier.create(handle.schemaName(), handle.tableName());
         Table fresh;
         try {

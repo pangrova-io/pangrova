@@ -161,9 +161,14 @@ decoded at its original boundary.
 Paimon output handle version 5 binds a distinct SDK staging allocation. The
 handle preserves the catalog's data and changelog filename prefixes with an
 allocation-specific suffix. Each INSERT, OVERWRITE, DELETE, and CDC SDK
-sink uses those exact names from its dispatched handle. Physical deletion
-also requires a durable absence decision, writer exit evidence, and an exact
-object set.
+sink uses those exact names from its dispatched handle. The versioned fragment
+header carries the allocation UUID and table name, which the coordinator
+validates before decoding the SDK messages. The fragment also records the URI
+and byte length of each reported allocated file that the SDK resolved under
+the original table root. Recovery can validate the recorded objects against
+the allocation and SDK messages without opening the table. Physical deletion
+still requires a durable absence decision, writer exit evidence, and
+authority to delete the exact object set.
 
 ### Problem Statement
 

@@ -5,6 +5,7 @@ import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.enums.CommitEventType;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.paimon.write.PaimonSdkWriteFragment;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.io.DataFileMeta;
@@ -15,13 +16,10 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.InnerTableCommit;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageImpl;
-import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.utils.SnapshotManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -73,17 +71,21 @@ final class PaimonDistributedWriteFinisher {
             List<byte[]> fragments, PaimonOutputTableHandle handle) {
         List<CommitMessage> allMessages = new ArrayList<>();
         CommitEventType eventType = null;
-        CommitMessageSerializer serializer = new CommitMessageSerializer();
         for (byte[] fragment : fragments) {
             if (fragment == null || fragment.length == 0) {
                 continue;
             }
-            CommitEventType fragmentEvent = readFragment(
-                    fragment, serializer, allMessages, handle);
-            if (eventType != null && eventType != fragmentEvent) {
-                throw invalidFragment("Mixed Paimon write operations in one commit");
+            try {
+                var decoded = PaimonSdkWriteFragment.decode(fragment, handle);
+                if (eventType != null && eventType != decoded.eventType()) {
+                    throw invalidFragment("Mixed Paimon write operations in one commit");
+                }
+                eventType = decoded.eventType();
+                allMessages.addAll(decoded.messages());
+            } catch (IOException | IllegalArgumentException e) {
+                throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                        "Failed to deserialize Paimon commit messages", e);
             }
-            eventType = fragmentEvent;
         }
         if (eventType == null) {
             throw invalidFragment("Paimon distributed commit has no typed fragments");
@@ -106,45 +108,6 @@ final class PaimonDistributedWriteFinisher {
             case "MERGE" -> CommitEventType.MERGE;
             default -> throw invalidFragment("Unsupported Paimon write mode");
         };
-    }
-
-    private static CommitEventType readFragment(byte[] fragment, CommitMessageSerializer serializer,
-                                                List<CommitMessage> allMessages,
-                                                PaimonOutputTableHandle handle) {
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(fragment))) {
-            int version = in.readInt();
-            String operation = in.readUTF();
-            String schema = in.readUTF();
-            String table = in.readUTF();
-            if (!handle.schemaName().equals(schema) || !handle.tableName().equals(table)) {
-                throw invalidFragment("Paimon fragment target differs from the bound table");
-            }
-            readMessages(in, serializer, version, allMessages);
-            if (in.available() != 0) {
-                throw invalidFragment("Trailing bytes in Paimon commit fragment");
-            }
-            return CommitEventType.valueOf(operation);
-        } catch (IOException | IllegalArgumentException e) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Failed to deserialize Paimon commit messages", e);
-        }
-    }
-
-    private static void readMessages(DataInputStream in, CommitMessageSerializer serializer, int version,
-            List<CommitMessage> messages) throws IOException {
-        int count = in.readInt();
-        if (count < 0 || count > in.available() / Integer.BYTES) {
-            throw invalidFragment("Invalid Paimon commit message count");
-        }
-        for (int i = 0; i < count; i++) {
-            int length = in.readInt();
-            if (length < 0 || length > in.available()) {
-                throw invalidFragment("Invalid Paimon commit message length");
-            }
-            byte[] bytes = new byte[length];
-            in.readFully(bytes);
-            messages.add(serializer.deserialize(version, bytes));
-        }
     }
 
     private static ConnectorException invalidFragment(String detail) {
