@@ -670,6 +670,11 @@ After SIGKILL and restart, the new non-HA Coordinator must serve the same FINISH
 
 `JdbcQueryStateJournalIntegrationTest` and `QueryManagerDurableAcceptanceTest` cover durable idempotent acceptance with real PostgreSQL: one normal INSERT and zero readback, replay across journal instances, principal isolation, same-key fingerprint conflict without poisoning later writes, lost commit response reconciliation, active-query TTL protection, bounded expiry sweep, row-locked acceptance replacement, replay lineage suppression, retention through terminal cleanup, replay reservation release, rejected-candidate throttle cleanup, drain cleanup ordering, atomic candidate publication, and cancellation while owner acquisition is pending. A full two-Coordinator process failover suite remains part of B1 and is not replaced by these component tests.
 
+The GitHub Actions production image build and full regression run in separate
+hosted jobs. The regression restores the image from the same workflow run,
+verifies the archive digest, image ID and source label, and stages that
+image's JNI classifier before the full reactor and isolated owner suites.
+
 Run the same-source Linux image with the release properties `pangrova.e2e.image`, `pangrova.e2e.image-id` and `pangrova.e2e.local.source-commit`. The selected class is `CoordinatorRestartChaosTest`.
 
 For scenarios using a dedicated Docker network, `ContainerFaultInjector` implements `FaultInjector` with explicit partition, reconnect, process-kill and clock operations. A test owns its containers and restores its injected fault during cleanup.

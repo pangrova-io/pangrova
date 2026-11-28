@@ -370,10 +370,22 @@ class StructuralPolicyTest(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         production = workflow.split('  production-regression:\n', 1)[1].split(
             '\n  tpch-performance:', 1)[0]
+        image = workflow.split('  production-image:\n', 1)[1].split('\n  production-regression:', 1)[0]
         normalized = re.sub(r'\s+', ' ', production.replace('\\\n', ' '))
-        self.assertIn('IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA"', normalized)
-        self.assertIn('docker buildx bake --load', normalized)
-        self.assertIn('--set native-build.args.NATIVE_BUILD_JOBS=2', normalized)
+        self.assertIn('IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA"', image)
+        self.assertIn('docker buildx bake --load', image)
+        self.assertIn('--set native-build.args.NATIVE_BUILD_JOBS=2', image)
+        self.assertIn('docker image save "$PANGROVA_E2E_IMAGE"', image)
+        self.assertIn('if-no-files-found: error', image)
+        self.assertNotIn('docker buildx', production)
+        self.assertIn('docker image load --input', production)
+        self.assertIn('digest-mismatch: error', production)
+        self.assertIn('needs.production-image.outputs.artifact', production)
+        self.assertIn('needs.production-image.outputs.image-id', production)
+        self.assertIn('needs.production-image.outputs.image ', production)
+        self.assertIn('[[ "$image_id" != "$EXPECTED_IMAGE_ID" || "$revision" != "$GITHUB_SHA" ]]', production)
+        self.assertIn("needs.production-image.result == 'success'", production)
+        self.assertIn('org.opencontainers.image.revision', production)
         self.assertIn('docker image inspect --format', production)
         runtime_stage = (ROOT / 'deploy/docker/Dockerfile').read_text().rsplit('\nFROM ', 1)[1]
         self.assertIn('ARG SOURCE_COMMIT\n', runtime_stage)
@@ -481,17 +493,17 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('name: pinned-iceberg-sdk', producer)
         self.assertIn('if-no-files-found: error', producer)
         for name in ('native-build', 'native-sanitizers', 'java-build', 'static-analysis',
-                     'production-regression', 'jmh-benchmarks', 'validation'):
+                     'production-image', 'production-regression', 'jmh-benchmarks', 'validation'):
             with self.subTest(name=name):
                 self.assertIn('iceberg-sdk', re.search(r'^    needs: .*', jobs[name], re.MULTILINE)[0])
         restore = (ROOT / '.github/actions/restore-iceberg-sdk/action.yml').read_text()
         self.assertIn('name: pinned-iceberg-sdk', restore)
         self.assertIn('digest-mismatch: error', restore)
         self.assertIn('pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk',
-                      jobs['production-regression'])
+                      jobs['production-image'])
         self.assertIn('--allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk"',
-                      jobs['production-regression'])
-        self.assertNotIn('BUILDX_BAKE_ENTITLEMENTS_FS', jobs['production-regression'])
+                      jobs['production-image'])
+        self.assertNotIn('BUILDX_BAKE_ENTITLEMENTS_FS', jobs['production-image'])
         self.assertIn("needs.iceberg-sdk.result == 'success'", jobs['production-regression'])
 
     def test_hosted_maven_builds_use_one_checksum_enforced_central_mirror(self):
@@ -652,6 +664,7 @@ class RuntimeScopeTest(unittest.TestCase):
     def test_baseline_workflow_warms_the_same_layers(self):
         baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
         self.assertIn('schedule:', baseline)
+        self.assertIn('push:\n    branches: [main]\n    paths:', baseline)
         self.assertIn('pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
         self.assertIn('pangrova-v1-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
         linux, macos = baseline.split('  warm-macos:\n', 1)
@@ -793,7 +806,7 @@ class WorkflowPolicyTest(unittest.TestCase):
         jobs = {name: {'result': 'success'} for name in
                 ['change-scope', 'lint', 'doc-consistency', 'dead-stub-detection',
                  'iceberg-sdk', 'static-analysis', 'native-build', 'java-build', 'native-sanitizers',
-                 'production-regression', 'tpch-performance', 'jmh-benchmarks']}
+                 'production-image', 'production-regression', 'tpch-performance', 'jmh-benchmarks']}
         jobs['change-scope']['outputs'] = {'runtime': runtime, 'performance': performance,
                                          'native': runtime if native is None else native}
         for name, result in (overrides or {}).items():
@@ -804,12 +817,14 @@ class WorkflowPolicyTest(unittest.TestCase):
 
     def test_docs_can_skip_only_unselected_checks(self):
         result = self.result(overrides={'iceberg-sdk': 'skipped', 'native-build': 'skipped',
-                                       'java-build': 'skipped', 'production-regression': 'skipped'})
+                                       'java-build': 'skipped', 'production-image': 'skipped',
+                                       'production-regression': 'skipped'})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotEqual(self.result(overrides={'lint': 'skipped'}).returncode, 0)
 
     def test_selected_checks_cannot_fail_cancel_or_disappear(self):
-        for name in ['iceberg-sdk', 'native-build', 'java-build', 'native-sanitizers', 'production-regression']:
+        for name in ['iceberg-sdk', 'native-build', 'java-build', 'native-sanitizers',
+                     'production-image', 'production-regression']:
             for outcome in ['failure', 'cancelled', 'skipped']:
                 with self.subTest(name=name, outcome=outcome):
                     self.assertNotEqual(self.result(runtime='true', overrides={name: outcome}).returncode, 0)

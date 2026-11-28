@@ -290,7 +290,8 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   install options change. Keys never fall back to another image, compiler
   configuration or pre-patch dependency tree.
 - `.github/workflows/native-deps-baseline.yml` warms the layered keys weekly
-  and when the dependency lock changes. Each Linux warm job can publish
+  and when the dependency lock changes on main. The warm-up can also be
+  dispatched manually. Each Linux warm job can publish
   its installed `~/.pangrova/native-deps` prefix as an OCI image to GHCR
   when the repository variable
   `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
