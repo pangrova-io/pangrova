@@ -21,6 +21,9 @@ public final class SqlProcessComparison {
     private static final String JOURNAL_SELECT = "SELECT%FROM query_state_journal%";
     private static final String JOURNAL_INSERT = "%INSERT INTO query_state_journal%";
     private static final String CATALOG_SELECT = "SELECT%FROM catalog_definitions%";
+    private static final String ATOMIC_QUERY_RETIREMENT =
+            "WITH owner(execution_id,%FROM removed%DELETE FROM task_state_journal j USING removed r%"
+                    + "DELETE FROM query_state_journal q USING removed r%";
 
     public static void main(String[] arguments) throws Exception {
         int warmup = Integer.parseInt(arguments[0]);
@@ -45,7 +48,8 @@ public final class SqlProcessComparison {
                     + "read_stats_tasks,native_requested_bytes,native_returned_bytes,native_payload_calls,"
                     + "native_metadata_calls,native_failed_read_calls,s3_sdk_attempts,s3_sdk_retries,"
                     + "s3_response_body_bytes,flight_payload_batches,flight_first_payload_ns,flight_producer_eof_ns,"
-                    + "flight_transport_complete_ns,journal_select_calls,journal_insert_calls,catalog_select_calls");
+                    + "flight_transport_complete_ns,journal_select_calls,journal_insert_calls,catalog_select_calls,"
+                    + "atomic_query_retirements");
             for (int i = -warmup; i < iterations; i++) {
                 for (int offset = 0; offset < 2; offset++) {
                     int index = Math.floorMod(i + offset, 2);
@@ -166,15 +170,23 @@ public final class SqlProcessComparison {
                 delivery.getProducerEofNanos(), delivery.getTransportCompleteNanos());
     }
 
-    private record DatabaseCounts(long journalSelects, long journalInserts, long catalogSelects) {
+    private record DatabaseCounts(long journalSelects, long journalInserts, long catalogSelects,
+            long atomicQueryRetirements) {
         static DatabaseCounts read(IndependentLocalProcesses processes) throws java.sql.SQLException {
             return new DatabaseCounts(processes.metadataStatementCalls(JOURNAL_SELECT),
-                    processes.metadataStatementCalls(JOURNAL_INSERT), processes.metadataStatementCalls(CATALOG_SELECT));
+                    processes.metadataStatementCalls(JOURNAL_INSERT), processes.metadataStatementCalls(CATALOG_SELECT),
+                    processes.metadataStatementCalls(ATOMIC_QUERY_RETIREMENT));
         }
 
         String deltaFrom(DatabaseCounts before) {
-            return String.format(Locale.ROOT, "%d,%d,%d", journalSelects - before.journalSelects,
-                    journalInserts - before.journalInserts, catalogSelects - before.catalogSelects);
+            long reads = journalSelects - before.journalSelects;
+            long retirements = atomicQueryRetirements - before.atomicQueryRetirements;
+            if (reads != 0 || retirements != 1) {
+                throw new AssertionError("Expected zero journal reads and one atomic retirement, observed reads="
+                        + reads + " retirements=" + retirements);
+            }
+            return String.format(Locale.ROOT, "%d,%d,%d,%d", reads,
+                    journalInserts - before.journalInserts, catalogSelects - before.catalogSelects, retirements);
         }
     }
 
