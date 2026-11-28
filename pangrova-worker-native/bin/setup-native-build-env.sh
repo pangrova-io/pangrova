@@ -912,6 +912,8 @@ build_arrow_flight() {
   local arrow_platform_args=()
   if [[ "$OS" == "Darwin" ]]; then
     [[ -n "$OPENSSL_PREFIX" ]] && arrow_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    # Use Arrow's checksummed codec source so its static archive and headers share a prefix.
+    arrow_platform_args+=("-Dzstd_SOURCE=BUNDLED")
     arrow_platform_args+=("-DCMAKE_C_VISIBILITY_PRESET=default" "-DCMAKE_CXX_VISIBILITY_PRESET=default"
       "-DCMAKE_VISIBILITY_INLINES_HIDDEN=OFF")
     arrow_platform_args+=("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-unexported_symbols_list,\"$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../arrow_unexported_symbols_macos.list\"")

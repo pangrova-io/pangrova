@@ -82,6 +82,9 @@ writers produce one immutable manifest and that a store which ignores
 conditional creates fails before publishing. Each test removes its temporary
 dataset when it exits.
 
+On macOS, the canonical Arrow Flight build uses Arrow's checksummed Zstandard
+source so its codec headers and static archive come from the same build.
+
 The daily Java jobs and production regression restore the Lance fixture tool
 from the same workflow run's Linux x86-64 Native build. The other architectures
 and sanitizers validate in parallel. The final CI gate requires every selected
