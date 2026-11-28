@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query.task.report;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
+import org.pangrova.protocol.task.CanonicalExecutionDrainReports;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.ArtifactFreshnessReport;
@@ -63,7 +63,7 @@ public final class CanonicalTaskReportValidator {
         }
         validateAttempt(status, report, expectedRequest);
         validateState(status, report);
-        validateOrigin(status);
+        CanonicalExecutionDrainReports.validateOrigin(status);
         validateCoverage(status, expectedRequest);
         validateTaskUsage(status, expectedRequest);
         validateNativeObjectReads(status);
@@ -71,16 +71,6 @@ public final class CanonicalTaskReportValidator {
         GenerationTaskReportValidator.validate(status, report, expectedRequest);
         PhysicalWriteTaskReportValidator.validate(status, report, expectedRequest);
         return Optional.of(status);
-    }
-
-    /** Execution-owner receipt only: does not commit artifacts, elect winners or notify the DAG. */
-    public TaskReport validateExecutionDrainReceipt(byte[] encoded, TaskAttemptId expected) {
-        if (encoded == null || encoded.length == 0 || encoded.length > MAX_STATUS_BYTES) {
-            throw invalid("Execution drain receipt exceeds the canonical control envelope");
-        }
-        TaskReport status = parse(encoded);
-        CanonicalExecutionDrainReports.validateReceipt(status, expected);
-        return status;
     }
 
     private static void validateBuildKeys(TaskReport status, SubmitTaskRequest request) {
@@ -115,18 +105,6 @@ public final class CanonicalTaskReportValidator {
                     throw invalid("Native build key ranges are not sorted and separated");
                 }
             }
-        }
-    }
-
-    private static TaskReport parse(byte[] encoded) {
-        try {
-            TaskReport status = TaskReport.parseFrom(encoded);
-            if (!status.hasAttempt()) {
-                throw invalid("Native status is missing its fenced attempt identity");
-            }
-            return status;
-        } catch (InvalidProtocolBufferException e) {
-            throw new IllegalArgumentException("Malformed canonical Native TaskReport", e);
         }
     }
 
@@ -216,10 +194,6 @@ public final class CanonicalTaskReportValidator {
         if (expected == TaskState.TASK_STATE_FINISHED && status.hasError()) {
             throw invalid("finished Native status contains an error");
         }
-    }
-
-    private static void validateOrigin(TaskReport status) {
-        CanonicalExecutionDrainReports.validateOrigin(status);
     }
 
     static void validateCoverage(

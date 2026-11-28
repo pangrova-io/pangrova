@@ -17,7 +17,7 @@ import org.pangrova.protocol.rest.task.InjectDynamicFilterRequest;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
+import org.pangrova.protocol.task.CanonicalExecutionDrainReports;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,7 +26,6 @@ import org.slf4j.LoggerFactory;
 final class WorkerTaskControlClient {
     private static final int HTTP_TIMEOUT_SECONDS = 30;
     private static final Duration RECOVERY_TIMEOUT = Duration.ofSeconds(3);
-    private static final CanonicalTaskReportValidator REPORTS = new CanonicalTaskReportValidator();
 
     private static final Logger LOG = LoggerFactory.getLogger(
             WorkerTaskControlClient.class);
@@ -250,7 +249,7 @@ final class WorkerTaskControlClient {
                     "Worker did not return a canonical drain receipt media type", false);
             }
             try {
-                var actual = REPORTS.validateExecutionDrainReceipt(response.body(), issued);
+                var actual = CanonicalExecutionDrainReports.decode(response.body(), issued);
                 return SchedulerCancelResult.drained(actual);
             } catch (IllegalArgumentException malformed) {
                 return SchedulerCancelResult.failed(

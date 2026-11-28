@@ -204,6 +204,8 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 
 新 MAINTENANCE 批次使用执行租约申请事务的回执，移除申请前的存在性点查。独立进程与真实 PostgreSQL 核对单批执行租约点查由五次降至四次，流版本点查为四次。真实租约测试验证新申请遇到当前存续租约时不签发第二份租约，恢复可复用原令牌，接管则取得更高令牌。Kafka 范围执行在注入失败后仍以原范围重放并确认精确 offset。
 
+Coordinator 模块全套验证暴露了 Worker 控制客户端对查询报告校验器的反向依赖。Protocol 现在从原始响应解码一次并核对带 fence 的精确尝试。普通终态报告复用同一套来源和排空状态规则。原架构门禁通过，25 项协议和 descriptor 测试、81 项 Coordinator 和 Worker 控制回归及静态检查通过。重新打包核对原 Coordinator 位置已移除旧类，Protocol 包包含解码器。
+
 真实 PostgreSQL 认领同一批八个持久分片时，旧放置将一个 128 MiB 和七个 1 MiB 扫描范围都交给静态评分更高的 Worker。候选把大分片留在该 Worker，七个小分片交给另一个内存合格的 Worker。窗口仍只读取一次执行权威。下一窗口观察到本地已绑定任务，未进传输的任务回滚后归还计数。62 项调度、认领和排空测试及静态检查通过。独立双 Native Worker 的 GROUP BY 与全外连接核对了结果和物理排空，Lance 持久化导出核对了精确快照、行策略及发布数据。双 Worker 运行包 SHA-256 清单为 `13f8e7027eb5c1188548baaa80da45b09e5d7b0db6a306f40b4b68738622a243`。
 
 独立进程与真实 PostgreSQL 的 CDC 对照中，MAINTENANCE 每批的完整流定义点查从四次降为三次，执行租约点查仍为四次。offset 确认实测一条包含流版本锁的批量推进语句，独立版本锁语句为零。阻塞确认的暂停事务提交后，确认按最新版本拒绝，多分区确认失败时原值全部保留。CDC 持久层 94 项测试、2 项 Coordinator DDL 集成测试和 Checkstyle、SpotBugs 通过。3 项打包端到端用例通过，覆盖真实 Kafka、COMBINED Worker HTTP、MAINTENANCE 接管和 Paimon、Iceberg 发布与 offset 故障。角色包 SHA-256 清单为 `ea9894a0f84ab969fa71b66a52bcad5341f33fc1b0c9396ceb1b1dc5994620f2`。

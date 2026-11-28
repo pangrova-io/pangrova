@@ -1007,7 +1007,10 @@ acknowledged separately from physical release.
 
 The authenticated status route accepts up to 8 MiB including write fragments.
 Canonical terminal evidence is bounded to 4 MiB. Other Coordinator task and
-public routes retain their configured request limit.
+public routes retain their configured request limit. The Worker control client
+decodes its bounded drain response in the protocol layer and validates the
+exact issued attempt before the Coordinator uses the receipt. Ordinary status
+reports share the same origin and drain-state checks.
 
 The Worker completion monitor reads a scalar Native lifecycle state through JNI.
 Its in-progress wait wakes on terminal publication and has a 50 ms timeout for

@@ -1,5 +1,7 @@
-package org.pangrova.coordinator.query.task.report;
+package org.pangrova.protocol.task;
 
+import com.google.protobuf.InvalidProtocolBufferException;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
@@ -7,10 +9,28 @@ import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
 
 /** Validation shared by ordinary canonical reports and the exact admission-seal control response. */
-final class CanonicalExecutionDrainReports {
+public final class CanonicalExecutionDrainReports {
     private CanonicalExecutionDrainReports() {}
 
-    static void validateOrigin(TaskReport status) {
+    /** Decodes one bounded HTTP control response and validates its exact issued authority. */
+    public static TaskReport decode(byte[] encoded, TaskAttemptId expected) {
+        if (encoded == null || encoded.length == 0 || encoded.length > TaskStatusReport.MAX_CANONICAL_BYTES) {
+            throw invalid("Execution drain receipt exceeds the canonical control envelope");
+        }
+        try {
+            TaskReport status = TaskReport.parseFrom(encoded);
+            if (!status.hasAttempt()) {
+                throw invalid("Native status is missing its fenced attempt identity");
+            }
+            validateReceipt(status, expected);
+            return status;
+        } catch (InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException("Malformed canonical Native TaskReport", e);
+        }
+    }
+
+    /** Checks execution origin and drain state for ordinary terminal reports and compact receipts. */
+    public static void validateOrigin(TaskReport status) {
         switch (status.getReportOrigin()) {
             case TASK_REPORT_ORIGIN_NATIVE -> { }
             case TASK_REPORT_ORIGIN_WORKER_RECONCILED -> {
@@ -63,7 +83,7 @@ final class CanonicalExecutionDrainReports {
         }
     }
 
-    static void validateReceipt(TaskReport status, TaskAttemptId expected) {
+    private static void validateReceipt(TaskReport status, TaskAttemptId expected) {
         if (expected == null || !status.getUnknownFields().asMap().isEmpty()
                 || !status.getAttempt().equals(expected)
                 || status.getExecutionDrainState() == ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED
