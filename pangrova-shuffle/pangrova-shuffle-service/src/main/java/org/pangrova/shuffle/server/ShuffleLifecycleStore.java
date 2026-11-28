@@ -75,6 +75,9 @@ interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
 /** Durable cleanup claim, paging, lease-renewal, and completion boundary. */
 interface ShuffleCleanupStore {
 
+    /** Settles expired manifest PUTs whose unique object keys are visible before deletion. */
+    void settleVisibleManifestWrites(String shuffleId, List<String> keys);
+
     /** Claims one durable prefix tombstone for a bounded compensation sweep. */
     Optional<String> claimUncertainSweep(String owner, long leaseMillis);
 
@@ -153,7 +156,7 @@ final class ShuffleCleanupCoordinator {
             String after = null;
             do {
                 store.renewUncertainSweep(id, owner, LEASE_MILLIS);
-                after = objects.deletePrefixPage(id + "/", after, PAGE_SIZE);
+                after = deleteObjectPage(id, after, true);
             } while (after != null);
             store.completeUncertainSweep(id, owner, UNCERTAIN_SWEEP_INTERVAL_MILLIS);
             swept++;
@@ -184,9 +187,21 @@ final class ShuffleCleanupCoordinator {
         String objectAfter = null;
         do {
             store.renewCleanup(plan, lease(plan.leaseOwner()));
-            objectAfter = objects.deletePrefixPage(
-                    shuffleId + "/", objectAfter, PAGE_SIZE);
+            objectAfter = deleteObjectPage(shuffleId, objectAfter, plan.recoverWrites());
         } while (objectAfter != null);
+    }
+
+    private String deleteObjectPage(String shuffleId, String after, boolean recoverWrites) {
+        var page = objects.listPrefixPage(shuffleId + "/", after, PAGE_SIZE);
+        if (recoverWrites) {
+            String nodePrefix = ShufflePartitionManifest.nodePrefix(shuffleId);
+            List<String> manifestKeys = page.keys().stream().filter(key -> key.startsWith(nodePrefix)).toList();
+            if (!manifestKeys.isEmpty()) {
+                store.settleVisibleManifestWrites(shuffleId, manifestKeys);
+            }
+        }
+        objects.delete(page.keys());
+        return page.next();
     }
 
     private CleanupLease lease(String owner) {

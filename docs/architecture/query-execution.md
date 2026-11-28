@@ -1541,11 +1541,17 @@ Coordinator checks the binding before discarding its tracked query state. Cleanu
 never aggregates the batch manifest for its control response. The response marks
 a durable handoff when an expired uncertain upload still requires prefix sweeps.
 Expired producer windows and manifest PUTs retain their exact reservation IDs
-after scope removal. Once every reservation is settled by its writer, the next
-sweep claim records that all writers had settled before the object listing
-began. Successful completion under that same lease retires the sweep schedule
-and preserves the allocation identity fence. A reservation with an unknown
-outcome keeps its prefix eligible for subsequent sweeps.
+after scope removal. Each external manifest node includes an independent write
+identity in its hashed contents. A cleanup page that lists the exact node key
+can settle that PUT even if the writer exited before acknowledging it. Cleanup
+commits all matching reservations in the page before deleting any listed
+object. Healthy writes and cleanup without expired reservations keep their
+existing database round trips, and observation needs no per-object HEAD.
+Once every reservation is settled, the next sweep claim records that all writes
+had settled before the object listing began. Completion under that lease retires
+the sweep schedule and preserves the allocation identity fence. An absent
+manifest key or a producer window with an unknown outcome keeps its prefix
+eligible for subsequent sweeps.
 
 The Shuffle service selects an expired cleanup scope under a row lock and carries
 its previous lease deadline into the recovery claim. The claim still checks active

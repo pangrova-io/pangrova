@@ -447,6 +447,11 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
+    public void settleVisibleManifestWrites(String shuffleId, List<String> keys) {
+        transitions.settleVisibleManifestWrites(shuffleId, keys);
+    }
+
+    @Override
     public Optional<String> claimUncertainSweep(String owner, long leaseMillis) {
         return transitions.claimUncertainSweep(owner, leaseMillis);
     }

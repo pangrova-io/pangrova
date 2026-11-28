@@ -183,7 +183,7 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
     }
 
     @Override
-    public String deletePrefixPage(String keyPrefix, String after, int limit) {
+    public ObjectPage listPrefixPage(String keyPrefix, String after, int limit) {
         if (limit <= 0 || limit > MAX_DELETE_OBJECTS) {
             throw new IllegalArgumentException("object cleanup page limit is invalid");
         }
@@ -200,8 +200,7 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
                 || keys.stream().anyMatch(key -> !key.startsWith(keyPrefix))) {
             throw new IllegalStateException("Object storage returned an invalid shuffle cleanup page");
         }
-        delete(keys);
-        return truncated ? keys.get(keys.size() - 1) : null;
+        return new ObjectPage(keys, truncated ? keys.get(keys.size() - 1) : null);
     }
 
     @Override

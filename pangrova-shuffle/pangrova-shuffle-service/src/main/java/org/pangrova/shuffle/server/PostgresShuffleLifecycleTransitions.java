@@ -87,7 +87,7 @@ final class PostgresShuffleLifecycleTransitions {
             }
             long winnerVersion = current.metadataVersion();
             if (current.state() == ShuffleAllocationState.FINALIZED) {
-                // A concurrent publication of exactly this version produced the same content-addressed nodes.
+                // A concurrent publication of this winner set already advanced the metadata version.
                 winnerVersion--;
             } else {
                 PostgresShuffleRecords.requireRegistered(current);
@@ -121,6 +121,28 @@ final class PostgresShuffleLifecycleTransitions {
         }
     }
 
+    void settleVisibleManifestWrites(String shuffleId, List<String> keys) {
+        transaction(dataSource, connection -> {
+            // The tombstone proves admission is sealed. Commit the observation before destroying it.
+            String sql = """
+                    DELETE FROM shuffle_write_intent i
+                    WHERE i.shuffle_id = ? AND i.object_key = ANY (?)
+                      AND EXISTS (
+                          SELECT 1 FROM shuffle_uncertain_write_tombstone t WHERE t.shuffle_id = i.shuffle_id
+                      )
+                    """;
+            var objectKeys = connection.createArrayOf("varchar", keys.toArray(String[]::new));
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, shuffleId);
+                statement.setArray(2, objectKeys);
+                statement.executeUpdate();
+            } finally {
+                objectKeys.free();
+            }
+            return null;
+        });
+    }
+
     CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease) {
         String queryId = command.queryId();
         CleanupAdmission admission = transaction(dataSource, connection -> {
@@ -131,17 +153,17 @@ final class PostgresShuffleLifecycleTransitions {
                         connection, command), null);
             }
             PostgresShuffleStore.adoptOwnerIfFenced(connection, queryId, scope.owner(), command.owner());
-            String pendingReason = pendingCleanupIo(connection, queryId);
-            if (pendingReason != null) {
+            CleanupIo io = cleanupIo(connection, queryId);
+            if (io.pendingReason() != null) {
                 PostgresShuffleRecords.sealCleanupAdmission(connection, command, null);
-                return new CleanupAdmission(null, pendingReason);
+                return new CleanupAdmission(null, io.pendingReason());
             }
             if ("ACTIVE".equals(scope.state())) {
                 PostgresShuffleRecords.sealCleanupAdmission(connection, command, lease);
             } else {
                 claimSealedCleanup(connection, queryId, scope.cleanupLeaseExpiresAtMs(), lease);
             }
-            return new CleanupAdmission(new CleanupPlan(queryId, lease.owner()), null);
+            return new CleanupAdmission(new CleanupPlan(queryId, lease.owner(), io.recoverWrites()), null);
         });
         // Preserve the committed admission seal even when existing I/O delays deletion.
         if (admission.pendingReason() != null) throw new IllegalStateException(admission.pendingReason());
@@ -155,9 +177,10 @@ final class PostgresShuffleLifecycleTransitions {
             var scope = lockExpiredCleanupScope(connection, lease.nowMs());
             if (scope == null) return Optional.empty();
             String queryId = scope.queryId();
-            if (pendingCleanupIo(connection, queryId) != null) return Optional.empty();
+            CleanupIo io = cleanupIo(connection, queryId);
+            if (io.pendingReason() != null) return Optional.empty();
             claimSealedCleanup(connection, queryId, scope.leaseExpiresAtMs(), lease);
-            return Optional.of(new CleanupPlan(queryId, lease.owner()));
+            return Optional.of(new CleanupPlan(queryId, lease.owner(), io.recoverWrites()));
         });
     }
 
@@ -228,7 +251,9 @@ final class PostgresShuffleLifecycleTransitions {
         return transaction(dataSource, connection -> PostgresShuffleRecords.completeCleanup(connection, plan));
     }
 
-    private static String pendingCleanupIo(Connection connection, String queryId) throws SQLException {
+    private record CleanupIo(String pendingReason, boolean recoverWrites) {}
+
+    private static CleanupIo cleanupIo(Connection connection, String queryId) throws SQLException {
         // The scope lock excludes new read pins and write grants. One cutoff classifies
         // both existing I/O and the reservations that need late-write compensation.
         String sql = """
@@ -250,14 +275,15 @@ final class PostgresShuffleLifecycleTransitions {
                 )
                 SELECT CASE WHEN EXISTS (SELECT 1 FROM readers) THEN 'shuffle reads are still in progress'
                             WHEN EXISTS (SELECT 1 FROM reservations WHERE protected)
-                            THEN 'shuffle writes are still in progress' END
+                            THEN 'shuffle writes are still in progress' END,
+                       EXISTS (SELECT 1 FROM reservations)
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, queryId);
             statement.setString(2, queryId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
-                return row.getString(1);
+                return new CleanupIo(row.getString(1), row.getBoolean(2));
             }
         }
     }

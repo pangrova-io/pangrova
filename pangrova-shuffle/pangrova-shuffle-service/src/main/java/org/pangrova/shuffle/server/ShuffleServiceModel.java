@@ -233,7 +233,7 @@ final class ShuffleServiceModel {
 
     sealed interface CleanupStart permits CleanupPlan, CleanupReceipt {}
 
-    record CleanupPlan(String queryId, String leaseOwner) implements CleanupStart {
+    record CleanupPlan(String queryId, String leaseOwner, boolean recoverWrites) implements CleanupStart {
         CleanupPlan {
             if (queryId == null || queryId.isBlank() || leaseOwner == null || leaseOwner.isBlank()) {
                 throw new IllegalArgumentException("cleanup plan is invalid");

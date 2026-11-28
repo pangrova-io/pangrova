@@ -36,6 +36,8 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
@@ -374,7 +376,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     .setAccessCapability(cleanup.getAccessCapability()).build());
             assertThat(shuffleStatementDelta(beforeCleanup).keySet())
                     .as("the object store lists and deletes payloads and manifests without a batch inventory scan")
-                    .noneMatch(sql -> sql.contains("shuffle_batch"));
+                    .noneMatch(sql -> sql.contains("shuffle_batch") || sql.contains("i.object_key = ANY"));
             assertThat(client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET)
                     .prefix("integration/" + shuffle + "/").build()).contents()).isEmpty();
         }
@@ -394,11 +396,15 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             String other = prefix + "-other/0/part/0";
             client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("integration/" + other).build(), payload);
 
-            String first = storage.deletePrefixPage(prefix + "/", null, 2);
-            assertThat(first).isEqualTo(prefix + "/0/part/1");
-            String second = storage.deletePrefixPage(prefix + "/", first, 2);
-            assertThat(second).isEqualTo(prefix + "/manifest/a");
-            assertThat(storage.deletePrefixPage(prefix + "/", second, 2)).isNull();
+            var first = storage.listPrefixPage(prefix + "/", null, 2);
+            assertThat(first.next()).isEqualTo(prefix + "/0/part/1");
+            storage.delete(first.keys());
+            var second = storage.listPrefixPage(prefix + "/", first.next(), 2);
+            assertThat(second.next()).isEqualTo(prefix + "/manifest/a");
+            storage.delete(second.keys());
+            var last = storage.listPrefixPage(prefix + "/", second.next(), 2);
+            assertThat(last.next()).isNull();
+            storage.delete(last.keys());
             assertThat(client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET)
                     .prefix("integration/" + prefix).build()).contents())
                     .singleElement().satisfies(object -> assertThat(object.key()).isEqualTo("integration/" + other));
@@ -1402,6 +1408,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         }
         makeUncertainSweepDue(shuffleId);
         assertThat(restarted.engine.sweepUncertainWritePrefixes(1)).isEqualTo(1);
+        assertThat(writeReservations(shuffleId))
+                .as("the listed exact manifest settles, while a producer window still has an unknown outcome")
+                .isOne();
         try (S3Client client = s3Client()) {
             assertThat(client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET)
                     .prefix("integration/" + shuffleId + "/").build()).contents()).isEmpty();
@@ -1446,7 +1455,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(store.claimUncertainSweep(sweeper, 300_000)).contains(shuffleId);
             assertShuffleStatementCount(beforeClaim, 1);
             var objectStorage = S3ShuffleObjectStorage.testing(client, BUCKET, "integration");
-            assertThat(objectStorage.deletePrefixPage(shuffleId + "/", null, 100)).isNull();
+            var page = objectStorage.listPrefixPage(shuffleId + "/", null, 100);
+            assertThat(page.next()).isNull();
+            assertThat(page.keys()).isEmpty();
             String batchKey = new BatchIdentity(shuffleId, 0, producer.getAttemptId(), 0, 0).objectKey();
             for (String key : List.of(batchKey, manifestKey)) {
                 client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("integration/" + key).build(),
@@ -1476,6 +1487,47 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             seedAnchor(nextQuery, owner());
             assertThatThrownBy(() -> store.register(registerCommand(nextQuery, shuffleId, 1, 10_000)))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("remains fenced");
+        } finally {
+            deleteTombstone(shuffleId);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void visibleManifestWriteSettlesWithoutTheWriterAcknowledgement(boolean beforeScopeRemoval) throws Exception {
+        String queryId = "visible-manifest-" + UUID.randomUUID();
+        String shuffleId = "shuffle-" + queryId;
+        byte[] content = queryId.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] digest = ShuffleChecksums.sha256(content);
+        String key = ShufflePartitionManifest.objectKey(shuffleId, digest);
+        seedAnchor(queryId, owner());
+        try (var engine = openHarness().engine;
+                var store = PostgresShuffleStore.create(config().database());
+                var client = s3Client()) {
+            var registered = engine.register(registration().toBuilder()
+                    .setQueryId(queryId).setShuffleId(shuffleId)
+                    .setExpectedProducerSetChecksum(ShuffleChecksums.protocol(
+                            ShuffleProducerSetChecksum.forContiguousPartitions(queryId, 1, 2, 1))).build());
+            store.beginManifestWrite(store.findAllocation(shuffleId).orElseThrow(), key, 300_000);
+            expireWriteReservations(shuffleId, 1);
+            var objects = S3ShuffleObjectStorage.testing(client, BUCKET, "integration");
+            if (beforeScopeRemoval) {
+                objects.putImmutable(key, () -> new java.io.ByteArrayInputStream(content), content.length, digest);
+            }
+            var receipt = engine.cleanup(CleanupRequest.newBuilder().setQueryId(queryId)
+                    .setExecutionOwner(owner()).setAccessCapability(registered.getCleanupCapability()).build());
+            assertThat(receipt.getUncertainWriteHandoff()).isTrue();
+            if (!beforeScopeRemoval) {
+                assertThat(writeReservations(shuffleId)).isOne();
+                objects.putImmutable(key, () -> new java.io.ByteArrayInputStream(content), content.length, digest);
+                assertThat(engine.sweepUncertainWritePrefixes(1)).isOne();
+                makeUncertainSweepDue(shuffleId);
+            }
+            assertThat(writeReservations(shuffleId)).isZero();
+            assertThat(objects.listPrefixPage(shuffleId + "/", null, 10).keys()).isEmpty();
+            assertThat(isUncertainSweepScheduled(shuffleId)).isTrue();
+            assertThat(engine.sweepUncertainWritePrefixes(1)).isOne();
+            assertThat(isUncertainSweepScheduled(shuffleId)).isFalse();
         } finally {
             deleteTombstone(shuffleId);
         }

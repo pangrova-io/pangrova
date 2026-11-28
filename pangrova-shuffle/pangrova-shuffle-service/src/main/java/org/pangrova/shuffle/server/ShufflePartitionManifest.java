@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
@@ -28,11 +29,16 @@ final class ShufflePartitionManifest {
     static final int FANOUT = 64;
     private static final int DIGEST_BYTES = 32;
     private static final int ENTRY_BYTES = 64;
+    private static final int NODE_ID_BYTES = 2 * Long.BYTES;
 
     private ShufflePartitionManifest() {}
 
     static String objectKey(String shuffleId, byte[] digest) {
-        return shuffleId + "/manifest/" + HexFormat.of().formatHex(digest) + ".bin";
+        return nodePrefix(shuffleId) + HexFormat.of().formatHex(digest) + ".bin";
+    }
+
+    static String nodePrefix(String shuffleId) {
+        return shuffleId + "/manifest/nodes/";
     }
 
     static int rootSize(long batches) {
@@ -137,7 +143,11 @@ final class ShufflePartitionManifest {
         }
 
         private byte[] store(ByteBuffer node) {
-            byte[] encoded = Arrays.copyOf(node.array(), node.position());
+            // A fresh ID makes each physical PUT independently observable during cleanup.
+            UUID nodeId = UUID.randomUUID();
+            byte[] encoded = ByteBuffer.allocate(NODE_ID_BYTES + node.position())
+                    .putLong(nodeId.getMostSignificantBits()).putLong(nodeId.getLeastSignificantBits())
+                    .put(node.array(), 0, node.position()).array();
             byte[] digest = ShuffleChecksums.sha256(encoded);
             objects.put(digest, encoded);
             node.clear();
@@ -182,9 +192,11 @@ final class ShufflePartitionManifest {
             if (start == batches) {
                 return List.of();
             }
-            ByteBuffer leaf = ByteBuffer.wrap(findLeaf(start, objects, requireAuthority));
+            byte[] encoded = findLeaf(start, objects, requireAuthority);
+            int payloadOffset = batches > INLINE_BATCHES ? NODE_ID_BYTES : 0;
+            ByteBuffer leaf = ByteBuffer.wrap(encoded);
             int firstEntry = (int) (start % BATCHES_PER_PAGE);
-            leaf.position(firstEntry * ENTRY_BYTES);
+            leaf.position(payloadOffset + firstEntry * ENTRY_BYTES);
             int entries = Math.min(BATCHES_PER_READ, leaf.remaining() / ENTRY_BYTES);
             List<ReadBatch> result = new ArrayList<>(entries);
             for (int index = 0; index < entries; index++) {
@@ -200,8 +212,8 @@ final class ShufflePartitionManifest {
             int reservation = root.length
                     + 2 * Math.toIntExact(Math.min(BATCHES_PER_READ, batches)) * DECODED_ENTRY_BYTES;
             if (batches > INLINE_BATCHES) {
-                reservation += 2 * ENTRY_BYTES * Math.toIntExact(Math.min(BATCHES_PER_PAGE, batches));
-                reservation += 2 * (cachedNodes.length - 1) * FANOUT * DIGEST_BYTES;
+                reservation += 2 * (NODE_ID_BYTES + ENTRY_BYTES * Math.toIntExact(Math.min(BATCHES_PER_PAGE, batches)));
+                reservation += 2 * (cachedNodes.length - 1) * (NODE_ID_BYTES + FANOUT * DIGEST_BYTES);
             }
             return reservation;
         }
@@ -239,13 +251,15 @@ final class ShufflePartitionManifest {
 
         private byte[] load(byte[] directory, int child, int length, int depth,
                 NodeReader objects, Runnable requireAuthority) {
-            int index = child * DIGEST_BYTES;
+            int index = (depth == 0 ? 0 : NODE_ID_BYTES) + child * DIGEST_BYTES;
+            int encodedLength = Math.addExact(NODE_ID_BYTES, length);
             byte[] digest = Arrays.copyOfRange(directory, index, index + DIGEST_BYTES);
             byte[] cached = cachedNodes[depth];
-            if (cached == null || cached.length != length || !MessageDigest.isEqual(digest, cachedDigests[depth])) {
+            if (cached == null || cached.length != encodedLength
+                    || !MessageDigest.isEqual(digest, cachedDigests[depth])) {
                 requireAuthority.run();
-                byte[] data = objects.get(objectKey(shuffleId, digest), length);
-                if (data.length != length || !MessageDigest.isEqual(ShuffleChecksums.sha256(data), digest)) {
+                byte[] data = objects.get(objectKey(shuffleId, digest), encodedLength);
+                if (data.length != encodedLength || !MessageDigest.isEqual(ShuffleChecksums.sha256(data), digest)) {
                     throw corrupt("object page does not match its published digest");
                 }
                 requireAuthority.run();

@@ -75,6 +75,21 @@ class ShufflePartitionManifestTest {
     }
 
     @Test
+    void rebuildingTheSameLogicalPageAllocatesAnIndependentObjectKey() {
+        Map<String, byte[]> first = new HashMap<>();
+        var firstReader = build(first, INLINE_BATCHES + 1);
+        Map<String, byte[]> second = new HashMap<>();
+        var secondReader = build(second, INLINE_BATCHES + 1);
+        assertThat(first).hasSize(1);
+        assertThat(second).hasSize(1);
+        assertThat(first.keySet()).doesNotContainAnyElementsOf(second.keySet());
+        assertThat(firstReader.page(INLINE_BATCHES, (key, length) -> first.get(key), () -> {}))
+                .singleElement().satisfies(batch -> assertBatch(batch, INLINE_BATCHES));
+        assertThat(secondReader.page(INLINE_BATCHES, (key, length) -> second.get(key), () -> {}))
+                .singleElement().satisfies(batch -> assertBatch(batch, INLINE_BATCHES));
+    }
+
+    @Test
     void refusesToReturnBatchesFromACorruptObjectPage() {
         Map<String, byte[]> objects = new HashMap<>();
         var reader = build(objects, BATCHES_PER_PAGE + 1);
