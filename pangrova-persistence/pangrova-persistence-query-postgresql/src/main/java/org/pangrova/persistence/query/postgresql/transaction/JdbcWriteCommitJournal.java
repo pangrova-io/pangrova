@@ -137,14 +137,16 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     private static final String DELETE_ENTRY =
             "DELETE FROM write_commit_journal w WHERE w.query_id = ? AND " + RETIRABLE_WRITE;
 
-    private static final String INSERT_COPY_PUBLICATION =
-            "INSERT INTO copy_file_publications (claim_key, load_generation, claim_digest, "
-                    + "execution_id, tenant_id, table_uuid, commit_fingerprint, snapshot_id) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                    + "ON CONFLICT (claim_key, load_generation) DO NOTHING";
-    private static final String SELECT_COPY_PUBLICATION =
-            "SELECT claim_digest, execution_id, tenant_id, table_uuid, commit_fingerprint, snapshot_id "
-                    + "FROM copy_file_publications WHERE claim_key=? AND load_generation=?";
+    private static final String COPY_PUBLICATION_COLUMNS =
+            "claim_digest, execution_id, tenant_id, table_uuid, commit_fingerprint, snapshot_id";
+    private static final String SELECT_COPY_PUBLICATION = "SELECT " + COPY_PUBLICATION_COLUMNS
+            + " FROM copy_file_publications WHERE claim_key=? AND load_generation=?";
+    private static final String INSERT_COPY_PUBLICATION = "WITH existing AS MATERIALIZED (" + SELECT_COPY_PUBLICATION
+            + "), inserted AS ("
+            + "INSERT INTO copy_file_publications (claim_key, load_generation, " + COPY_PUBLICATION_COLUMNS + ") "
+            + "SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM existing) "
+            + "ON CONFLICT (claim_key, load_generation) DO NOTHING RETURNING " + COPY_PUBLICATION_COLUMNS
+            + ") SELECT * FROM inserted UNION ALL SELECT * FROM existing";
 
     private final DataSource dataSource;
 
@@ -275,16 +277,11 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             throw new IllegalArgumentException("COPY publication differs from its exact write intent");
         }
         try (Connection connection = dataSource.getConnection()) {
-            // The journal may have been purged after an earlier successful publication.
-            // A PostgreSQL BEFORE INSERT guard requires a live journal row, so replay
-            // must inspect the immutable publication before attempting another insert.
-            Optional<CopyFilePublication> recorded = readCopyPublication(connection, entry);
-            if (recorded.isPresent()) {
-                requireSamePublication(recorded.orElseThrow(), publication);
-                return;
-            }
+            // An existing immutable proof skips the INSERT trigger, even after redo retirement.
             try (PreparedStatement insert = connection.prepareStatement(INSERT_COPY_PUBLICATION)) {
                 int parameter = 1;
+                insert.setString(parameter++, publication.binding().fileKey());
+                insert.setLong(parameter++, publication.binding().loadGeneration());
                 insert.setString(parameter++, publication.binding().fileKey());
                 insert.setLong(parameter++, publication.binding().loadGeneration());
                 insert.setString(parameter++, publication.binding().claimDigest());
@@ -293,15 +290,19 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 insert.setObject(parameter++, UUID.fromString(publication.binding().tableUuid()));
                 insert.setString(parameter++, publication.commitFingerprint());
                 insert.setLong(parameter, publication.snapshotId());
-                if (insert.executeUpdate() == 1) {
-                    return;
+                try (ResultSet result = insert.executeQuery()) {
+                    if (result.next()) {
+                        requireSamePublication(copyPublicationFromRow(entry, result), publication);
+                        return;
+                    }
                 }
             }
+            // ON CONFLICT can detect a concurrent insert outside the first statement's snapshot.
             requireSamePublication(readCopyPublication(connection, entry).orElseThrow(() ->
                     new IllegalStateException("COPY publication disappeared during concurrent replay")), publication);
         } catch (SQLException failure) {
             // A concurrent winner may publish and retire the journal between our
-            // initial lookup and the guarded INSERT. Only its exact immutable
+            // initial snapshot and the guarded INSERT. Only its exact immutable
             // proof makes that SQL failure an idempotent success.
             Optional<CopyFilePublication> recorded = findCopyFilePublication(entry);
             if (recorded.isPresent()) {
@@ -335,18 +336,24 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 if (!result.next()) {
                     return Optional.empty();
                 }
-                if (!binding.claimDigest().equals(result.getString("claim_digest"))
-                        || !entry.queryId().equals(result.getString("execution_id"))
-                        || !entry.tenantId().equals(result.getString("tenant_id"))
-                        || !binding.tableUuid().equals(result.getObject("table_uuid", UUID.class).toString())
-                        || !entry.commitFingerprint().equals(result.getString("commit_fingerprint"))
-                        || result.getLong("snapshot_id") <= 0) {
-                    throw new IllegalStateException("COPY file publication conflicts with immutable intent");
-                }
-                return Optional.of(new CopyFilePublication(binding, entry.queryId(),
-                        entry.commitFingerprint(), result.getLong("snapshot_id")));
+                return Optional.of(copyPublicationFromRow(entry, result));
             }
         }
+    }
+
+    private static CopyFilePublication copyPublicationFromRow(WriteCommitEntry entry, ResultSet result)
+            throws SQLException {
+        CopyFileCommitBinding binding = entry.copyFile();
+        long snapshot = result.getLong("snapshot_id");
+        if (!binding.claimDigest().equals(result.getString("claim_digest"))
+                || !entry.queryId().equals(result.getString("execution_id"))
+                || !entry.tenantId().equals(result.getString("tenant_id"))
+                || !binding.tableUuid().equals(result.getObject("table_uuid", UUID.class).toString())
+                || !entry.commitFingerprint().equals(result.getString("commit_fingerprint"))
+                || snapshot <= 0) {
+            throw new IllegalStateException("COPY file publication conflicts with immutable intent");
+        }
+        return new CopyFilePublication(binding, entry.queryId(), entry.commitFingerprint(), snapshot);
     }
 
     private static void requireSamePublication(CopyFilePublication recorded, CopyFilePublication expected) {

@@ -147,7 +147,9 @@ A successful PostgreSQL journal insert uses the affected-row count as evidence
 inside the transaction. Duplicate event IDs trigger an exact readback, and
 query events with lineage still commit with their outbox rows. The coordinator
 uses one loaded COMMITTED write entry for recovery, COPY proof, and deferred
-work acknowledgement.
+work acknowledgement. COPY resolves an existing immutable publication or inserts a
+new one in a single PostgreSQL statement. A concurrent winner outside the
+statement's snapshot is resolved through a fresh read of the exact proof.
 
 ### Failure Scenarios
 
