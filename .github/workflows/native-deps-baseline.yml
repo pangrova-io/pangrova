@@ -717,7 +717,7 @@ jobs:
     env:
       MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
       PANGROVA_CANDIDATE_SHA: ${{ inputs.production_source }}
-      PANGROVA_BASE_SHA: 46cc8ba23eccf4b17f048bfe691519ab5d99467f
+      PANGROVA_BASE_SHA: 2f2aaed29c47b82399b1e3393b435b99cf998c11
     steps:
       - uses: actions/checkout@v7
         with:
@@ -725,7 +725,7 @@ jobs:
       - name: Check out the exact pull request base
         uses: actions/checkout@v7
         with:
-          ref: 46cc8ba23eccf4b17f048bfe691519ab5d99467f
+          ref: 2f2aaed29c47b82399b1e3393b435b99cf998c11
           path: jmh-base
 
       - name: Set up function-contract Python
@@ -745,7 +745,7 @@ jobs:
           name: pinned-iceberg-sdk
           path: ${{ runner.temp }}/pangrova-iceberg-sdk
           github-token: ${{ github.token }}
-          run-id: '46101766012'
+          run-id: '46123305458'
           digest-mismatch: error
       - name: Install the tested Iceberg SDK
         run: |
@@ -987,20 +987,19 @@ jobs:
         run: |
           [[ "$PANGROVA_PROBE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$PANGROVA_PROBE_SOURCE_SHA"
-          test "$PANGROVA_PROBE_SOURCE_SHA" = 1bc3d1e8079ccc3a64e97564305681829f094b23
-          tested_ref=b0cd3a5c1b32ecb1407a2edaeb6b0101b142e73d
+          test "$PANGROVA_PROBE_SOURCE_SHA" = 158f4415e343b9b22d5b28c4fefca9c033f5cde8
+          tested_ref=1bc3d1e8079ccc3a64e97564305681829f094b23
           git fetch --depth=1 origin "$tested_ref"
           # The Lance fixture links Arrow, canonical protobuf and Lance C FFI.
-          # The reviewed FindVelox change only selects the Worker's Thrift archives.
-          # Pangrova's production Worker and Velox are rebuilt from HEAD below.
+          # The macOS export policy and CLI presentation do not enter that helper.
+          # The full OCI runtime is still rebuilt from this exact checkout.
           git diff --exit-code "$tested_ref" HEAD -- pangrova-protocol \
             pangrova-worker-native/CMakeLists.txt pangrova-worker-native/cmake \
             pangrova-worker-native/src pangrova-worker-native/include pangrova-worker-native/test-tools \
             pangrova-worker-native/lance-ffi pangrova-worker-native/tools \
             .pangrova/scripts/stage-java-native-test-runtime.sh \
             pangrova-connector/pangrova-connector-iceberg/patches \
-            .pangrova/scripts/build-iceberg-sdk-candidate.sh \
-            ':(exclude)pangrova-worker-native/cmake/FindVelox.cmake'
+            .pangrova/scripts/build-iceberg-sdk-candidate.sh
           lock=pangrova-worker-native/dependency-versions.txt
           diff -u <(git show "$tested_ref:$lock" | grep -v '^PANGROVA_DEPENDENCY_BUILD=') \
             <(grep -v '^PANGROVA_DEPENDENCY_BUILD=' "$lock")
@@ -1013,7 +1012,7 @@ jobs:
           name: java-native-test-runtime-linux-x86_64
           path: ${{ runner.temp }}/java-native-test-download
           github-token: ${{ github.token }}
-          run-id: '46064151775'
+          run-id: '46101766012'
           digest-mismatch: error
       - name: Restore executable test runtime
         run: |
@@ -1040,7 +1039,7 @@ jobs:
           name: pinned-iceberg-sdk
           path: ${{ runner.temp }}/pangrova-iceberg-sdk
           github-token: ${{ github.token }}
-          run-id: '46101766012'
+          run-id: '46123305458'
           digest-mismatch: error
       - name: Install the tested Iceberg SDK
         run: |
