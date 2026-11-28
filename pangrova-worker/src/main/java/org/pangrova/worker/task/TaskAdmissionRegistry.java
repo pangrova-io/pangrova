@@ -30,6 +30,7 @@ final class TaskAdmissionRegistry {
     private final Map<String, Entry> entries = new HashMap<>();
     private final int capacity;
     private final Clock clock;
+    private volatile int inFlightTaskCount;
     // Advanced under entries before forgetting a drained admission or proving expired absence.
     private volatile long closedThroughDeadline;
     private boolean closed;
@@ -86,6 +87,7 @@ final class TaskAdmissionRegistry {
                             attempt, preparation);
             Reservation reservation = new Reservation(taskId, added, true);
             entries.put(taskId, added);
+            inFlightTaskCount++;
             return reservation;
         }
     }
@@ -116,6 +118,7 @@ final class TaskAdmissionRegistry {
             if (entry == null || !entry.preparation) throw new IllegalStateException("Preparation admission is absent");
             requireSealMatch(entry, authority);
             entry.sealed = true;
+            closeOwnership(entry);
             entry.noOwnerExited = true;
             entry.drainReceipt = compact;
             entry.preparationTerminal = new PreparationTerminal(
@@ -199,6 +202,7 @@ final class TaskAdmissionRegistry {
                 throw new IllegalStateException(
                         "Drain receipt does not own its exact admitted task");
             }
+            closeOwnership(entry);
             entry.drainReceipt = compact;
         }
     }
@@ -287,6 +291,17 @@ final class TaskAdmissionRegistry {
                     && retireExpired(entry, admissionTime())) {
                 entries.remove(canonicalTaskId, entry);
             }
+        }
+    }
+
+    int inFlightTaskCount() {
+        return inFlightTaskCount;
+    }
+
+    // Called under entries before publishing the first physical exit for an owned reservation.
+    private void closeOwnership(Entry entry) {
+        if (!entry.noOwnerExited && entry.drainReceipt == null) {
+            inFlightTaskCount--;
         }
     }
 
@@ -416,6 +431,7 @@ final class TaskAdmissionRegistry {
 
         void rejectedBeforeOwnership(Throwable failure) {
             synchronized (entries) {
+                closeOwnership(entry);
                 entry.noOwnerExited = true;
                 if (!entry.sealed) {
                     entries.remove(taskId, entry);

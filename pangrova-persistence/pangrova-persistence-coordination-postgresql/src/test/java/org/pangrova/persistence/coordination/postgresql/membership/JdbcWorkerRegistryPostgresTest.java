@@ -222,7 +222,7 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
         registry.register(original);
         registry.heartbeat(original.registrationIdentity(),
                 new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 3, 123L, null));
-        assertThat(registry.getWorker(original.workerId()).orElseThrow().runningTaskCount()).isEqualTo(3);
+        assertThat(registry.getWorker(original.workerId()).orElseThrow().inFlightTaskCount()).isEqualTo(3);
         assertThat(registry.unregister(original.registrationIdentity())).isTrue();
     }
 
@@ -283,7 +283,7 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
         assertThat(registry.heartbeat(old.registrationIdentity(), metrics)).isEmpty();
         assertThat(registry.refreshRegistration(old)).isTrue();
         assertThat(registry.refreshRegistration(old)).isTrue();
-        assertThat(registry.heartbeat(old.registrationIdentity(), metrics).orElseThrow().runningTaskCount()).isEqualTo(7);
+        assertThat(registry.heartbeat(old.registrationIdentity(), metrics).orElseThrow().inFlightTaskCount()).isEqualTo(7);
         var replacement = removalWorker(old.admissionDomainId(), "00000000-0000-0000-0000-0000000000e2", now);
         registry.register(replacement);
         assertThat(registry.heartbeat(old.registrationIdentity(), metrics)).isEmpty();
@@ -334,7 +334,7 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
             replacing.commit();
             assertThat(mutation.get(10, java.util.concurrent.TimeUnit.SECONDS)).isFalse();
             assertThat(registry.getWorker(original.workerId()).orElseThrow().incarnationId()).isEqualTo(nextIncarnation);
-            assertThat(registry.getWorker(original.workerId()).orElseThrow().runningTaskCount()).isZero();
+            assertThat(registry.getWorker(original.workerId()).orElseThrow().inFlightTaskCount()).isZero();
         } finally {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();

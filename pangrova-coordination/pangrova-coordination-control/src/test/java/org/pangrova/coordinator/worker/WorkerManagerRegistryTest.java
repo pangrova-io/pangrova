@@ -125,7 +125,7 @@ class WorkerManagerRegistryTest {
         WorkerSnapshot snapshot = registry.getWorker("w-2").orElseThrow();
         assertThat(snapshot.memoryPressure()).isEqualTo("LOW");
         assertThat(snapshot.cpuUtilization()).isEqualTo(0.75);
-        assertThat(snapshot.runningTaskCount()).isEqualTo(5);
+        assertThat(snapshot.inFlightTaskCount()).isEqualTo(5);
         assertThat(snapshot.availableMemoryBytes()).isEqualTo(512L * 1024 * 1024);
         // static fields unchanged
         assertThat(snapshot.host()).isEqualTo("host-w-2");

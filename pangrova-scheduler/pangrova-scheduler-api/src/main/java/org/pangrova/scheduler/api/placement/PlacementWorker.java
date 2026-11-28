@@ -28,7 +28,7 @@ public interface PlacementWorker {
 
     double cpuUtilization();
 
-    int runningTaskCount();
+    int inFlightTaskCount();
 
     long availableMemoryBytes();
 

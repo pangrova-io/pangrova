@@ -550,6 +550,11 @@ public class TaskManager implements AutoCloseable {
         return Optional.ofNullable(taskExecutor);
     }
 
+    /** Counts admitted attempts that still own preparation, execution or cleanup. */
+    public int getInFlightTaskCount() {
+        return taskAdmissions.inFlightTaskCount();
+    }
+
     /**
      * Returns the count of tasks currently in RUNNING state.
      */

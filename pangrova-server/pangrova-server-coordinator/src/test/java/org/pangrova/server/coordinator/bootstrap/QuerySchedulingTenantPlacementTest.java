@@ -95,7 +95,7 @@ class QuerySchedulingTenantPlacementTest {
         var worker = TestWorkerInfoBuilder.active(pool, "127.0.0.1", 8080, 8081);
         return new WorkerInfo(worker.workerId(), worker.host(), worker.httpPort(), worker.transportPort(),
                 worker.resultServerPort(), worker.healthState(), worker.memoryPressure(),
-                worker.cpuUtilization(), worker.runningTaskCount(), worker.availableMemoryBytes(),
+                worker.cpuUtilization(), worker.inFlightTaskCount(), worker.availableMemoryBytes(),
                 worker.lastHeartbeat(), worker.performanceScore(), pool, worker.protocolVersion(), worker.rackId(),
                 worker.dataLocality(), worker.cacheSummary(), worker.capabilityInventory(), worker.copyTaskTlsPort(),
                 worker.workerExecutionIdentity(), worker.shuffleDeployment(), worker.cdcIngestSupported());

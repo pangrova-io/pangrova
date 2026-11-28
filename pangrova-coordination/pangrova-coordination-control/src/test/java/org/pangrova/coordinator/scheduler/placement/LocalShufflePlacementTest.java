@@ -53,7 +53,7 @@ class LocalShufflePlacementTest {
     private static WorkerInfo worker(String id, String incarnation, String mode) {
         var w = TestWorkerInfoBuilder.active(id, "127.0.0.1", 8080, 8081);
         return new WorkerInfo(id, w.host(), w.httpPort(), w.transportPort(), w.resultServerPort(),
-                w.healthState(), w.memoryPressure(), w.cpuUtilization(), w.runningTaskCount(), w.availableMemoryBytes(),
+                w.healthState(), w.memoryPressure(), w.cpuUtilization(), w.inFlightTaskCount(), w.availableMemoryBytes(),
                 w.lastHeartbeat(), w.performanceScore(), w.resourcePoolId(), w.protocolVersion(), w.rackId(),
                 w.dataLocality(), w.cacheSummary(), w.capabilityInventory(), w.copyTaskTlsPort(),
                 TestWorkerInfoBuilder.executionIdentity(incarnation), new WorkerShuffleDeployment(mode, null));

@@ -56,7 +56,7 @@ public final class WorkerManager {
     public record HeartbeatData(
             MemoryPressure pressure,
             double cpuUtilization,
-            int runningTaskCount,
+            int inFlightTaskCount,
             long availableMemoryBytes,
             org.pangrova.coordination.api.heartbeat.CacheCatalogSummary cacheSummary,
             Map<String, org.pangrova.protocol.rest.worker.TenantUsageSnapshot> tenantUsage) {
@@ -67,16 +67,16 @@ public final class WorkerManager {
 
         /** Convenience constructor for workers without cache reporting. */
         public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
-                             int runningTaskCount, long availableMemoryBytes) {
-            this(pressure, cpuUtilization, runningTaskCount,
+                             int inFlightTaskCount, long availableMemoryBytes) {
+            this(pressure, cpuUtilization, inFlightTaskCount,
                     availableMemoryBytes, null, Map.of());
         }
 
         /** Convenience constructor including the cache catalog summary. */
         public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
-                             int runningTaskCount, long availableMemoryBytes,
+                             int inFlightTaskCount, long availableMemoryBytes,
                              org.pangrova.coordination.api.heartbeat.CacheCatalogSummary cacheSummary) {
-            this(pressure, cpuUtilization, runningTaskCount,
+            this(pressure, cpuUtilization, inFlightTaskCount,
                     availableMemoryBytes, cacheSummary, Map.of());
         }
 
@@ -322,8 +322,8 @@ public final class WorkerManager {
                 return existing;
             }
             changed.set(true);
-            LOG.info("event=worker_decommission_start workerId={} runningTasks={}",
-                    workerId, existing.runningTaskCount());
+            LOG.info("event=worker_decommission_start workerId={} inFlightTasks={}",
+                    workerId, existing.inFlightTaskCount());
             return existing.withHealthState(HealthState.DECOMMISSIONING);
         });
         if (changed.get()) {
@@ -343,7 +343,7 @@ public final class WorkerManager {
         WorkerInfo info = workers.get(workerId);
         return info != null
                 && info.healthState() == HealthState.DECOMMISSIONING
-                && info.runningTaskCount() == 0;
+                && info.inFlightTaskCount() == 0;
     }
 
     public WorkerInfo getWorker(String workerId) {
@@ -403,7 +403,7 @@ public final class WorkerManager {
                 existing.resultServerPort(),
                 existing.healthState() == HealthState.DECOMMISSIONING
                         ? HealthState.DECOMMISSIONING : HealthState.ACTIVE, data.pressure(),
-                data.cpuUtilization(), data.runningTaskCount(),
+                data.cpuUtilization(), data.inFlightTaskCount(),
                 data.availableMemoryBytes(), Instant.now(),
                 existing.performanceScore(), existing.resourcePoolId(),
                 existing.protocolVersion(),
@@ -482,7 +482,7 @@ public final class WorkerManager {
                 info.dataLocality(),
                 info.memoryPressure().name(),
                 info.cpuUtilization(),
-                info.runningTaskCount(),
+                info.inFlightTaskCount(),
                 info.availableMemoryBytes(),
                 info.lastHeartbeat().toEpochMilli(),
                 info.lastHeartbeat().toEpochMilli(),
@@ -497,7 +497,7 @@ public final class WorkerManager {
         return new HeartbeatSnapshot(
                 data.pressure().name(),
                 data.cpuUtilization(),
-                data.runningTaskCount(),
+                data.inFlightTaskCount(),
                 data.availableMemoryBytes(),
                 data.cacheSummary());
     }
@@ -512,7 +512,7 @@ public final class WorkerManager {
                 HealthState.ACTIVE,
                 MemoryPressure.valueOf(snapshot.memoryPressure()),
                 snapshot.cpuUtilization(),
-                snapshot.runningTaskCount(),
+                snapshot.inFlightTaskCount(),
                 snapshot.availableMemoryBytes(),
                 Instant.ofEpochMilli(snapshot.lastHeartbeatMs()),
                 0.0,

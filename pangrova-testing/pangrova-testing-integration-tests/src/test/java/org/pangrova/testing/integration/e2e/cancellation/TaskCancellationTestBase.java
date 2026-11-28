@@ -103,7 +103,7 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
                 actual.dataLocality(), null, CapabilityInventoryCodec.encode(actual.capabilityInventory()), actual.workerExecutionIdentity());
         postInternal("/v1/workers/register", MAPPER.writeValueAsBytes(request));
         postInternal("/v1/worker/heartbeat", MAPPER.writeValueAsBytes(new HeartbeatRequest(actual.workerId(),
-                actual.memoryPressure().name(), actual.cpuUtilization(), actual.runningTaskCount(),
+                actual.memoryPressure().name(), actual.cpuUtilization(), actual.inFlightTaskCount(),
                 actual.availableMemoryBytes(), actual.workerExecutionIdentity())));
     }
 

@@ -66,7 +66,7 @@ class JdbcWorkerRegistryTest extends ContainerTestBase {
         Optional<WorkerSnapshot> found = registry.getWorker("w-1");
         assertThat(found).isPresent();
         assertThat(found.get().memoryPressure()).isEqualTo("HIGH");
-        assertThat(found.get().runningTaskCount()).isEqualTo(5);
+        assertThat(found.get().inFlightTaskCount()).isEqualTo(5);
     }
 
     @Test

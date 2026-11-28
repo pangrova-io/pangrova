@@ -1401,8 +1401,9 @@ placement, active health, memory fit and exact capability bindings. Among
 eligible Workers it ranks
 the work already assigned in the current issuance window plus the current
 partition's estimated work multiplied by the larger of two task counts.
-Those counts come from the Worker's heartbeat and the Coordinator's exact
-assignments to that Worker incarnation. Taking the larger count accounts for
+The Worker heartbeat counts reservations from setup through physical release,
+including attempts admitted by other Coordinators. The local count represents
+the Coordinator's exact assignments to that Worker incarnation. Taking the larger count accounts for
 assignments the heartbeat has yet to include without summing overlapping samples.
 
 The Coordinator counts a bound task before transport. A pre-transport

@@ -1,5 +1,6 @@
 package org.pangrova.worker.heartbeat;
 
+import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -42,7 +43,7 @@ class HeartbeatSenderDegradationTest {
         HeartbeatSender sender = new HeartbeatSender(config,
                 () -> {
                     heartbeatCount.incrementAndGet();
-                    return new HeartbeatPayload("w-degrade", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
+                    return new HeartbeatRequest("w-degrade", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -68,7 +69,7 @@ class HeartbeatSenderDegradationTest {
         ScheduledExecutorService executor = newExecutor();
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-init", 1000);
         HeartbeatSender sender = new HeartbeatSender(config,
-                () -> new HeartbeatPayload("w-init", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
+                () -> new HeartbeatRequest("w-init", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                 executor);
 
         assertThat(sender.isDegraded()).isFalse();
@@ -84,7 +85,7 @@ class HeartbeatSenderDegradationTest {
         HeartbeatSender sender = new HeartbeatSender(config,
                 () -> {
                     heartbeatCount.incrementAndGet();
-                    return new HeartbeatPayload("w-below", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
+                    return new HeartbeatRequest("w-below", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
                 },
                 executor);
 

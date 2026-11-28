@@ -3,7 +3,12 @@ package org.pangrova.worker.task;
 import org.pangrova.worker.exception.TaskAdmissionException;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.protocol.v2.TaskRequest;
 
 import java.time.Clock;
@@ -21,6 +26,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Real compact admission authority tests; these are not Native or distributed E2E tests. */
 class TaskAdmissionRegistryTest {
     private static final Clock NOW = Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC);
+
+    @Test
+    void inFlightCountIncludesSetupAndTerminalCleanupAndExcludesReplays() {
+        var registry = new TaskAdmissionRegistry(3, NOW);
+        var task = request("task", 2000).toBuilder().setAttempt(TaskAttemptId.newBuilder().setTaskId("task")
+                .setQueryOrJobId("query").setPlanEpoch(1).setFencingToken(1).setControlEpoch(1)
+                .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId("owner")
+                        .setOwnerIncarnation("instance").setFencingToken(1))).build();
+        var admitted = registry.reserve(task, "worker-task");
+        registry.reserve(task, "duplicate");
+        assertThat(registry.inFlightTaskCount()).isEqualTo(1);
+        admitted.admitted();
+        assertThat(registry.inFlightTaskCount()).isEqualTo(1);
+
+        var failedSetup = registry.reserve(request("blocked", 2000), "blocked-worker-task");
+        assertThat(registry.inFlightTaskCount()).isEqualTo(2);
+        failedSetup.rejectedBeforeOwnership(new IllegalStateException("setup rejected"));
+        assertThat(registry.inFlightTaskCount()).isEqualTo(1);
+
+        var receipt = TaskReport.newBuilder().setAttempt(task.getAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED).setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED).build();
+        registry.retainDrainReceipt("worker-task", receipt, 2000);
+        registry.retainDrainReceipt("worker-task", receipt, 2000);
+        assertThat(registry.inFlightTaskCount()).isZero();
+        assertThat(registry.size()).isEqualTo(1);
+    }
 
     @Test
     void duplicateWaitsForSetupWhileControlCanAlreadyResolveTheOwner() throws Exception {
@@ -236,6 +268,7 @@ class TaskAdmissionRegistryTest {
         var task = request("task", 2000);
         var actual = registry.seal(sealRequest(task), false);
         assertThat(actual.noOwnerExited()).isTrue();
+        assertThat(registry.inFlightTaskCount()).isZero();
         assertThat(actual.workerTaskId()).isEmpty();
         assertThat(actual.receipt()).isEmpty();
         assertThatThrownBy(() -> registry.reserve(task, "late-worker-task"))

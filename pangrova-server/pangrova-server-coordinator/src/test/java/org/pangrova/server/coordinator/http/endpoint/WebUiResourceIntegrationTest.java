@@ -156,7 +156,7 @@ class WebUiResourceIntegrationTest {
             assertThat(w.get("host")).isEqualTo("localhost");
             assertThat(w.get("healthState")).isEqualTo("ACTIVE");
             assertThat(w.get("memoryPressure")).isEqualTo("NONE");
-            assertThat(w.get("runningTaskCount")).isEqualTo(3);
+            assertThat(w.get("inFlightTaskCount")).isEqualTo(3);
         } finally {
             workerManager.removeWorker("worker-001");
         }

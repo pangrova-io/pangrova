@@ -23,7 +23,7 @@ class WorkerMembershipFencingTest {
         assertThat(manager.evaluateHealth(worker.workerId(), Instant.now())).isEqualTo(HealthState.DECOMMISSIONING);
         manager.registerWorker(worker);
         manager.loadFromRegistry();
-        assertThat(manager.getWorker(worker.workerId()).runningTaskCount()).isEqualTo(1);
+        assertThat(manager.getWorker(worker.workerId()).inFlightTaskCount()).isEqualTo(1);
         assertThat(manager.getWorker(worker.workerId()).healthState()).isEqualTo(HealthState.DECOMMISSIONING);
         assertThat(manager.getActiveWorkers()).isEmpty();
         manager.registerWorker(replacement(worker));
@@ -39,7 +39,7 @@ class WorkerMembershipFencingTest {
         var observed = manager.getWorker(worker.workerId());
         manager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(worker.workerId(), manager.getWorker(worker.workerId()).workerExecutionIdentity().admissionDomainId(), manager.getWorker(worker.workerId()).workerExecutionIdentity().incarnationId()), new WorkerManager.HeartbeatData(MemoryPressure.NONE, 0.2, 1, 1024));
         assertThat(manager.removeObservedWorker(observed)).isFalse();
-        assertThat(manager.getWorker(worker.workerId()).runningTaskCount()).isEqualTo(1);
+        assertThat(manager.getWorker(worker.workerId()).inFlightTaskCount()).isEqualTo(1);
         assertThat(registry.getWorker(worker.workerId())).isPresent();
     }
 

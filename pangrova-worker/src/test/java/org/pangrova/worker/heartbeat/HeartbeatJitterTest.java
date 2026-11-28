@@ -1,5 +1,6 @@
 package org.pangrova.worker.heartbeat;
 
+import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -83,7 +84,7 @@ class HeartbeatJitterTest {
         assertTrue(aboveBase, "Jitter should produce values above base interval");
     }
 
-    private static HeartbeatPayload dummyPayload() {
-        return new HeartbeatPayload("worker-jitter-test", "NONE", 0.5, 0, 1024L * 1024 * 1024, HEARTBEAT_IDENTITY);
+    private static HeartbeatRequest dummyPayload() {
+        return new HeartbeatRequest("worker-jitter-test", "NONE", 0.5, 0, 1024L * 1024 * 1024, HEARTBEAT_IDENTITY);
     }
 }

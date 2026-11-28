@@ -23,8 +23,8 @@ public final class WorkerPlacementWork {
             if (!bindings.isEmpty() && !WorkerCapabilityMatcher.supports(worker.capabilityInventory(), bindings)) {
                 continue;
             }
-            int running = Math.max(worker.runningTaskCount(), localLoad.applyAsInt(worker));
-            double projected = running * (double) work
+            int inFlight = Math.max(worker.inFlightTaskCount(), localLoad.applyAsInt(worker));
+            double projected = inFlight * (double) work
                     + windowWork.getOrDefault(worker.workerExecutionIdentity(), 0.0);
             if (projected < minimum) {
                 leastLoaded.clear();

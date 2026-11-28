@@ -4,6 +4,7 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.POST;
@@ -16,11 +17,13 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.coordination.api.heartbeat.CacheCatalogSummary;
 import org.pangrova.coordination.api.membership.WorkerShuffleDeployment;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerManager.HeartbeatData;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.protocol.rest.worker.HeartbeatRequest;
+import org.pangrova.protocol.rest.worker.TenantUsageSnapshot;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.enums.MemoryPressure;
@@ -28,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.LongSupplier;
 
@@ -223,76 +227,21 @@ public final class WorkerResource {
 
     private static HeartbeatData toHeartbeatData(HeartbeatRequest request) {
         MemoryPressure pressure = parseMemoryPressure(request.memoryPressure());
-        // F-CHAIN-CACHE-02: lift cached file paths from heartbeat into a
-        // CacheCatalogSummary, which the WorkerManager forwards into the
-        // worker registry. Replaces dead bloom-filter approach.
-        boolean hasCacheReport = (request.cachedFilePaths() != null
-                && !request.cachedFilePaths().isEmpty())
-                || request.cacheMaxBytes() > 0
-                || request.cacheHitCount() > 0
-                || request.cacheMissCount() > 0;
-        org.pangrova.coordination.api.heartbeat.CacheCatalogSummary cacheSummary =
-                hasCacheReport
-                        ? new org.pangrova.coordination.api.heartbeat.CacheCatalogSummary(
-                                request.cachedFilePaths(),
-                                request.cacheUsedBytes(),
-                                request.cacheMaxBytes(),
-                                request.cacheHitCount(),
-                                request.cacheMissCount())
-                        : null;
-        return new HeartbeatData(
-                pressure,
-                request.cpuUtilization(),
-                request.runningTaskCount(),
-                request.availableMemoryBytes(),
-                cacheSummary,
-                buildTenantUsage(request));
+        var cache = request.cachedFilePaths().isEmpty()
+                ? CacheCatalogSummary.EMPTY : new CacheCatalogSummary(request.cachedFilePaths(), 0, 0, 0, 0);
+        return new HeartbeatData(pressure, request.cpuUtilization(), request.inFlightTaskCount(),
+                request.availableMemoryBytes(), cache, tenantUsage(request));
     }
 
-    /**
-     * P1-5: reconstructs per-tenant usage snapshots from the worker heartbeat so
-     * the coordinator can aggregate a cluster-wide view of tenant consumption.
-     */
-    private static java.util.Map<String, org.pangrova.protocol.rest.worker.TenantUsageSnapshot>
-            buildTenantUsage(HeartbeatRequest request) {
-        java.util.Map<String, Long> mem = request.tenantMemoryBytes();
-        java.util.Map<String, Integer> queries = request.tenantActiveQueries();
-        if (isEmptyOrNull(mem) && isEmptyOrNull(queries)) {
-            return java.util.Map.of();
-        }
-        java.util.Set<String> tenantIds = collectTenantIds(mem, queries);
-        java.util.Map<String, org.pangrova.protocol.rest.worker.TenantUsageSnapshot> usage =
-                new java.util.HashMap<>(tenantIds.size());
-        for (String tenantId : tenantIds) {
-            long m = memoryBytesFor(mem, tenantId);
-            int q = activeQueriesFor(queries, tenantId);
-            usage.put(tenantId, new org.pangrova.protocol.rest.worker.TenantUsageSnapshot(tenantId, m, q));
+    private static Map<String, TenantUsageSnapshot> tenantUsage(HeartbeatRequest request) {
+        if (request.tenantUsage().isEmpty()) return Map.of();
+        var usage = new HashMap<String, TenantUsageSnapshot>();
+        for (var tenant : request.tenantUsage()) {
+            if (usage.putIfAbsent(tenant.tenantId(), tenant) != null) {
+                throw new BadRequestException("Duplicate tenant in Worker heartbeat");
+            }
         }
         return usage;
-    }
-
-    private static boolean isEmptyOrNull(java.util.Map<?, ?> map) {
-        return map == null || map.isEmpty();
-    }
-
-    private static java.util.Set<String> collectTenantIds(
-            java.util.Map<String, Long> mem, java.util.Map<String, Integer> queries) {
-        java.util.Set<String> tenantIds = new java.util.HashSet<>();
-        if (mem != null) {
-            tenantIds.addAll(mem.keySet());
-        }
-        if (queries != null) {
-            tenantIds.addAll(queries.keySet());
-        }
-        return tenantIds;
-    }
-
-    private static long memoryBytesFor(java.util.Map<String, Long> mem, String tenantId) {
-        return mem != null ? mem.getOrDefault(tenantId, 0L) : 0L;
-    }
-
-    private static int activeQueriesFor(java.util.Map<String, Integer> queries, String tenantId) {
-        return queries != null ? queries.getOrDefault(tenantId, 0) : 0;
     }
 
     private static MemoryPressure parseMemoryPressure(String value) {

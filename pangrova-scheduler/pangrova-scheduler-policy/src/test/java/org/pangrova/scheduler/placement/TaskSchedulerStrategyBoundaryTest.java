@@ -110,7 +110,7 @@ class TaskSchedulerStrategyBoundaryTest {
     }
 
     private record Worker(String workerId, String host, int httpPort, HealthState healthState,
-                          MemoryPressure memoryPressure, double cpuUtilization, int runningTaskCount,
+                          MemoryPressure memoryPressure, double cpuUtilization, int inFlightTaskCount,
                           long availableMemoryBytes, String resourcePoolId, String rackId,
                           List<String> dataLocality) implements PlacementWorker {}
 }

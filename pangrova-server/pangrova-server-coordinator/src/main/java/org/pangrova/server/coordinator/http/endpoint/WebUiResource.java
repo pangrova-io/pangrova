@@ -124,7 +124,7 @@ public final class WebUiResource {
                 info.healthState().name(),
                 info.memoryPressure().name(),
                 info.availableMemoryBytes(),
-                info.runningTaskCount(),
+                info.inFlightTaskCount(),
                 info.cpuUtilization(),
                 info.lastHeartbeat().toString());
     }
@@ -150,7 +150,7 @@ public final class WebUiResource {
             String healthState,
             String memoryPressure,
             long availableMemoryBytes,
-            int runningTaskCount,
+            int inFlightTaskCount,
             double cpuUtilization,
             String lastHeartbeat) {}
 }

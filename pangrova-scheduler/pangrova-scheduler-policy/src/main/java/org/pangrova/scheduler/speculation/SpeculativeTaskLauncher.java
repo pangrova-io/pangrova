@@ -365,7 +365,7 @@ public class SpeculativeTaskLauncher {
         return active.stream()
                 .filter(w -> w.healthState() == HealthState.ACTIVE)
                 .filter(w -> !w.workerId().equals(excludeWorkerId))
-                .min(java.util.Comparator.comparingInt(PlacementWorker::runningTaskCount))
+                .min(java.util.Comparator.comparingInt(PlacementWorker::inFlightTaskCount))
                 .orElse(null);
     }
 

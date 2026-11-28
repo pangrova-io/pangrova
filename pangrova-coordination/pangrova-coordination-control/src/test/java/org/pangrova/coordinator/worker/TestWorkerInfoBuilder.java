@@ -66,11 +66,11 @@ public final class TestWorkerInfoBuilder {
      * Creates an ACTIVE worker with the specified performance metrics.
      */
     public static WorkerInfo withMetrics(String workerId, String host, int httpPort, int transportPort,
-                                          double cpuUtilization, int runningTaskCount,
+                                          double cpuUtilization, int inFlightTaskCount,
                                           long availableMemoryBytes, double performanceScore) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
-                cpuUtilization, runningTaskCount, availableMemoryBytes,
+                cpuUtilization, inFlightTaskCount, availableMemoryBytes,
                 Instant.now(), performanceScore, null, 2,
                 null, List.of(), null, canonicalInventory(), 0, executionIdentity(workerId), DIRECT);
     }
@@ -91,10 +91,10 @@ public final class TestWorkerInfoBuilder {
      * Creates an ACTIVE worker with the specified running task count (load).
      */
     public static WorkerInfo withLoad(String workerId, String host, int httpPort, int transportPort,
-                                       int runningTaskCount) {
+                                       int inFlightTaskCount) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
-                0.0, runningTaskCount, 1024L * 1024 * 1024,
+                0.0, inFlightTaskCount, 1024L * 1024 * 1024,
                 Instant.now(), 1.0, null, 2,
                 null, List.of(), null, canonicalInventory(), 0, executionIdentity(workerId), DIRECT);
     }
