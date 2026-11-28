@@ -40,8 +40,21 @@ import org.pangrova.metadata.relation.ObjectDependencyService;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.persistence.catalog.postgresql.dependency.JdbcObjectDependencyStore;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProjectionRepository;
+import org.pangrova.persistence.streaming.memory.InMemoryWatermarkStore;
+import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
+import org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
 import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
+import org.pangrova.shuffle.api.SkewDetector.SkewDetectionConfig;
+import org.pangrova.shuffle.api.SkewDetector.SkewedPartition;
+import org.pangrova.shuffle.skew.MedianSkewDetector;
+import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
+import org.pangrova.streaming.api.commit.CdcBatchCheckpoint;
+import org.pangrova.streaming.api.commit.OffsetRange;
+import org.pangrova.streaming.api.commit.PrepareToken;
+import org.pangrova.streaming.api.commit.SourceId;
+import org.pangrova.streaming.api.enums.CdcCommitState;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.TestProjectPaths;
 import org.pangrova.common.annotation.DeadCode;
@@ -58,6 +71,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -111,8 +125,7 @@ class SpiWiringVerificationTest {
             "org.pangrova.planner.type.StandardTypeRegistry",
             "org.pangrova.worker.resource.memory.UnifiedMemoryLedger");
 
-    // Each independently callable component is exercised against the real database below.
-    // A library class may be excluded from the process-only check only if that test constructs it.
+    // A library class may be excluded from the process-only check only if a contract test below constructs it.
     private static Set<String> independentLibraryImplementations;
     private static JavaClasses importedClasses;
     private static Set<String> reachableClassNames;
@@ -129,7 +142,9 @@ class SpiWiringVerificationTest {
                 .get(SpiWiringVerificationTest.class);
         independentLibraryImplementations = client.getConstructorCallsFromSelf().stream()
                 .filter(call -> Set.of("explicitCatalogLibrariesWorkWithoutStartingAServer",
-                        "explicitQueryObserversConsumePublishedEvents").contains(call.getOrigin().getName()))
+                        "explicitQueryObserversConsumePublishedEvents",
+                        "explicitStreamingLibrariesPreserveCheckpointsAndWatermarks",
+                        "explicitSkewLibraryClassifiesPartitionWork").contains(call.getOrigin().getName()))
                 .map(call -> call.getTarget().getOwner().getName())
                 .filter(importedClasses::contain)
                 .filter(name -> !importedClasses.get(name).isMemberClass() && !importedClasses.get(name).isAnonymousClass())
@@ -212,7 +227,9 @@ class SpiWiringVerificationTest {
                 JdbcQueryEventListener.class.getName(), LineageQueryEventListener.class.getName(),
                 "org.pangrova.persistence.catalog.postgresql.dependency.JdbcObjectDependencyStore",
                 "org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProjectionRepository",
-                "org.pangrova.coordinator.metadata.MaintenanceLineageListener");
+                "org.pangrova.coordinator.metadata.MaintenanceLineageListener",
+                InMemoryWatermarkStore.class.getName(), JdbcWatermarkPositionStore.class.getName(),
+                JdbcCdcCommitStateStore.class.getName(), MedianSkewDetector.class.getName());
         assertThat(independentLibraryImplementations).allSatisfy(name -> {
             assertThat(importedClasses.contain(name)).isTrue();
             assertThat(implementsSpiInterface(importedClasses.get(name))).isTrue();
@@ -287,6 +304,39 @@ class SpiWiringVerificationTest {
         }
         assertThat(events).extracting(LineageEvent::eventType)
                 .containsExactly(LineageEventType.START, LineageEventType.COMPLETE);
+    }
+
+    @Test
+    void explicitStreamingLibrariesPreserveCheckpointsAndWatermarks() throws java.sql.SQLException {
+        var source = MigratedPostgres.create();
+        var memory = new InMemoryWatermarkStore();
+        var durable = new JdbcWatermarkPositionStore(source);
+        Instant watermark = Instant.parse("2026-11-28T00:00:00Z");
+        for (var store : List.of(memory, durable)) {
+            assertThat(store.advance("orders", watermark)).isEqualTo(watermark);
+            assertThat(store.advance("orders", watermark.minusSeconds(1))).isEqualTo(watermark);
+            assertThat(store.load("orders")).contains(watermark);
+            assertThat(store.load("unrelated")).isEmpty();
+        }
+        assertThat(new JdbcWatermarkPositionStore(source).load("orders")).contains(watermark);
+
+        var state = new JdbcCdcCommitStateStore(source);
+        var sourceId = new SourceId("orders-checkpoint");
+        var checkpoint = new CdcBatchCheckpoint(List.of(new OffsetRange("orders", 0, 0L, 10L)));
+        var token = new PrepareToken(UUID.randomUUID(), sourceId, checkpoint, watermark.plusSeconds(60));
+        assertThat(state.insert(token, CdcCommitState.COMMITTED)).isTrue();
+        assertThat(new JdbcCdcCommitStateStore(source).findLastCommittedOffsets(sourceId))
+                .containsExactlyEntriesOf(Map.of(new TopicPartitionOffset("orders", 0), 11L));
+    }
+
+    @Test
+    void explicitSkewLibraryClassifiesPartitionWork() {
+        var detector = new MedianSkewDetector();
+        var stats = Map.of(0, new ShufflePartitionStats(0, 1_024, 16),
+                1, new ShufflePartitionStats(1, 1_024, 16),
+                2, new ShufflePartitionStats(2, 8_192, 128));
+        var result = detector.detect(stats, new SkewDetectionConfig(3.0, 1_024, 1_024));
+        assertThat(result.skewedPartitions()).containsExactly(new SkewedPartition(2, 8_192, 128, 8));
     }
 
     private static ObjectRef graphRef(String name, ObjectKind kind) {

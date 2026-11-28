@@ -491,6 +491,12 @@ GROUP BY TUMBLE(event_time, INTERVAL '1' HOUR);
 
 ### 5.3 Watermark Tracker
 
+Embedded Java applications can use the in-memory or PostgreSQL watermark stores
+through the streaming persistence API. PostgreSQL also provides an independent
+CDC commit-state store for applications managing their own two-phase commits.
+Coordinator-managed CDC records fenced publication and source checkpoints in the
+write commit journal.
+
 ```java
 /**
  * Watermark tracker
