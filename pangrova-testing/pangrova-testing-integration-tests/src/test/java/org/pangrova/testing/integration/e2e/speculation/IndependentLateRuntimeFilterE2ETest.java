@@ -8,7 +8,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -16,7 +15,6 @@ import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.parquet.Parquet;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestReporter;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.common.concurrency.ManagedExecutorFactory;
@@ -30,6 +28,8 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -38,16 +38,17 @@ import static org.awaitility.Awaitility.await;
 @E2ETest
 @ResourceLock("pangrova-shuffle-acceptance-aws-properties")
 class IndependentLateRuntimeFilterE2ETest extends ContainerTestBase {
+    private static final Logger LOG = LoggerFactory.getLogger(IndependentLateRuntimeFilterE2ETest.class);
     private static final ResultProtocol FLIGHT = ResultProtocol.GRPC_TLS;
     private static final String PROBE = "spec_catalog.default.late_probe";
     private static final String BUILD = "spec_catalog.default.late_build";
     private static final int FILES = 40;
-    private static final int ROWS_PER_FILE = 32_768;
+    private static final int ROWS_PER_FILE = 262_144;
     private static final long LAST_KEY = (long) FILES * ROWS_PER_FILE - 7;
     private static final Duration EVENT_DEADLINE = Duration.ofSeconds(25);
 
     @Test
-    void publishedBuildFiltersANativeProbeAlreadyRunningOnTwoWorkers(TestReporter numbers) throws Exception {
+    void publishedBuildFiltersANativeProbeAlreadyRunningOnTwoWorkers() throws Exception {
         var firstTarget = new AtomicReference<URI>();
         var secondTarget = new AtomicReference<URI>();
         try (var first = new ProcessWorkerHttpRelay(firstTarget::get);
@@ -73,10 +74,9 @@ class IndependentLateRuntimeFilterE2ETest extends ContainerTestBase {
                 assertThat(first.forwardingFailures()).isEmpty();
                 assertThat(second.forwardingFailures()).isEmpty();
                 assertThat(processes.reports().forwardingFailures()).isEmpty();
-                numbers.publishEntry(Map.of("baseline_probe_rows", Long.toString(baseline.scanRows()),
-                        "late_probe_rows", Long.toString(late.scanRows()),
-                        "baseline_local_read_bytes", Long.toString(baseline.readBytes()),
-                        "late_local_read_bytes", Long.toString(late.readBytes())));
+                LOG.info("event=independent_late_runtime_filter baselineProbeRows={} lateProbeRows={} "
+                                + "baselineReadBytes={} lateReadBytes={}",
+                        baseline.scanRows(), late.scanRows(), baseline.readBytes(), late.readBytes());
             } catch (Exception | Error failure) {
                 failure.addSuppressed(new IllegalStateException(
                         "Late-filter process diagnostics retained at " + processes.retainDiagnostics()));
