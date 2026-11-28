@@ -46,6 +46,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Three production Main classes in three owned local JVMs; the test JVM never owns an engine. */
 final class IndependentLocalProcesses implements AutoCloseable {
+    private static final String COORDINATOR_HOST = "127.0.0.1";
     private static final Logger LOG = LoggerFactory.getLogger(IndependentLocalProcesses.class);
     private static final Duration STARTUP_TIMEOUT = Duration.ofSeconds(120);
     private final Path workspace;
@@ -173,8 +174,9 @@ final class IndependentLocalProcesses implements AutoCloseable {
             createdTls = new TestTlsAuthority(workspace);
             createdClient = createdTls.issue(nodeName + "-client", "localhost", false);
             String coordinatorDns = shuffleMode == ShuffleMode.REMOTE
-                    ? ProcessRemoteShuffle.COORDINATOR_IDENTITY : null;
-            createdCoordinator = createdTls.issue(nodeName + "-coordinator", advertisedAddress, coordinatorDns, false);
+                    ? ProcessRemoteShuffle.COORDINATOR_IDENTITY : "localhost";
+            createdCoordinator = createdTls.issueForMappedEndpoint(nodeName + "-coordinator",
+                    coordinatorDns, InetAddress.getByName(COORDINATOR_HOST));
             workerIdentities.put(workerId(1),
                     createdTls.issue(workerId(1), advertisedAddress, false));
             workerIdentities.put(workerId(2),
@@ -749,7 +751,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
         return """
                 coordinator:
                   id: "%s"
-                  host: 127.0.0.1
+                  host: "%s"
                   port: %d
                   role: %s
                   admission:
@@ -789,8 +791,9 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   enabled: true
                 indexing:
                   enabled: %s
-                """.formatted(coordinatorId(), coordinatorPort, role, workspace.resolve("coordinator-admission"),
-                internalSecret, security.queryPeerKey(), speculation, advertisedAddress.getHostAddress(),
+                """.formatted(coordinatorId(), COORDINATOR_HOST, coordinatorPort, role,
+                workspace.resolve("coordinator-admission"), internalSecret, security.queryPeerKey(),
+                speculation, COORDINATOR_HOST,
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
                 tls.root(), shuffleMode, remoteShuffle == null ? advertisedAddress.getHostAddress() : "localhost",
                 security.hostJdbcUrl(), security.hostLdapUrl(), indexing)
