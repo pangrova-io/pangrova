@@ -195,7 +195,7 @@ public final class StatementDispatcher {
                         "Cannot publish a control result for a terminal query: " + sm.getState());
             }
             var control = resultService.dispatchControlPlaneRows(
-                    queryId, result.rows(), result.columnNames());
+                    queryId, result.rows(), result.columnNames(), result.columnTypes());
             // The result batch and endpoint must be visible before FINISHED:
             // Native CTAS may already have completed, while an outer DDL still
             // needs to publish its metadata head and acknowledge the statement.

@@ -65,7 +65,6 @@ or qualification work.
 
 <div class="docs-card-grid">
   <a class="docs-card" href="getting-started/quickstart/"><strong>Quickstart</strong><span>Build from source, launch a standalone cluster, and run the first query.</span></a>
-  <a class="docs-card" href="getting-started/capability-status/"><strong>Capability status</strong><span>Implemented paths, default wiring gaps, and qualification limits.</span></a>
   <a class="docs-card" href="getting-started/connectors/lance/"><strong>Lance connector</strong><span>Managed datasets, warehouse rules, snapshots, writes, and limits.</span></a>
   <a class="docs-card" href="architecture/overview/"><strong>Architecture</strong><span>Component ownership, execution boundaries, and protocol mapping.</span></a>
   <a class="docs-card" href="sql-reference/"><strong>SQL reference</strong><span>Supported syntax, execution constraints, and connector requirements.</span></a>

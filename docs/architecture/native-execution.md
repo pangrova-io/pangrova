@@ -25,11 +25,10 @@ sidebar_label: "Native Execution Layer"
 
 The main relational execution path places operators and vector Top-K merging on
 Native Workers. With both streaming and query roles enabled, CDC ingestion runs in
-Worker JVMs. The streaming-only role uses a local connector sink. Native Flight carries relational shuffle
-traffic directly between Workers. See [Current Capability Status](../getting-started/capability-status.md).
-Read-dependent
-Iceberg/Paimon writes are staged through the Java connector SDK from a Native
-write-drain callback; the final catalog commit remains Coordinator-owned.
+Worker JVMs. The streaming-only role uses a local connector sink. Native Flight carries
+relational shuffle traffic directly between Workers. Read-dependent Iceberg/Paimon writes
+are staged through the Java connector SDK from a Native write-drain callback. The
+Coordinator owns the final catalog commit.
 Lance's Rust/C++ FFI is a separate Native storage adapter whose public SQL
 write and catalog publication path is still subject to the acceptance criteria
 in [distributed-writes.md](./distributed-writes.md).
@@ -521,6 +520,28 @@ legacy execution path. The current Velox and connector implementations are
 the production source of truth.
 
 ## 22. Build and Verification
+
+On macOS, the dependency bootstrap builds Folly in Release mode to match the
+inline F14 templates used by Velox and the Worker. A cached Folly archive must
+record Release mode and the current alignment patch digest. Arrow and Arrow
+Flight keep the empty-message storage in `arrow::Status::message` local to each
+dynamic library. Mach-O fixup checks enforce that separation and preserve the
+public Arrow exports.
+
+Thrift libraries and headers come from the same package. The dependency search
+checks the Velox Arrow ExternalProject, the AWS dependency prefix and the Velox
+SDK. Excluding other Thrift archives and FBThrift's `libtransport.a` from archive
+globs keeps one C++ transport implementation for Parquet. Linux Release and
+sanitizer bootstraps omit DuckDB because the corresponding Velox test utilities
+are disabled. On macOS the Native test runner prepares the PostgreSQL fixture
+image with its own timeout before timing fresh Lance broker startup.
+
+Linux production images reuse repository-owned dependency layers whose build
+inputs BuildKit validates. macOS SDK reuse requires the same inputs, runner
+image, architecture, SDK, compiler and linked system libraries as the trusted
+default-branch build that produced it. The Native test job verifies the SDK and
+runs the full test list. Cold macOS builds use separate prerequisite, SDK and
+test jobs with verified SDK handoff.
 
 Generated embedding artifacts use the same canonical logical type contract as
 model output: FLOAT32 is declared as `VECTOR(dimension)`, with dimension in

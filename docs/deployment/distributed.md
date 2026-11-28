@@ -8,9 +8,8 @@ sidebar_position: 2
 
 This guide describes distributed cluster setup on bare-metal servers or VMs with
 object storage. Completing setup does not establish production readiness or validated
-HA/recovery. Read [Current Capability Status](../getting-started/capability-status.md)
-and complete the [Production Checklist](production-checklist.md) with workload and
-failure-test evidence before accepting a deployment.
+HA/recovery. Complete the [Production Checklist](production-checklist.md) with
+workload and failure-test evidence before accepting a deployment.
 
 ---
 

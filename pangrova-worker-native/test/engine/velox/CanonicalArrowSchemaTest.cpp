@@ -7,8 +7,11 @@
 #include <vector>
 
 #include "TestMemoryHelper.h"
+#include "engine/velox/serde/CanonicalArrowBatchBridge.h"
 #include "engine/velox/serde/CanonicalArrowSchema.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/type/Type.h"
+#include "velox/vector/tests/utils/VectorMaker.h"
 
 namespace pangrova::velox::test {
 namespace {
@@ -89,6 +92,26 @@ TEST(CanonicalArrowSchemaTest, ZeroColumnSchemaPreservesRealBatchCardinality) {
   const auto rebound = bindCanonicalArrowSchema(batch, schema);
   EXPECT_EQ(rebound->num_rows(), 3);
   EXPECT_EQ(rebound->num_columns(), 0);
+}
+
+TEST(CanonicalArrowSchemaTest, NullParentMasksUnrepresentableTimestampBeforeArrowConversion) {
+  using namespace facebook::velox;
+  const auto pool = pangrova::test::testLeafPool("canonical-arrow-null-timestamp");
+  facebook::velox::test::VectorMaker maker(pool.get());
+  const auto values = maker.flatVector<Timestamp>(
+      {Timestamp(1, 234), Timestamp(10'000'000'000, 0), Timestamp(2, 345)});
+  auto nested = maker.rowVector({"created_at"}, {values});
+  const auto rows = maker.rowVector({"file"}, {nested});
+  EXPECT_THROW(exportArrowRecordBatch(rows, pool.get()), VeloxUserError);
+
+  nested->setNull(1, true);
+  const auto batch = exportArrowRecordBatch(rows, pool.get());
+  const auto files = std::static_pointer_cast<arrow::StructArray>(batch->column(0));
+  const auto timestamps = std::static_pointer_cast<arrow::TimestampArray>(files->field(0));
+  EXPECT_EQ(timestamps->Value(0), 1'000'000'234);
+  EXPECT_TRUE(files->IsNull(1));
+  EXPECT_TRUE(timestamps->IsNull(1));
+  EXPECT_EQ(timestamps->Value(2), 2'000'000'345);
 }
 
 }  // namespace

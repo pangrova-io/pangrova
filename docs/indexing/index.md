@@ -58,5 +58,4 @@ published generation, and the actual query plan.
   a later Paimon snapshot expiry does not break retained index maintenance.
 
 **See also:** [Indexing architecture](../architecture/indexing.md),
-[Maintenance](../sql-reference/maintenance.md),
-[Current capability status](../getting-started/capability-status.md)
+[Maintenance](../sql-reference/maintenance.md)

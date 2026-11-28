@@ -11,6 +11,11 @@ env:
 jobs:
   validation:
     name: Validate release revision
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+      packages: read
     uses: ./.github/workflows/ci.yml
 
   native-build:

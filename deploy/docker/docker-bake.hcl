@@ -21,6 +21,13 @@ target "native-build" {
   platforms = split(",", PLATFORMS)
 }
 
+# Publish compiler and dependency layers without compiling the Pangrova JNI or Java sources.
+target "native-production-dependencies" {
+  inherits = ["native-build"]
+  target = "builder"
+  output = ["type=cacheonly"]
+}
+
 target "pangrova" {
   context = "."
   dockerfile = "deploy/docker/Dockerfile"

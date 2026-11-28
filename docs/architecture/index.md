@@ -14,8 +14,7 @@ sidebar_position: 1
 Pangrova is a **distributed SQL query engine for the lakehouse**. It pairs an Apache **Calcite** optimizer with the **Velox** native vectorized
 execution engine and uses Apache **Arrow** for columnar exchange. Java owns coordination,
 planning, metadata, and final catalog commits; C++ owns vectorized relational execution,
-including DML. Known CDC and other migration gaps are described in
-[Current Capability Status](../getting-started/capability-status.md).
+including DML. See [Streaming](streaming.md) for CDC execution and recovery boundaries.
 
 ![Planning stack: SQL and API, ANTLR parser, Calcite optimizer, Substrait plan, and Velox execution](../../website/static/img/diagrams/planning-stack.svg)
 

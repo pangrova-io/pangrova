@@ -89,6 +89,19 @@ class RunNativeTestsTest(unittest.TestCase):
                 self.fail("Tests admitted without fixture readiness")
         self.assert_stopped()
 
+    def test_image_preparation_has_its_own_command_log_and_deadline(self):
+        log = self.root / "container-image.log"
+        RUNNER.prepare_fixture_image(
+            [sys.executable, "-c", "import sys; print(sys.argv[1])"], self.root, log)
+        self.assertEqual(log.read_text().strip(), "--prepare-image")
+        with self.assertRaisesRegex(RuntimeError, "image preparation exited 17"):
+            RUNNER.prepare_fixture_image(
+                [sys.executable, "-c", "print('image error'); raise SystemExit(17)"], self.root, log)
+        self.assertIn("image error", log.read_text())
+        with self.assertRaisesRegex(RuntimeError, "image preparation timed out"):
+            RUNNER.prepare_fixture_image(
+                [sys.executable, "-c", "import time; time.sleep(2)"], self.root, log, timeout=0.1)
+
     def test_interrupt_stops_fixture(self):
         with self.assertRaises(KeyboardInterrupt):
             with self.fixture():

@@ -2386,6 +2386,8 @@ dependencies = [
 [[package]]
 name = "lance"
 version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cceab54ac337e206bab80de6438f036fa26c84b4721a45efdbd08be0bd2f9e30"
 dependencies = [
  "arrow",
  "arrow-arith",
@@ -2556,6 +2558,8 @@ dependencies = [
 [[package]]
 name = "lance-encoding"
 version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8057c9ca7f3d84640514531c5dfe81fb288a24e414f086284c8bac8b3539e650"
 dependencies = [
  "arrayref",
  "arrow",
@@ -2594,6 +2598,8 @@ dependencies = [
 [[package]]
 name = "lance-file"
 version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2f5a12060b6a1626a52fc7821d53a9f1e9c7d0b87cfaa4a9b08e5a7762ed98a"
 dependencies = [
  "arrow-arith",
  "arrow-array",
@@ -2681,6 +2687,8 @@ dependencies = [
 [[package]]
 name = "lance-io"
 version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c17e6739ec725950dbe77814d34b03bd29a03c1807c1406994fcf57ff87f94ef"
 dependencies = [
  "arrow",
  "arrow-arith",

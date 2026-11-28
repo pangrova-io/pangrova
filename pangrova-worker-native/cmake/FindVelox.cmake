@@ -266,6 +266,9 @@ endif()
 
 # 3a) deps-install (folly, glog, gflags, fmt, boost, etc.)
 # Search relative to VELOX_HOME and VELOX_INSTALL_PREFIX only — no hardcoded paths.
+# Velox Parquet uses Apache Thrift. FBThrift's libtransport.a supplies
+# incompatible apache::thrift symbols. Select the Apache archive explicitly.
+set(_THRIFT_ARCHIVE_PATTERN "/lib(thrift[^/]*|transport)[.]a$")
 set(_DEPS_INSTALL "")
 foreach(_di "${VELOX_HOME}/deps-install" "${VELOX_INSTALL_PREFIX}/deps-install")
   if(_di AND EXISTS "${_di}/include/folly/Executor.h")
@@ -298,13 +301,14 @@ if(_DEPS_INSTALL)
     # RE2's complete canonical package owns both headers and library. A different
     # deps-install archive must not replace it or supply duplicate definitions.
     list(FILTER _DEPS_INSTALL_LIBS EXCLUDE REGEX "libre2")
+    list(FILTER _DEPS_INSTALL_LIBS EXCLUDE REGEX "${_THRIFT_ARCHIVE_PATTERN}")
     pangrova_select_abseil_targets(_DEPS_INSTALL_LIBS ${_DEPS_INSTALL_LIBS})
     target_link_libraries(velox_imported INTERFACE ${_DEPS_INSTALL_LIBS})
     include("${CMAKE_CURRENT_LIST_DIR}/PangrovaRe2.cmake")
     target_link_libraries(velox_imported INTERFACE re2::re2)
     message(STATUS "re2 (canonical package): ${_PANGROVA_RE2_DIR}")
     list(LENGTH _DEPS_INSTALL_LIBS _N_DI)
-    message(STATUS "Velox deps-install libs: ${_N_DI} .a files (gflags, re2 excluded)")
+    message(STATUS "Velox deps-install libs: ${_N_DI} .a files (gflags, re2, thrift excluded)")
   endif()
 else()
   message(WARNING "Velox deps-install NOT found — folly/glog/gflags headers may be missing")
@@ -393,6 +397,7 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/_deps")
     # Including Velox's bundled c-ares causes duplicate symbol errors (ares_inet_pton).
     list(FILTER _VENDORED_LIBS EXCLUDE REGEX "c-ares-build")
     list(FILTER _VENDORED_LIBS EXCLUDE REGEX "libre2\\.a$")
+    list(FILTER _VENDORED_LIBS EXCLUDE REGEX "${_THRIFT_ARCHIVE_PATTERN}")
     # gflags must come from one PIC shared object, never a vendored archive.
     list(FILTER _VENDORED_LIBS EXCLUDE REGEX "libgflags")
     if(PANGROVA_ASAN_FOLLY_PREFIX)
@@ -429,6 +434,7 @@ if(VELOX_INSTALL_PREFIX AND EXISTS "${VELOX_INSTALL_PREFIX}/lib")
   if(_INSTALL_PREFIX_LIBS)
     list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libvelox\\.a$")
     list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libre2\\.a$")
+    list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "${_THRIFT_ARCHIVE_PATTERN}")
     list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libgflags")
     if(PANGROVA_ASAN_FOLLY_PREFIX)
       list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "/libfolly[^/]*[.]a$")
@@ -646,38 +652,30 @@ if(VELOX_BUILD_DIR)
   endif()
 endif()
 
-# 9) Apache Thrift (required by Velox Hive connector — force-loaded from libvelox.a)
-# Thrift is built by Arrow's ExternalProject during Velox build.
+# 9) Apache Thrift, built by Arrow's ExternalProject or supplied by Velox's SDK.
+set(_THRIFT_SEARCH_DIRS)
 if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
-  # Find thrift_ep-install from Velox's Arrow build tree
-  set(_THRIFT_SEARCH_DIRS
+  list(APPEND _THRIFT_SEARCH_DIRS
     "${VELOX_BUILD_DIR}/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install"
   )
-  set(_PANGROVA_THRIFT_LINKED FALSE)
-  foreach(_td ${_THRIFT_SEARCH_DIRS})
-    if(EXISTS "${_td}/lib/libthrift.a")
-      if(NOT EXISTS "${_td}/include/thrift/TApplicationException.h")
-        message(FATAL_ERROR "The selected Velox Thrift archive requires its matching headers: ${_td}/include")
-      endif()
-      target_include_directories(velox_imported SYSTEM INTERFACE "${_td}/include")
-      target_link_libraries(velox_imported INTERFACE "${_td}/lib/libthrift.a")
-      set(_PANGROVA_THRIFT_LINKED TRUE)
-      message(STATUS "Thrift: ${_td}/lib/libthrift.a")
-      break()
-    endif()
-  endforeach()
 endif()
-
-# Velox can also resolve Thrift from the dependency prefix that supplied its
-# AWS SDK; the archive and headers are installed together there.
-if(NOT _PANGROVA_THRIFT_LINKED AND _AWS_LIBS_DIR AND EXISTS "${_AWS_LIBS_DIR}/libthrift.a")
+if(_AWS_LIBS_DIR)
   get_filename_component(_THRIFT_FALLBACK_PREFIX "${_AWS_LIBS_DIR}" DIRECTORY)
-  if(EXISTS "${_THRIFT_FALLBACK_PREFIX}/include/thrift/TApplicationException.h")
-    target_include_directories(velox_imported SYSTEM INTERFACE "${_THRIFT_FALLBACK_PREFIX}/include")
-  endif()
-  target_link_libraries(velox_imported INTERFACE "${_AWS_LIBS_DIR}/libthrift.a")
-  message(STATUS "Thrift: ${_AWS_LIBS_DIR}/libthrift.a")
+  list(APPEND _THRIFT_SEARCH_DIRS "${_THRIFT_FALLBACK_PREFIX}")
 endif()
+list(APPEND _THRIFT_SEARCH_DIRS "${_DEPS_INSTALL}" "${VELOX_INSTALL_PREFIX}")
+list(REMOVE_DUPLICATES _THRIFT_SEARCH_DIRS)
+foreach(_td IN LISTS _THRIFT_SEARCH_DIRS)
+  if(_td AND EXISTS "${_td}/lib/libthrift.a")
+    if(NOT EXISTS "${_td}/include/thrift/TApplicationException.h")
+      message(FATAL_ERROR "The selected Velox Thrift archive requires its matching headers: ${_td}/include")
+    endif()
+    target_include_directories(velox_imported SYSTEM INTERFACE "${_td}/include")
+    target_link_libraries(velox_imported INTERFACE "${_td}/lib/libthrift.a")
+    message(STATUS "Thrift: ${_td}/lib/libthrift.a")
+    break()
+  endif()
+endforeach()
 
 # Thrift and s2n resolve against OpenSSL/curl after the static groups above.
 if(NOT APPLE AND NOT PANGROVA_PRODUCTION_BUILD)

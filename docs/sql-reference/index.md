@@ -20,7 +20,6 @@ the relevant boundary.
 | Syntax only | Parser/AST recognition does not reach a working default execution path |
 | Target | Intended behavior, explicitly labelled; no executable support claim |
 
-Check [Current Capability Status](../getting-started/capability-status.md) first.
 A test file is evidence of intended coverage; only a recorded executed result establishes
 that the tested path passed for its platform, dependencies, and revision.
 

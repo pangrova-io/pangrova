@@ -126,7 +126,8 @@ ALTER TABLE prod.analytics.orders ADD COLUMN discount DECIMAL(10, 2) DEFAULT 0.0
 The default literal must be castable to the declared column type. An
 incompatible literal is rejected before the schema change is committed.
 Iceberg stores the default in schema metadata; automatic read-time and
-write-time default injection is not yet implemented.
+write-time default injection is not yet implemented. Reads of older Iceberg
+files project an absent column as NULL when no partition value supplies it.
 
 **DROP COLUMN:**
 

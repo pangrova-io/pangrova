@@ -5,18 +5,22 @@
 // to proto wire format, including per-operator metrics extraction.
 
 #include "CanonicalTestAttempt.h"
+#include "CanonicalTestPlan.h"
+#include "TestMemoryHelper.h"
 #include <gtest/gtest.h>
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <openssl/evp.h>
 
 #include <array>
+#include <chrono>
 
 #include "command/StatusSerializer.h"
 #include "engine/velox/runner/TaskStatsEncoding.h"
 
 #include "pangrova/protocol/v2/result.pb.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
+#include "substrait/plan.pb.h"
 
 // Velox TaskStats for constructing test data.
 #if __has_include("velox/exec/TaskStats.h")
@@ -322,7 +326,8 @@ TEST_F(StatusSerializerTest, TaskReportPreservesExactAdmittedWorkerIncarnation) 
   EXPECT_EQ(status.attempt().SerializeAsString(), context.attempt().SerializeAsString());
 }
 
-TEST_F(StatusSerializerTest, TaskReportCarriesCanonicalArtifactWorkReport) {
+TEST_F(StatusSerializerTest, OnlySuccessfulTasksReportStagedArtifactWork) {
+  (void)pangrova::test::testMemoryManager();
   executor::TaskExecutorConfig config;
   config.function_registry =
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
@@ -337,13 +342,23 @@ TEST_F(StatusSerializerTest, TaskReportCarriesCanonicalArtifactWorkReport) {
   config.owner_id = "coordinator-a";
   config.owner_incarnation = "process-a";
   config.owner_fencing_token = 19;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
+  auto* root = plan.add_relations()->mutable_root();
+  root->add_names("value");
+  auto* read = root->mutable_input()->mutable_read();
+  read->mutable_base_schema()->add_names("value");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  read->mutable_virtual_table()->add_expressions()->add_fields()->mutable_literal()->set_i64(42);
+  auto plan_bytes = plan.SerializeAsString();
+  config.substrait_plan.assign(plan_bytes.begin(), plan_bytes.end());
   pangrova::test::bindTestAttempt(config);
   executor::TaskExecutor executor(config);
 
   protocol::v2::ArtifactWorkReport report;
   report.set_job_id("job-1");
   report.set_page_id("page-1");
-  report.set_fencing_token(5);
+  report.set_fencing_token(47);
   report.set_source_id("catalog.schema.items");
   report.set_source_snapshot("snapshot-1");
   report.set_staging_generation("generation-1");
@@ -370,6 +385,24 @@ TEST_F(StatusSerializerTest, TaskReportCarriesCanonicalArtifactWorkReport) {
   auto bytes = serializeTaskStatus(executor);
   protocol::v2::TaskReport status;
   ASSERT_TRUE(status.ParseFromArray(bytes.data(), bytes.size()));
+  EXPECT_EQ(status.state(), protocol::v2::TASK_STATE_PENDING);
+  EXPECT_FALSE(status.has_artifact_work());
+
+  executor::TaskExecutor cancelled(config);
+  cancelled.release();
+  bytes = serializeTaskStatus(cancelled);
+  ASSERT_TRUE(status.ParseFromArray(bytes.data(), bytes.size()));
+  EXPECT_EQ(status.state(), protocol::v2::TASK_STATE_CANCELLED);
+  EXPECT_EQ(status.execution_drain_state(), protocol::v2::EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+  EXPECT_FALSE(status.has_artifact_work());
+
+  executor.start();
+  ASSERT_EQ(executor.awaitTerminal(std::chrono::seconds(5)), executor::ExecutorState::FINISHED)
+      << executor.errorMessage();
+  executor.release();
+  bytes = serializeTaskStatus(executor);
+  ASSERT_TRUE(status.ParseFromArray(bytes.data(), bytes.size()));
+  EXPECT_EQ(status.state(), protocol::v2::TASK_STATE_FINISHED);
   ASSERT_TRUE(status.has_attempt());
   EXPECT_EQ(status.report_origin(),
             protocol::v2::TASK_REPORT_ORIGIN_NATIVE);

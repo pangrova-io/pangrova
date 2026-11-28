@@ -5,14 +5,13 @@
 # Usage:
 #   bin/pangrova-catalog.sh list
 #   bin/pangrova-catalog.sh show <catalog-name>
-#   bin/pangrova-catalog.sh test <catalog-name> [--coordinator-url <url>] [--token <tok>]
+#   bin/pangrova-catalog.sh test <catalog-name> [--coordinator-url <url>] [--token-env <name>]
 #   bin/pangrova-catalog.sh --help
 #
 # Subcommands:
 #   list    — List all configured catalogs from $PANGROVA_CONF_DIR/catalog/
 #   show    — Print the full YAML content of a catalog configuration
-#   test    — Test a catalog connection via Coordinator API
-#             (requires curl; API endpoint not yet implemented)
+#   test    — List schemas in a registered catalog through the SQL CLI
 #
 # Environment:
 #   PANGROVA_HOME        — Project root (auto-detected from script location)
@@ -35,12 +34,12 @@ Pangrova Catalog management utility.
 Subcommands:
   list                            List all configured catalogs
   show <catalog-name>             Print the full YAML content of a catalog
-  test <catalog-name> [opts]      Test a catalog connection via Coordinator API
+  test <catalog-name> [opts]      List schemas in a registered catalog
 
 Options for 'test':
   --coordinator-url <url>         Coordinator base URL (default: ${DEFAULT_COORDINATOR_URL})
   --token <token>                 Bearer token for authenticated Coordinators
-  --insecure                      Skip TLS certificate verification
+  --token-env <name>              Read Bearer token from an environment variable
 
 Environment Variables:
   PANGROVA_HOME       Project root directory (auto-detected)
@@ -48,15 +47,11 @@ Environment Variables:
 
 Catalog files are stored in: \$PANGROVA_CONF_DIR/catalog/*.yml
 
-NOTE:
-  The 'test' subcommand depends on POST /v1/catalogs/{name}/test,
-  which is not yet implemented in the Coordinator.
-
 Examples:
   $(basename "$0") list
   $(basename "$0") show my-iceberg
   $(basename "$0") test my-iceberg
-  $(basename "$0") test my-iceberg --coordinator-url https://coordinator:8080 --token \$PANGROVA_TOKEN
+  $(basename "$0") test my-iceberg --coordinator-url https://coordinator:8080 --token-env PANGROVA_TOKEN
 EOF
     exit 0
 }
@@ -124,10 +119,10 @@ cmd_show() {
 }
 
 # --- test subcommand ---
-cmd_test() {
+cmd_test() (
     if [[ $# -eq 0 ]]; then
         echo "ERROR: 'test' requires a catalog name." >&2
-        echo "Usage: $(basename "$0") test <catalog-name> [--coordinator-url <url>] [--token <tok>]" >&2
+        echo "Usage: $(basename "$0") test <catalog-name> [--coordinator-url <url>] [--token-env <name>]" >&2
         exit 1
     fi
 
@@ -135,66 +130,50 @@ cmd_test() {
     shift
 
     local coordinator_url="$DEFAULT_COORDINATOR_URL"
-    local token=""
-    local insecure=false
+    local auth_args=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --coordinator-url)
-                coordinator_url="$2"; shift 2
+                [[ $# -ge 2 ]] || { echo "ERROR: $1 requires a value." >&2; exit 1; }
+                coordinator_url="$2"
                 ;;
-            --token)
-                token="$2"; shift 2
-                ;;
-            --insecure)
-                insecure=true; shift
+            --token|--token-env)
+                [[ $# -ge 2 ]] || { echo "ERROR: $1 requires a value." >&2; exit 1; }
+                auth_args+=("$1" "$2")
                 ;;
             *)
                 echo "ERROR: Unknown option: $1" >&2
                 exit 1
                 ;;
         esac
+        shift 2
     done
 
-    local catalog_file="$CATALOG_DIR/${catalog_name}.yml"
-    if [[ ! -f "$catalog_file" ]]; then
-        echo "ERROR: Catalog configuration not found: ${catalog_file}" >&2
+    local url_pattern='^(https?)://(\[[0-9a-fA-F:]+\]|[^:/?#[:space:]@]+)(:([0-9]+))?/?$'
+    if [[ ! "$coordinator_url" =~ $url_pattern ]]; then
+        echo "ERROR: Expected an HTTP or HTTPS Coordinator base URL." >&2
         exit 1
     fi
+    local host="${BASH_REMATCH[2]}" port="${BASH_REMATCH[4]}" tls=false
+    if [[ "${BASH_REMATCH[1]}" == https ]]; then
+        tls=true
+        port="${port:-443}"
+    fi
+    port="${port:-80}"
 
-    if ! command -v curl &>/dev/null; then
-        echo "ERROR: curl is required but not found in PATH." >&2
+    local query_file
+    query_file="$(mktemp "${TMPDIR:-/tmp}/pangrova-catalog-test.XXXXXXXX")"
+    trap 'rm -f -- "$query_file"' EXIT
+    printf 'SHOW SCHEMAS IN "%s"\n' "${catalog_name//\"/\"\"}" > "$query_file"
+
+    if ! "$SCRIPT_DIR/pangrova-cli.sh" --host "$host" --port "$port" --ssl "$tls" \
+            --query-timeout 30s --file "$query_file" ${auth_args[@]+"${auth_args[@]}"}; then
+        echo "FAILED: Catalog '$catalog_name' connection test failed." >&2
         exit 1
     fi
-
-    local curl_args=(-s -w "\n%{http_code}" --connect-timeout 10 --max-time 30
-                     -X POST -H "Content-Type: application/yaml" -d @"$catalog_file")
-    [[ "$insecure" == "true" ]] && curl_args+=(-k)
-    [[ -n "$token" ]] && curl_args+=(-H "Authorization: Bearer ${token}")
-
-    local url="${coordinator_url}/v1/catalogs/${catalog_name}/test"
-    echo "Testing catalog '${catalog_name}' via ${url} ..."
-
-    local response
-    response=$(curl "${curl_args[@]}" "$url" 2>/dev/null) || {
-        echo "FAILED: Unable to connect to Coordinator at ${coordinator_url}." >&2
-        exit 1
-    }
-
-    local http_code
-    http_code=$(echo "$response" | tail -1)
-    local body
-    body=$(echo "$response" | sed '$d')
-
-    if [[ "$http_code" == "200" ]]; then
-        echo "SUCCESS: Catalog '${catalog_name}' connection test passed."
-        [[ -n "$body" ]] && echo "$body"
-    else
-        echo "FAILED: Catalog '${catalog_name}' connection test failed (HTTP ${http_code})." >&2
-        [[ -n "$body" ]] && echo "$body" >&2
-        exit 1
-    fi
-}
+    echo "SUCCESS: Catalog '$catalog_name' connection test passed."
+)
 
 # --- Main ---
 if [[ $# -eq 0 ]]; then

@@ -253,6 +253,7 @@ class IndexDdlReadAuthorizationTest {
                 "index_name", "index_type", "columns", "state", "stale_reason", "created_at",
                 "algorithm", "metric", "index_id", "generation", "build_snapshot_id",
                 "last_indexed_snapshot_id", "updated_at");
+        assertThat(IndexDdlExecutor.SHOW_INDEX_COLUMNS).containsExactlyElementsOf(row.columnNames());
         assertThat(row.getString("index_id")).isEqualTo("index-1");
         assertThat(row.getInt("generation")).isZero();
         assertThat(row.getString("build_snapshot_id")).isEqualTo("snap-1");

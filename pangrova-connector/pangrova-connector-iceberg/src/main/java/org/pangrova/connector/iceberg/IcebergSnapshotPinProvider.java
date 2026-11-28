@@ -10,6 +10,7 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -72,8 +73,16 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
     @Override
     public void validateSnapshotPin(String catalogName, String schemaName, String tableName,
                                     String snapshotToken, SnapshotPinOwner owner) {
-        Table table = load(schemaName, tableName);
         long snapshotId = snapshotId(snapshotToken);
+        Table table;
+        try {
+            table = load(schemaName, tableName);
+        } catch (NoSuchTableException missing) {
+            var expired = new SnapshotExpiredException(snapshotToken,
+                    "Pinned Iceberg source table is no longer available: " + schemaName + "." + tableName);
+            expired.initCause(missing);
+            throw expired;
+        }
         if (exactTags(table, owner, snapshotToken, snapshotId).isEmpty()) {
             throw new SnapshotExpiredException(snapshotToken,
                     "Iceberg index snapshot pin is absent for " + owner.id());

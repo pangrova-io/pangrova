@@ -121,7 +121,7 @@ class DdlExecutorAlterTableTest {
 
         ddlExecutor.executeAlterTable(stmt, statementSession());
 
-        assertThat(recordingMetadata.operations).containsExactly("prepare", "dropColumn(name)", "commit");
+        assertThat(recordingMetadata.operations).containsExactly("prepare", "dropColumn(name)", "commit", "apply");
         assertThat(observed.get().type()).isEqualTo(SchemaChangeType.DROP_COLUMN);
         assertThat(observed.get().oldColumnName()).isEqualTo("name");
     }
@@ -204,7 +204,7 @@ class DdlExecutorAlterTableTest {
         assertThat(ddlExecutor.executeDropTable(
                 new DropTableStatement(Identifier.of("test_cat", "default", "users"), false),
                 statementSession())).isEmpty();
-        assertThat(recordingMetadata.operations).containsExactly("prepare", "dropTable", "commit");
+        assertThat(recordingMetadata.operations).containsExactly("prepare", "dropTable", "commit", "apply");
     }
 
     @Test
@@ -226,16 +226,33 @@ class DdlExecutorAlterTableTest {
     private static IndexSchemaEvolutionHandler schemaHandler(
             List<String> operations, AtomicReference<SchemaChangeEvent> observed,
             RuntimeException abortFailure) {
+        UUID operationId = UUID.randomUUID();
+        var now = java.time.Instant.now();
         IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
                 DdlExecutorAlterTableTest.class.getClassLoader(), new Class<?>[] {IndexMetadataStore.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "prepareSchemaEvolution" -> {
                         operations.add("prepare");
                         observed.set((SchemaChangeEvent) arguments[0]);
-                        yield UUID.randomUUID();
+                        yield operationId;
                     }
                     case "markSchemaEvolutionCommitted" -> {
+                        assertThat(arguments[0]).isEqualTo(operationId);
                         operations.add("commit");
+                        yield null;
+                    }
+                    case "findSchemaEvolution" -> {
+                        assertThat(arguments[0]).isEqualTo(operationId);
+                        assertThat(operations).endsWith("commit");
+                        yield Optional.of(new org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore
+                                .IndexSchemaEvolutionRecord(operationId, null, observed.get(),
+                                        org.pangrova.persistence.indexing.api.enums.IndexSchemaEvolutionState.COMMITTED,
+                                        now, now));
+                    }
+                    case "listSchemaEvolutionTargets" -> List.of();
+                    case "applySchemaEvolution" -> {
+                        assertThat(arguments[0]).isEqualTo(operationId);
+                        operations.add("apply");
                         yield null;
                     }
                     case "markSchemaEvolutionAborted" -> {

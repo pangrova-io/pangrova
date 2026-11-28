@@ -133,7 +133,8 @@ def emit_scope(*, runtime, native, performance):
     print(f"runtime={str(runtime).lower()}")
     print(f"native={str(native).lower()}")
     print(f"performance={str(performance).lower()}")
-    platforms = NATIVE_PLATFORMS if native else NATIVE_PLATFORMS[:1]
+    print('linux_native=' + json.dumps(NATIVE_PLATFORMS[0], separators=(',', ':')))
+    platforms = NATIVE_PLATFORMS[1:] if native else []
     print('native_matrix=' + json.dumps(platforms, separators=(',', ':')))
 
 

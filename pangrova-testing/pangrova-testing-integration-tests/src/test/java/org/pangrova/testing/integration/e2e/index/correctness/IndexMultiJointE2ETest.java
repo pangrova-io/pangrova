@@ -83,7 +83,7 @@ class IndexMultiJointE2ETest extends SqlE2ETestBase {
             assertCorrectnessInvariant(fqn,
                     "user_id = 1 AND amount BETWEEN 40.0 AND 80.0",
                     "CREATE INDEX idx_bf_uid ON " + fqn + "(user_id) USING BLOOM_FILTER",
-                    "CREATE INDEX idx_bt_amt ON " + fqn + "(amount) USING BTREE");
+                    "CREATE INDEX idx_bt_amt ON " + fqn + "(amount) USING BTREE FORCE");
         }
 
         @Test
@@ -92,7 +92,7 @@ class IndexMultiJointE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE INDEX idx_bf ON " + fqn
                     + "(user_id) USING BLOOM_FILTER");
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn
@@ -127,7 +127,7 @@ class IndexMultiJointE2ETest extends SqlE2ETestBase {
             assertCorrectnessInvariant(fqn,
                     "user_id = 1 AND (amount BETWEEN 40.0 AND 80.0) AND status = 'ACTIVE'",
                     "CREATE INDEX idx_bf_uid ON " + fqn + "(user_id) USING BLOOM_FILTER",
-                    "CREATE INDEX idx_bt_amt ON " + fqn + "(amount) USING BTREE",
+                    "CREATE INDEX idx_bt_amt ON " + fqn + "(amount) USING BTREE FORCE",
                     "CREATE INDEX idx_bm_st ON " + fqn + "(status) USING BITMAP");
         }
 
@@ -137,7 +137,7 @@ class IndexMultiJointE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE INDEX idx_bf ON " + fqn
                     + "(user_id) USING BLOOM_FILTER");
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
             sqlRunner.executeDdl("CREATE INDEX idx_bm ON " + fqn
                     + "(status) USING BITMAP");
 

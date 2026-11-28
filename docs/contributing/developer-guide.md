@@ -71,17 +71,33 @@ an older archive into the expected path is rejected. When installing a separate
 matching header in `include/`. The receipt is created only after a successful
 build whose inputs remained unchanged.
 
+The checked-in Lance FFI Cargo manifest and lockfile use the published crate
+identities so Dependabot can resolve them from a clean checkout. The Native build
+prepares the reviewed Lance SDK and makes Cargo resolve the same locked graph
+with all four patched crates from those verified local paths. Build the archive
+through `build-lance-ffi.sh` so the build verifies the selected SDK sources.
+
+The Lance FFI manifest tests use temporary local datasets. They check that two
+writers produce one immutable manifest and that a store which ignores
+conditional creates fails before publishing. Each test removes its temporary
+dataset when it exits.
+
+On macOS, the canonical Arrow Flight build uses Arrow's checksummed Zstandard
+source so its codec headers and static archive come from the same build.
+
 The daily Java jobs and production regression restore the Lance fixture tool
-from the same workflow run's Linux x86-64 Native build. The test artifact
+from the same workflow run's Linux x86-64 Native build. The other architectures
+and sanitizers validate in parallel. The final CI gate requires every selected
+job to succeed. The test artifact
 preserves executable permissions and includes the tool's shared dependencies.
 Locally, build the `pangrova_lance_fixture_tool` Native target before running
 the Lance SDK tests. Maven looks for it in `pangrova-worker-native/build` by
 default. Set `-Dpangrova.lance.fixture.tool` when using another build directory.
 
-The macOS CI jobs transfer Native prerequisites and SDK outputs within one
-workflow run. Restoration checks the archive checksum, revision, architecture,
-macOS build, compiler, SDK, and linked Homebrew versions. The job records the
-runner image build and prints the exact identity differences on a mismatch.
+The macOS CI jobs reuse a retained SDK only when its dependency inputs and
+runner toolchain match. Cold builds transfer the prerequisites and SDK within
+the same workflow run. The Native test job verifies the archive checksum and
+the running toolchain before using either SDK.
 
 On GitHub-hosted macOS, the Native test job runs the PostgreSQL TestContainer
 through a temporary Lima Docker VM with loopback port forwarding. The Native
@@ -787,6 +803,10 @@ logging:
 
 
 ### 7.3 CI Failure Summaries
+
+Branch pushes and release calls let an active full validation finish. If
+another run for the same ref is waiting, GitHub keeps the latest pending run.
+A new commit on a pull request cancels its superseded validation.
 
 When CI fails on a push to `main`, open the **Main CI failure diagnostics**
 workflow for the corresponding run and attempt. Its summary lists the first

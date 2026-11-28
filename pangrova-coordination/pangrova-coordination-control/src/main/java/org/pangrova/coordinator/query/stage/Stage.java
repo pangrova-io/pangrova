@@ -151,7 +151,7 @@ public final class Stage {
 
     /** Returns a bounded per-column union for a complete cohort, or null if any summary is absent. */
     public synchronized Map<Integer, List<BuildKeyRange>> completeBuildKeyRanges() {
-        return completedBuildKeyRanges;
+        return completedBuildKeyRanges == null ? null : Map.copyOf(completedBuildKeyRanges);
     }
 
     private void addBuildKeyReport(Map<Integer, List<BuildKeyRange>> ranges) {

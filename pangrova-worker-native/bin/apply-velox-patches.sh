@@ -224,7 +224,7 @@ patched_blobs=(\
   650df1062c638a358291060fc634c2ace82af533
   f8d7e9600c182955a9b13fff2845348072c4d28b
   26ca432896b1aa049be643062d49cb65994964b2
-  919d2c73025eb535124c1c9a4c7895ee9a151bcc
+  5a691d8f48f88c20e1ce35b4b483eef2d2a9b385
   ae843dcab73e3918ef9f8820c979b238710b2f61
   2585c367f6da90bc4bb232da48fa31da0da3ab85
   be770ab32470268a7d803becd4a6b6d1324dca25
@@ -328,6 +328,14 @@ has_blobs() {
     case "$state" in
       base) expected="${base_blobs[$index]}" ;;
       prior) expected="${prior_blobs[$index]}" ;;
+      previous)
+        expected="${patched_blobs[$index]}"
+        if [[ "${source_files[$index]}" == velox/vector/arrow/Bridge.cpp ]]; then
+          expected=919d2c73025eb535124c1c9a4c7895ee9a151bcc
+        elif [[ "${source_files[$index]}" == "$s3_sources/"* ]]; then
+          expected="${base_blobs[$index]}"
+        fi
+        ;;
       patched) expected="${patched_blobs[$index]}" ;;
       before_s3_stats)
         expected="${patched_blobs[$index]}"
@@ -348,10 +356,10 @@ verify_source() {
 
 prior_upgrade_patch() {
   # Upgrade only the complete, reviewed source checkpoint immediately preceding
-  # the current canonical patch. Reject partial or unknown drift.
+  # the timestamp range fix. Reject partial or unknown drift.
   cat <<'PANGROVA_PRIOR_UPGRADE'
 diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
-index 53d5184..919d2c7 100644
+index 53d5184..5a691d8 100644
 --- a/velox/vector/arrow/Bridge.cpp
 +++ b/velox/vector/arrow/Bridge.cpp
 @@ -548,0 +549,14 @@ void gatherFromTimeBuffer(
@@ -369,13 +377,142 @@ index 53d5184..919d2c7 100644
 +  return static_cast<int64_t>(nanos);
 +}
 +
-@@ -570 +584 @@ void gatherFromTimestampBuffer(
+@@ -557,17 +571,5 @@ void gatherFromTimestampBuffer(
+-  vector_size_t j = 0; // index into dst
+-  if (!vec.mayHaveNulls() || vec.getNullCount() == 0) {
+-    switch (unit) {
+-      case TimestampUnit::kSecond:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].getSeconds(); });
+-        break;
+-      case TimestampUnit::kMilli:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toMillis(); });
+-        break;
+-      case TimestampUnit::kMicro:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toMicros(); });
+-        break;
+-      case TimestampUnit::kNano:
 -        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toNanos(); });
-+        rows.apply([&](vector_size_t i) { dst[j++] = timestampNanosForArrow(src[i]); });
-@@ -605 +619 @@ void gatherFromTimestampBuffer(
+-        break;
+-      default:
+-        VELOX_UNREACHABLE();
++  const auto gather = [&](const auto& convert) {
++    vector_size_t ordinal = 0;
++    if (!rows.masked() && (!vec.mayHaveNulls() || vec.getNullCount() == 0)) {
++      rows.apply([&](vector_size_t row) { dst[ordinal++] = convert(src[row]); });
++      return;
+@@ -575,2 +577,5 @@ void gatherFromTimestampBuffer(
+-    return;
+-  }
++    rows.applyWithVisibility([&](vector_size_t row, bool hidden) {
++      // A null parent may have left this child's value uninitialized.
++      dst[ordinal++] = hidden || vec.isNullAt(row) ? 0 : convert(src[row]);
++    });
++  };
+@@ -579,6 +584 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].getSeconds();
+-        }
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.getSeconds(); });
+@@ -587,6 +587 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].toMillis();
+-        }
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.toMillis(); });
+@@ -595,6 +590 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].toMicros();
+-        };
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.toMicros(); });
+@@ -603,6 +593 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
 -          dst[j] = src[i].toNanos();
-+          dst[j] = timestampNanosForArrow(src[i]);
+-        }
+-        j++;
+-      });
++      gather(timestampNanosForArrow);
 PANGROVA_PRIOR_UPGRADE
+}
+
+previous_upgrade_patch() {
+  cat <<'PANGROVA_PREVIOUS_UPGRADE'
+diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
+index 919d2c7..5a691d8 100644
+--- a/velox/vector/arrow/Bridge.cpp
++++ b/velox/vector/arrow/Bridge.cpp
+@@ -571,17 +571,5 @@ void gatherFromTimestampBuffer(
+-  vector_size_t j = 0; // index into dst
+-  if (!vec.mayHaveNulls() || vec.getNullCount() == 0) {
+-    switch (unit) {
+-      case TimestampUnit::kSecond:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].getSeconds(); });
+-        break;
+-      case TimestampUnit::kMilli:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toMillis(); });
+-        break;
+-      case TimestampUnit::kMicro:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toMicros(); });
+-        break;
+-      case TimestampUnit::kNano:
+-        rows.apply([&](vector_size_t i) { dst[j++] = timestampNanosForArrow(src[i]); });
+-        break;
+-      default:
+-        VELOX_UNREACHABLE();
++  const auto gather = [&](const auto& convert) {
++    vector_size_t ordinal = 0;
++    if (!rows.masked() && (!vec.mayHaveNulls() || vec.getNullCount() == 0)) {
++      rows.apply([&](vector_size_t row) { dst[ordinal++] = convert(src[row]); });
++      return;
+@@ -589,2 +577,5 @@ void gatherFromTimestampBuffer(
+-    return;
+-  }
++    rows.applyWithVisibility([&](vector_size_t row, bool hidden) {
++      // A null parent may have left this child's value uninitialized.
++      dst[ordinal++] = hidden || vec.isNullAt(row) ? 0 : convert(src[row]);
++    });
++  };
+@@ -593,6 +584 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].getSeconds();
+-        }
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.getSeconds(); });
+@@ -601,6 +587 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].toMillis();
+-        }
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.toMillis(); });
+@@ -609,6 +590 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].toMicros();
+-        };
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.toMicros(); });
+@@ -617,6 +593 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = timestampNanosForArrow(src[i]);
+-        }
+-        j++;
+-      });
++      gather(timestampNanosForArrow);
+PANGROVA_PREVIOUS_UPGRADE
 }
 
 case "$action" in
@@ -386,6 +523,10 @@ case "$action" in
     elif has_blobs prior; then
       prior_upgrade_patch | git -C "$source_dir" apply --unidiff-zero --check
       prior_upgrade_patch | git -C "$source_dir" apply --unidiff-zero
+      git -C "$source_dir" apply --unidiff-zero --include="$s3_sources/*" "$patch_file"
+    elif has_blobs previous; then
+      previous_upgrade_patch | git -C "$source_dir" apply --unidiff-zero --check
+      previous_upgrade_patch | git -C "$source_dir" apply --unidiff-zero
       git -C "$source_dir" apply --unidiff-zero --include="$s3_sources/*" "$patch_file"
     elif has_blobs before_s3_stats; then
       git -C "$source_dir" apply --unidiff-zero --include="$s3_sources/*" "$patch_file"

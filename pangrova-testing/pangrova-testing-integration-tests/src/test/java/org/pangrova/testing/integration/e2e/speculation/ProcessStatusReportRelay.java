@@ -60,6 +60,11 @@ final class ProcessStatusReportRelay implements AutoCloseable {
         coordinator = Objects.requireNonNull(actualCoordinator);
     }
 
+    void reconnect(URI actualCoordinator) {
+        if (coordinator == null) throw new IllegalStateException("Coordinator endpoint is not bound");
+        coordinator = Objects.requireNonNull(actualCoordinator);
+    }
+
     void mapWorkerHttpPorts(ToIntFunction<WorkerRegistrationRequest> mapping) {
         if (!registrations.isEmpty()) throw new IllegalStateException("Workers are already registered");
         httpPortMapping = Objects.requireNonNull(mapping);

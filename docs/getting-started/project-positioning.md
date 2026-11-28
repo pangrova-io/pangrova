@@ -20,9 +20,7 @@ they are not deployed-customer claims or market conclusions validated through cu
 interviews. Specific SQL support depends on the [SQL reference](../sql-reference/index.md),
 connector constraints, and validation of the applicable execution path.
 
-For current default wiring, no-op providers, incomplete lifecycles, and evidence limits,
-read [Current Capability Status](capability-status.md). The customer and benefit analysis
-below describes product fit and hypotheses, not a completed release certification.
+The customer and benefit analysis below describes product fit and hypotheses.
 
 ## Core Problems
 
@@ -210,8 +208,6 @@ Use a consistent introduction across the repository and website: position the en
 lakehouses, then explain the execution stack and intended uses. Describe Iceberg and Paimon
 as the current built-in connectors, with the Connector SPI as the extension point for additional
 table formats and data sources. The main positioning should accommodate that expansion.
-Keep feature qualification in the linked capability status rather than implying all query
-combinations are production ready.
 
 ### GitHub About Description
 
@@ -228,9 +224,8 @@ table formats and data sources. The project targets data platform teams that
 already operate a lakehouse, as well as developers who want to combine business
 data with AI retrieval. It provides SQL capabilities and engineering foundations
 for relational analytics, data processing, vector search, full-text search, and
-model invocation. Specific query combinations, connector limits, and production
-readiness are governed by the [current capability status](capability-status.md)
-and each feature document.
+model invocation. The SQL reference and connector guides describe supported query
+combinations and connector limits.
 
 ### Suggested Repository Topics
 

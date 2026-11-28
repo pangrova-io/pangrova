@@ -348,7 +348,7 @@ class ModuleIntegrationE2ETest extends SqlE2ETestBase {
             sqlRunner.execute(sb2.toString());
 
             sqlRunner.execute(String.format(
-                    "CREATE INDEX btree_idx ON %s.%s.%s (value) USING BTREE",
+                    "CREATE INDEX btree_idx ON %s.%s.%s (value) USING BTREE FORCE",
                     CATALOG, SCHEMA, tableName));
 
             var rows = sqlRunner.execute(String.format(

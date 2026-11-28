@@ -66,8 +66,7 @@ incremental continuous-query materialization.
 **Reading scope:** the diagrams, SQL/API examples, SPI sketches, and connector writer
 sketches below describe design or component contracts unless explicitly identified
 as current bootstrap behavior. They do not establish a working distributed ingestion,
-refresh, maintenance, or recovery lifecycle. Use
-[Current Capability Status](../getting-started/capability-status.md) for default wiring.
+refresh, maintenance, or recovery lifecycle.
 
 **It is NOT a general-purpose stream processing engine.**
 
@@ -766,8 +765,7 @@ See [14 §7](./observability.md) for structured logging format.
 > **CDC execution boundary.** A Coordinator hosting both roles dispatches bounded
 > CDC tasks to Worker JVMs. A streaming-only Coordinator stages those ranges locally. Kafka supplies partition inventory and
 > ZooKeeper remains an optional coordination backend. Catalog publication precedes
-> source acknowledgement, with a failure window between the two operations. See
-> [Current Capability Status](../getting-started/capability-status.md).
+> source acknowledgement, with a failure window between the two operations.
 
 
 > **TableMaintenance Authoritative Definition**: The authoritative async interface is defined in §2.9 of this document. All references in [00 §5.1](./overview.md) and [02 §13.2](./query-execution.md) have been updated to match the async signatures here. Method names use `*Async` suffix with `CompletableFuture<*>` return types.

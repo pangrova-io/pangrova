@@ -34,6 +34,7 @@ import org.pangrova.planner.cost.join.HashJoinRule;
 import org.pangrova.planner.cost.join.SortMergeJoinRule;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
+import org.pangrova.planner.type.PlannerTypeFactory;
 
 import java.io.IOException;
 import java.math.BigDecimal;

@@ -192,8 +192,8 @@ class IndexCrossConnectorE2ETest extends SqlE2ETestBase {
         @DisplayName("BTREE: Iceberg and Paimon return equivalent results")
         void btreeCrossConnector() {
             assertCrossConnectorEquivalence(
-                    "CREATE INDEX idx_bt ON " + iceFqn() + "(amount) USING BTREE",
-                    "CREATE INDEX idx_bt ON " + pmnFqn() + "(amount) USING BTREE",
+                    "CREATE INDEX idx_bt ON " + iceFqn() + "(amount) USING BTREE FORCE",
+                    "CREATE INDEX idx_bt ON " + pmnFqn() + "(amount) USING BTREE FORCE",
                     "amount BETWEEN 100.0 AND 200.0");
         }
 
@@ -201,8 +201,8 @@ class IndexCrossConnectorE2ETest extends SqlE2ETestBase {
         @DisplayName("SPARSE: Iceberg and Paimon return equivalent results")
         void sparseCrossConnector() {
             assertCrossConnectorEquivalence(
-                    "CREATE INDEX idx_sp ON " + iceFqn() + "(user_id) USING SPARSE",
-                    "CREATE INDEX idx_sp ON " + pmnFqn() + "(user_id) USING SPARSE",
+                    "CREATE INDEX idx_sp ON " + iceFqn() + "(user_id) USING SPARSE FORCE",
+                    "CREATE INDEX idx_sp ON " + pmnFqn() + "(user_id) USING SPARSE FORCE",
                     "user_id BETWEEN 1 AND 20");
         }
     }

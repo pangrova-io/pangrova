@@ -1,0 +1,8 @@
+# Used by build-lance-ffi.sh after the SDK source hashes have been verified.
+# The path overrides retain the registry lockfile's dependency graph.
+paths = [
+  "../deps-download/lance-sdk-owned/lance-0.20.0",
+  "../deps-download/lance-sdk-owned/lance-encoding-0.20.0",
+  "../deps-download/lance-sdk-owned/lance-file-0.20.0",
+  "../deps-download/lance-sdk-owned/lance-io-0.20.0",
+]

@@ -40,13 +40,6 @@
   box-shadow: 0 1px 0 rgba(148, 163, 184, 0.12);
 }
 
-div[class^='announcementBar'] {
-  font-size: 0.86rem;
-  font-weight: 500;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
 html,
 body {
   overflow-x: clip;

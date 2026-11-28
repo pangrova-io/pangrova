@@ -24,8 +24,6 @@ tables run only operations enabled by their policy, and OBSERVED/LINKED tables
 cannot be written or dropped through Pangrova. Procedure availability and
 semantics depend on the connector, authenticated context, and storage configuration.
 
-See [Current Capability Status](../getting-started/capability-status.md).
-
 ## Automatic Maintenance
 
 The maintenance leader runs a periodic scan over **controlled tables only**. The

@@ -6,4 +6,4 @@
 # change, so cached prefixes are never reused across an incompatible build.
 VELOX_REF=v2026.04.17.00
 XXHASH_VERSION=0.8.2
-PANGROVA_DEPENDENCY_BUILD=10
+PANGROVA_DEPENDENCY_BUILD=13

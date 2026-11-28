@@ -1,7 +1,6 @@
 package org.pangrova.testing.integration.e2e.index;
 
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Validates: Requirements R12.6
  */
 @DisplayName("Index Data Skipping Performance E2E — Split Reduction >50%")
-class IndexDataSkippingPerformanceE2ETest extends SqlE2ETestBase {
+class IndexDataSkippingPerformanceE2ETest extends NativeIndexE2ETestBase {
 
     private static final String CATALOG = "iceberg_catalog";
     private static final String SCHEMA = "default";
@@ -187,16 +186,14 @@ class IndexDataSkippingPerformanceE2ETest extends SqlE2ETestBase {
             assertThat(indexRow.getRaw("index_type").toString()).isEqualTo("BLOOM_FILTER");
 
             // Phase 3: Query WITH index — correctness invariant
-            var before = nativeIndexSplitTotals();
-            List<TypedRow> withIndex = sqlRunner.execute(
+            var withIndex = executeNativeScan(
                     "SELECT * FROM " + fqn() + " WHERE user_id = 1");
-            var after = nativeIndexSplitTotals();
-            assertThat(withIndex).containsAll(baselineFiltered);
-            assertThat(withIndex).hasSize(baselineMatchCount);
+            assertThat(withIndex.rows()).containsAll(baselineFiltered);
+            assertThat(withIndex.rows()).hasSize(baselineMatchCount);
 
             // Phase 4: Measure the actual split decisions made for this query.
-            long evaluated = after.evaluated() - before.evaluated();
-            long skipped = after.skipped() - before.skipped();
+            long evaluated = withIndex.evaluated();
+            long skipped = withIndex.skipped();
             assertThat(evaluated).as("actual Native pre-scan splits").isGreaterThanOrEqualTo(8);
             assertThat(skipped * 2).as("more than half of Native splits must be skipped")
                     .isGreaterThan(evaluated);

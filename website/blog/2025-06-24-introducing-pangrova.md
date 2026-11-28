@@ -99,9 +99,7 @@ Pangrova extends the same execution model to retrieval and model invocation:
 
 Pangrova is not a managed service, not an OLTP database, and not a claim that every
 SQL combination is production-ready. It is an engine and a set of explicit
-contracts. The [capability status](/docs/getting-started/capability-status) is the
-authoritative map of what is wired, what is partial, and what is still target
-design.
+contracts.
 
 ## 2. Suitable Scenarios
 
@@ -310,7 +308,7 @@ much harder to detect than a failed query. The same discipline applies to the
 project's documentation and roadmap: known gaps are stated, not hidden.
 
 **Boundary.** Fail-closed behavior is a design rule; each path still needs a real
-failure test. The capability status page records the current evidence.
+failure test.
 
 ### 3.10 Where the advantage must be proven
 
@@ -331,10 +329,8 @@ backed by focused unit, integration, and E2E tests. Overall production qualifica
 remains open: component tests do not establish a complete release gate, independent
 multi-Worker recovery, PB-scale capacity, or a qualified performance baseline.
 
-Use the [current capability status](/docs/getting-started/capability-status) for
-implemented paths and known gaps, and the
-[production checklist](/docs/deployment/production-checklist) before a deployment
-decision.
+Use the [production checklist](/docs/deployment/production-checklist) before a
+deployment decision.
 
 ### 4.2 Roadmap
 
@@ -380,8 +376,6 @@ that teams can extend and operate the engine themselves.
 - Start with the [quickstart](/docs/getting-started/quickstart).
 - Read the [architecture overview](/docs/architecture/overview) for the execution
   model and module boundaries.
-- Check [current capability status](/docs/getting-started/capability-status) before
-  relying on a feature in production.
 - Review the [roadmap](/docs/getting-started/roadmap) and propose concrete work
   through GitHub issues.
 

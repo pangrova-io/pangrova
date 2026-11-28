@@ -19,10 +19,11 @@ class LanceArchiveProvenanceTest(unittest.TestCase):
         self.root = Path(self.directory.name) / "source"
         self.native = self.root / "pangrova-worker-native"
         self.crate = self.native / "lance-ffi"
-        files = ["Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml", ".cargo/config.toml", "src/lib.rs",
-                 "include/lance_c_ffi.h"]
+        files = ["Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml", ".cargo/config.toml",
+                 ".cargo/owned-lance-sdk.toml", "src/lib.rs", "include/lance_c_ffi.h"]
         for name in files:
             self.write(self.crate / name, name)
+        self.write(self.native / "bin/build-lance-ffi.sh", "build the verified SDK")
         self.write(self.native / "bin/prepare-lance-sdk.sh", "prepare exact SDK")
         self.write(self.native / "patches/lance-writer-drain.patch", "owned patch")
         self.protocol = self.root / "pangrova-protocol/src/main/proto/common.proto"
@@ -70,6 +71,27 @@ class LanceArchiveProvenanceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed during compilation"):
             self.seal()
         self.assertFalse(Path(str(self.archive) + ".provenance.json").exists())
+
+    def test_rejects_changed_sdk_override_configuration(self):
+        self.seal()
+        self.write(self.crate / ".cargo/owned-lance-sdk.toml", "changed the SDK inputs")
+        with self.assertRaisesRegex(ValueError, "provenance differs"):
+            self.verify()
+
+    def test_requires_exact_owned_cargo_resolution_for_each_patched_crate(self):
+        sdk = self.native / "deps-download/lance-sdk-owned"
+        packages = [
+            {"name": name, "version": "0.20.0", "source": None,
+             "manifest_path": str(sdk / f"{name}-0.20.0/Cargo.toml")}
+            for name in ("lance", "lance-encoding", "lance-file", "lance-io")
+        ]
+        PROVENANCE.verify_sdk_resolution(self.root, {"packages": packages})
+        for change in ({"source": "registry+https://github.com/rust-lang/crates.io-index"},
+                       {"version": "0.20.1"}, {"manifest_path": str(self.crate / "Cargo.toml")}):
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "verified SDK"):
+                PROVENANCE.verify_sdk_resolution(self.root, {"packages": [packages[0] | change, *packages[1:]]})
+        with self.assertRaisesRegex(ValueError, "exactly one resolved lance crate"):
+            PROVENANCE.verify_sdk_resolution(self.root, {"packages": packages[1:]})
 
     def test_packaged_receipt_is_relocatable_but_header_and_target_are_fenced(self):
         self.seal()

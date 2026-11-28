@@ -1,7 +1,14 @@
 package org.pangrova.testing.integration.e2e.index;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.data.Record;
+import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.io.DataWriter;
+import org.apache.iceberg.parquet.Parquet;
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.IndexTestFixture;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Validates: Requirements 9.1, 10.1–10.5, 18.1–18.10, R3.1, R3.2, R3.3, R3.4</p>
  */
 @DisplayName("Index Type Verification E2E")
-class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
+class IndexTypeVerificationE2ETest extends NativeIndexE2ETestBase {
 
     private static final String CATALOG = "iceberg_catalog";
     private static final String SCHEMA = "default";
@@ -149,15 +156,13 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
                     + "(user_id) USING BTREE FORCE");
             IndexReadiness.awaitReady(sqlRunner, nativeFqn, indexName);
 
-            var before = nativeIndexSplitTotals();
-            List<TypedRow> withIndex = sqlRunner.execute(
+            var withIndex = executeNativeScan(
                     "SELECT * FROM " + nativeFqn + " WHERE user_id = 1");
-            var after = nativeIndexSplitTotals();
 
-            assertThat(withIndex).containsExactlyElementsOf(baseline);
-            assertThat(after.evaluated() - before.evaluated())
+            assertThat(withIndex.rows()).containsExactlyElementsOf(baseline);
+            assertThat(withIndex.evaluated())
                     .as("Native pre-scan B-tree evaluations").isGreaterThanOrEqualTo(4);
-            assertThat(after.skipped() - before.skipped())
+            assertThat(withIndex.skipped())
                     .as("Native B-tree skips with overlapping connector ranges").isGreaterThanOrEqualTo(3);
         }
 
@@ -177,32 +182,49 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE INDEX idx_bt_unicode ON " + table + "(word) USING BTREE FORCE");
             IndexReadiness.awaitReady(sqlRunner, table, "idx_bt_unicode");
 
-            var before = nativeIndexSplitTotals();
-            assertThat(sqlRunner.execute(query)).containsExactlyInAnyOrderElementsOf(baseline);
-            assertThat(nativeIndexSplitTotals().evaluated() - before.evaluated())
+            var withIndex = executeNativeScan(query);
+            assertThat(withIndex.rows()).containsExactlyInAnyOrderElementsOf(baseline);
+            assertThat(withIndex.evaluated())
                     .as("the surviving file reaches Native B-tree evaluation").isPositive();
         }
 
         @Test
         @DisplayName("Native B-tree equality retains signed zero under SQL equality")
-        void nativeBTreeSignedZeroMatchesSql() {
-            String table = CATALOG + "." + SCHEMA + ".t_bt_zero_" + System.nanoTime();
+        void nativeBTreeSignedZeroMatchesSql() throws Exception {
+            String name = "t_bt_zero_" + System.nanoTime();
+            String table = CATALOG + "." + SCHEMA + "." + name;
             sqlRunner.executeDdl("CREATE TABLE " + table + " (amount DOUBLE)");
-            sqlRunner.execute("INSERT INTO " + table + " VALUES "
-                    + "(CAST('-0.0' AS DOUBLE)), (CAST(10 AS DOUBLE))");
-            String query = "SELECT amount FROM " + table + " WHERE amount = CAST(0 AS DOUBLE)";
+            // External writers can retain the IEEE 754 sign bit in the Iceberg data file.
+            try (var catalog = new HadoopCatalog(new Configuration(), icebergWarehouse().toString())) {
+                var physicalTable = catalog.loadTable(TableIdentifier.of(SCHEMA, name));
+                DataWriter<Record> writer = Parquet.writeData(physicalTable.io().newOutputFile(
+                                physicalTable.location() + "/data/signed-zero.parquet"))
+                        .schema(physicalTable.schema()).withSpec(physicalTable.spec())
+                        .createWriterFunc(GenericParquetWriter::create).build();
+                try (writer) {
+                    for (double amount : new double[] {-0.0d, 10.0d}) {
+                        GenericRecord row = GenericRecord.create(physicalTable.schema());
+                        row.setField("amount", amount);
+                        writer.write(row);
+                    }
+                }
+                physicalTable.newAppend().appendFile(writer.toDataFile()).commit();
+            }
+            assertThat(sqlRunner.execute("SELECT amount FROM " + table))
+                    .extracting(row -> Double.doubleToRawLongBits(((Number) row.getRaw("amount")).doubleValue()))
+                    .as("the unfiltered source must preserve negative zero")
+                    .containsExactlyInAnyOrder(Double.doubleToRawLongBits(-0.0d), Double.doubleToRawLongBits(10.0d));
+            String query = "SELECT amount FROM " + table + " WHERE amount = 0E0";
             List<TypedRow> baseline = sqlRunner.execute(query);
             assertThat(baseline).hasSize(1);
-            assertThat(Double.doubleToRawLongBits(((Number) baseline.get(0).getRaw("amount")).doubleValue()))
-                    .as("the source fixture must preserve negative zero")
-                    .isEqualTo(Double.doubleToRawLongBits(-0.0d));
             sqlRunner.executeDdl("CREATE INDEX idx_bt_zero ON " + table + "(amount) USING BTREE FORCE");
             IndexReadiness.awaitReady(sqlRunner, table, "idx_bt_zero");
 
-            var before = nativeIndexSplitTotals();
-            assertThat(sqlRunner.execute(query)).containsExactlyInAnyOrderElementsOf(baseline);
-            assertThat(nativeIndexSplitTotals().evaluated() - before.evaluated())
-                    .as("the surviving file reaches Native B-tree evaluation").isPositive();
+            var withIndex = executeNativeScan(query);
+            assertThat(withIndex.rows()).containsExactlyInAnyOrderElementsOf(baseline);
+            assertThat(withIndex.evaluated())
+                    .as("the surviving file reaches Native B-tree evaluation").isEqualTo(1);
+            assertThat(withIndex.skipped()).isZero();
         }
     }
 

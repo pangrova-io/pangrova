@@ -47,9 +47,10 @@ import java.util.concurrent.Future;
 public final class IndexDdlExecutor implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexDdlExecutor.class);
-    /** Stable string-valued schema for SHOW INDEXES, independent of row count or index type. */
+    /** Stable column order for SHOW INDEXES, including results with no descriptors. */
     public static final List<String> SHOW_INDEX_COLUMNS = List.of(
-            "index_name", "index_type", "columns", "state", "stale_reason", "created_at", "algorithm", "metric");
+            "index_name", "index_type", "columns", "state", "stale_reason", "created_at", "algorithm", "metric",
+            "index_id", "generation", "build_snapshot_id", "last_indexed_snapshot_id", "updated_at");
     private static final java.time.Duration CALLBACK_SHUTDOWN_TIMEOUT = java.time.Duration.ofSeconds(30);
 
     private final IndexDdlContext deps;

@@ -193,11 +193,20 @@ names are rejected before dispatch.
    publishes the complete generation. Failed or superseded attempts cannot
    publish.
 
+Native reports staged outputs for successful attempts. A cancelled attempt
+reports its physical execution drain even if staging had already finished.
+The Worker preserves the same cancellation outcome in the seal response and
+the terminal status report. During shutdown, the dispatcher stops issuing work
+and keeps its task identities until it receives exact drain receipts. A drain
+timeout leaves those identities in place and fails shutdown.
+
 Retries reuse stable work-unit identities while attempt IDs and fencing tokens
 advance. No in-memory build state is authoritative. Publication revalidates the
 exact durable and connector pin; cancellation of an expired or revoked job is
-fenced by the current publication owner, epoch and token. A maintenance scan is
-only a candidate list. Cleanup rechecks the current build binding, active
+fenced by the current publication owner, epoch and token. Dropping an Iceberg
+source table makes its pinned snapshot unavailable, so the dispatcher cancels
+the affected job. A maintenance scan is only a candidate list. Cleanup rechecks
+the current build binding, active
 generation and execution references while claiming the exact ledger row. The
 durable transition to `RELEASING` prevents new job binding and retention before
 the connector release happens outside the cleanup transaction. An uncertain
@@ -367,11 +376,11 @@ in-memory metadata event dispatcher:
 1. Before connector DDL starts, the Coordinator claims the canonical source
    table scope (and the rename target), inserts an `INTENDED` operation, and moves
    affected non-dropped descriptors to `STALE` in the same transaction.
-2. Only a successful connector mutation records `COMMITTED`. Maintenance
-   applies descriptor transitions only to the original captured fence, while
-   the expected state, generation and update timestamp still match.
-3. The maintenance leader applies bounded batches of confirmed `COMMITTED`
-   operations every minute. It cannot infer success from connector schema equality
+2. Only a successful connector mutation records `COMMITTED`. The Coordinator
+   applies the exact operation before returning SQL success. Descriptor transitions
+   require the original fence, state, generation and update timestamp to match.
+3. The maintenance leader recovers bounded batches of unapplied `COMMITTED`
+   operations. It cannot infer success from connector schema equality
    or from a missing table. A crash leaving `INTENDED` or an uncertain connector
    result leaves the scope claimed and requires authoritative outcome evidence.
 4. An exact post-operation table identity allows table and column renames to
@@ -584,8 +593,10 @@ tables is insufficient to justify pruning either table.
 `NativeTaskStats.index_splits_evaluated` and `index_splits_skipped` report
 actual Worker decisions. An index-performance claim must use these counters
 or scan I/O, not the Coordinator's earlier split-filter counters or Iceberg's
-own manifest pruning statistics. The E2E regression uses overlapping file
-min/max ranges to distinguish Bloom pruning from connector pruning.
+own manifest pruning statistics. The E2E regression reads the counters from
+the Coordinator's accepted drain reports for the query's exact attempts.
+Overlapping file min/max ranges distinguish native index pruning from
+connector pruning.
 This placement follows [Velox's split queue contract](https://facebookincubator.github.io/velox/develop/task.html):
 the application decides which splits to add before the scan operator reads
 them. [Iceberg's planning statistics](https://iceberg.apache.org/docs/nightly/performance/)
@@ -601,7 +612,7 @@ connector decisions must be measured separately.
 - Artifact generations are immutable and atomically published.
 - Every object checksum, format identity and row-locator schema is validated.
 - Workers must advertise the exact capability signature and compatible format.
-- Work-page leases and publication fencing reject stale attempts.
+- Work-page leases use the expiration stored by PostgreSQL. Lease and publication fencing reject stale attempts.
 - Durable snapshot-pin intents survive connector/job crash windows. Published
   retrieval pins are retained by exact live execution anchors while candidates
   hydrate source rows; superseded, dropped and terminal builds release them only
