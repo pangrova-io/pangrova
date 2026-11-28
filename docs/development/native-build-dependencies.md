@@ -228,13 +228,20 @@ When Velox resolves the AWS SDK, Thrift, stemmer or the s2n archive from one
 dependency prefix, native builds link them beside the AWS CRT: Linux wraps the
 static AWS archives in a linker rescan group and appends the s2n, stemmer and
 Thrift archives plus OpenSSL/curl after the group. The Thrift search first uses
-Velox's Arrow ExternalProject install and falls back to the AWS dependency
-prefix, so builds whose Velox used dependency sources instead of the
-ExternalProject layout still link.
+Velox's Arrow ExternalProject install, then checks the AWS dependency prefix
+and the installed Velox SDK. It takes the Apache Thrift archive and headers
+from the same package. The dependency archive globs exclude Thrift archives
+and FBThrift's `libtransport.a` so Parquet keeps one C++ transport implementation.
 
 The macOS bootstrap installs the version of Snappy pinned by Velox into its
 dependency prefix. Velox uses that prefix's CMake package for the Hive/DWIO
 codecs, and the JNI link consumes the static archive from the same prefix.
+
+The macOS Native test runner resolves the PostgreSQL fixture image through
+Testcontainers before starting the three-minute Lance broker readiness timer.
+Image preparation has its own five-minute limit and log. The broker still
+starts a fresh database, applies migrations and verifies the authenticated
+readiness response before CTest begins.
 
 On macOS, Folly's libevent search only covers `/usr/local`, `/opt/local` and
 `$HOME`, not Homebrew's `/opt/homebrew` prefix. The bootstrap resolves the

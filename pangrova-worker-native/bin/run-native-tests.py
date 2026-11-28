@@ -67,6 +67,18 @@ def check_ready(endpoint, nonce):
             raise RuntimeError("Real PostgreSQL/Lance authority rejected readiness")
 
 
+def prepare_fixture_image(command, workdir, log_file, timeout=300):
+    with log_file.open("wb") as output:
+        try:
+            result = subprocess.run([*command, "--prepare-image"], cwd=workdir,
+                                    stdin=subprocess.DEVNULL, stdout=output,
+                                    stderr=subprocess.STDOUT, timeout=timeout)
+        except subprocess.TimeoutExpired as failure:
+            raise RuntimeError(f"Lance fixture image preparation timed out; see {log_file}") from failure
+    if result.returncode:
+        raise RuntimeError(f"Lance fixture image preparation exited {result.returncode}; see {log_file}")
+
+
 @contextmanager
 def fixture(command, workdir, log_file, timeout=180, stop_timeout=30):
     # A short Unix socket path also fits macOS's sockaddr_un limit.
@@ -198,6 +210,10 @@ def main():
         # Use the same Docker API level as the Maven Testcontainers JVMs.
         command = [str(java), "-Dapi.version=1.44", "--add-opens=java.base/java.nio=ALL-UNNAMED",
                    "-cp", classpath, BROKER]
+        # Software-emulated Docker can spend most of the broker readiness
+        # budget pulling and unpacking a cold image. Keep that work separate.
+        if sys.platform == "darwin":
+            prepare_fixture_image(command, native.parent, logs / "container-image.log")
         # Honor the caller's Docker/Testcontainers endpoint and ASAN_OPTIONS.
         with fixture(command, native.parent, logs / "broker.log") as environment:
             options = arguments.ctest_args
