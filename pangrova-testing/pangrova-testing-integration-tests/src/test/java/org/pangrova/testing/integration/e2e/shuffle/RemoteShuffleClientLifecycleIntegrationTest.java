@@ -111,8 +111,7 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
             var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
             var actual = ActualShuffleService.partitionRead(binding);
             var published = actual.publication();
-            var limited = new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(
-                    published.lastSequence(), published.bytes() - 1, published.rows(), published.manifestSha256());
+            var limited = published.toBuilder().setTotalBytes(published.getTotalBytes() - 1).build();
             var read = new org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead(
                     actual.shuffleId(), actual.context(), actual.planEpoch(), actual.expectedProducerPartitions(),
                     actual.expectedProducerSetChecksum(), limited);

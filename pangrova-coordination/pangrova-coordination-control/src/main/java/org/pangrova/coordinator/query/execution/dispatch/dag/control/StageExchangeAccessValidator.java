@@ -39,7 +39,8 @@ final class StageExchangeAccessValidator {
                     new IllegalArgumentException("Consumer task requires one actually finalized external allocation"));
             var binding = inputs.get(0);
             requireBlocking(binding);
-            requireInput(binding.getExternal(), prepared, evidence.registration(), finalized, access.descriptorEncoder());
+            requireInput(binding.getExternal(), prepared, evidence.registration(),
+                    finalized, access.descriptorEncoder());
         }
         var outgoing = graph.exchanges().stream().filter(edge -> edge.upstreamStageId() == stage).toList();
         requireOutput(prepared, access, outgoing);
@@ -79,7 +80,8 @@ final class StageExchangeAccessValidator {
         for (int offset = 0; offset < count; offset++) {
             var expected = finalized.partitions().get(start + offset);
             var actual = input.getPublications(offset);
-            if (!actual.hasLastSequence() || actual.getLastSequence() != expected.committedLastSequence()
+            if (actual.hasStartSequence() || !actual.hasLastSequence()
+                    || actual.getLastSequence() != expected.committedLastSequence()
                     || !actual.hasTotalBytes() || actual.getTotalBytes() != expected.totalBytes()
                     || !actual.hasTotalRows() || actual.getTotalRows() != expected.totalRows()
                     || !Arrays.equals(actual.getManifestSha256().toByteArray(),

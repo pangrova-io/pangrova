@@ -10,6 +10,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
+import org.pangrova.protocol.v2.ShufflePartitionReadRange;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionTerminal;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
@@ -17,7 +18,6 @@ import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
 import org.pangrova.shuffle.api.ShuffleAccess;
 
 import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,7 +39,8 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
     private final long expectedLast;
     private final long expectedBytes;
     private final long expectedRows;
-    private final String expectedManifest;
+    private final byte[] expectedManifest;
+    private final ShufflePartitionReadRange readRange;
     private RuntimeException readFailure;
     private final AtomicBoolean finished = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -59,13 +60,16 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
             this.client = clientLease.client();
             this.context = binding.context();
             var partition = binding.publication();
-            var range = binding.readRange();
-            long startSequence = range == null ? 0 : range.startSequence();
+            long startSequence = partition.getStartSequence();
             validator = new StreamingBatchChunkValidator(startSequence);
-            expectedLast = range == null ? partition.lastSequence() : range.endSequenceExclusive() - 1;
-            expectedBytes = range == null ? partition.bytes() : range.bytes();
-            expectedRows = range == null ? partition.rows() : range.rows();
-            expectedManifest = range == null ? partition.manifestSha256() : range.manifestSha256();
+            expectedLast = partition.getLastSequence();
+            expectedBytes = partition.getTotalBytes();
+            expectedRows = partition.getTotalRows();
+            expectedManifest = partition.getManifestSha256().toByteArray();
+            readRange = partition.hasStartSequence() ? ShufflePartitionReadRange.newBuilder()
+                    .setStartSequence(startSequence).setEndSequenceExclusive(expectedLast + 1)
+                    .setTotalBytes(expectedBytes).setTotalRows(expectedRows)
+                    .setManifestSha256(partition.getManifestSha256()).build() : null;
             ShuffleAccessCapability initial = ShuffleAccessCapability.newBuilder()
                     .setToken(ByteString.copyFrom(readAccess.token()))
                     .setExpiresAtEpochMs(readAccess.expiresAtEpochMs())
@@ -144,7 +148,7 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
     private RemoteShufflePartitionRead openRead(ShuffleAccessCapability capability, long sequence) {
         Context previous = rpcScope.attach();
         try {
-            return client.openPartitionRead(binding.shuffleId(), context, capability, sequence, binding.readRange());
+            return client.openPartitionRead(binding.shuffleId(), context, capability, sequence, readRange);
         } finally {
             rpcScope.detach(previous);
         }
@@ -211,15 +215,13 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
                 terminal.getProducerSetChecksum(),
                 binding.expectedProducerSetChecksum(),
                 "producer set");
-        var range = binding.readRange();
-        if (terminal.hasCertifiedStartSequence() != (range != null)
-                || (range != null && terminal.getCertifiedStartSequence() != range.startSequence())
+        if (terminal.hasCertifiedStartSequence() != (readRange != null)
+                || (readRange != null && terminal.getCertifiedStartSequence() != readRange.getStartSequence())
                 || terminal.getCommittedLastSequence() != expectedLast
                 || terminal.getTotalBytes() != expectedBytes || terminal.getTotalRows() != expectedRows) {
             throw RemoteShuffleClientException.corruption("terminal totals do not match coordinator publication");
         }
-        requireExpectedChecksum(terminal.getOutputChecksum(),
-                HexFormat.of().parseHex(expectedManifest), "coordinator publication");
+        requireExpectedChecksum(terminal.getOutputChecksum(), expectedManifest, "coordinator publication");
         validator.validateOutputChecksum(terminal.getOutputChecksum());
     }
 

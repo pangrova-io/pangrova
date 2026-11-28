@@ -127,7 +127,7 @@ public final class PangrovaShuffleClient implements Closeable {
 
     RemoteShufflePartitionRead openPartitionRead(String shuffleId, ExchangeChannelContext context,
             ShuffleAccessCapability accessCapability, long startSequence,
-            org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange range) {
+            org.pangrova.protocol.v2.ShufflePartitionReadRange range) {
         requireValidCapability(accessCapability);
         long timeout = context.deadlineEpochMillis() - System.currentTimeMillis();
         if (timeout <= 0) {
@@ -201,7 +201,7 @@ public final class PangrovaShuffleClient implements Closeable {
 
     static ReadPartitionRequest buildReadRequest(String shuffleId, ExchangeChannelContext context,
             ShuffleAccessCapability accessCapability, long startSequence,
-            org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange range) {
+            org.pangrova.protocol.v2.ShufflePartitionReadRange range) {
         if (startSequence < 0) {
             throw new IllegalArgumentException("shuffle read start sequence is negative");
         }
@@ -213,14 +213,10 @@ public final class PangrovaShuffleClient implements Closeable {
                 .setDeadlineEpochMs(context.deadlineEpochMillis())
                 .setAccessCapability(accessCapability);
         if (range != null) {
-            if (startSequence < range.startSequence() || startSequence > range.endSequenceExclusive()) {
+            if (startSequence < range.getStartSequence() || startSequence > range.getEndSequenceExclusive()) {
                 throw new IllegalArgumentException("Shuffle read cursor is outside the published range");
             }
-            request.setReadRange(org.pangrova.protocol.v2.ShufflePartitionReadRange.newBuilder()
-                    .setStartSequence(range.startSequence()).setEndSequenceExclusive(range.endSequenceExclusive())
-                    .setTotalBytes(range.bytes()).setTotalRows(range.rows())
-                    .setManifestSha256(com.google.protobuf.ByteString.copyFrom(
-                            java.util.HexFormat.of().parseHex(range.manifestSha256()))));
+            request.setReadRange(range);
         }
         return request.build();
     }

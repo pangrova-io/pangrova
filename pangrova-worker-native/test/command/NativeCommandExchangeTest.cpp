@@ -206,9 +206,9 @@ protected:
     return request;
   }
 
-  void connectAndSealExternal() const {
+  void connectAndSealExternal(const proto::ConnectExchangeSourceRequest& request) const {
     auto connected = dispatch(
-        proto::RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE, externalConnect());
+        proto::RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE, request);
     ASSERT_TRUE(connected.success()) << connected.error().message();
     proto::NoMoreExchangeSourcesRequest seal;
     seal.set_plan_node_id(kPlanNodeId);
@@ -217,6 +217,10 @@ protected:
     auto sealed =
         dispatch(proto::RUNTIME_COMMAND_TYPE_NO_MORE_EXCHANGE_SOURCES, seal);
     ASSERT_TRUE(sealed.success()) << sealed.error().message();
+  }
+
+  void connectAndSealExternal() const {
+    connectAndSealExternal(externalConnect());
   }
 
   int64_t handle_ = 0;
@@ -303,6 +307,46 @@ TEST_F(NativeCommandExchangeTest, ExternalPushAndFinishReachTakenIngress) {
   ASSERT_EQ(data.kind,
             pangrova::velox::ExternalShuffleIngress::ResultKind::kData);
   EXPECT_EQ(data.data, "serialized-page");
+
+  proto::FinishExchangeSourceRequest finish;
+  finish.set_plan_node_id(kPlanNodeId);
+  finish.set_exchange_id(kExchangeId);
+  finish.set_last_sequence(0);
+  auto finished =
+      dispatch(proto::RUNTIME_COMMAND_TYPE_FINISH_EXCHANGE_SOURCE, finish);
+  ASSERT_TRUE(finished.success()) << finished.error().message();
+  auto terminal = endpoint->external_ingress->take(std::chrono::seconds(1));
+  EXPECT_EQ(terminal.kind,
+            pangrova::velox::ExternalShuffleIngress::ResultKind::kFinished);
+}
+
+TEST_F(NativeCommandExchangeTest, CertifiedRangeCountsOnlyItsLocalBatches) {
+  auto request = externalConnect();
+  auto* publication = request.mutable_external()->mutable_publications(0);
+  publication->set_start_sequence(41);
+  EXPECT_FALSE(
+      dispatch(proto::RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE, request)
+          .success());
+  publication->set_last_sequence(41);
+  connectAndSealExternal(request);
+  auto binding =
+      pangrova::velox::PendingEndpointRegistry::instance().takeSealedInput(
+          handle_, kPlanNodeId);
+  ASSERT_TRUE(binding.has_value());
+  ASSERT_EQ(binding->sources.size(), 1);
+  auto endpoint =
+      pangrova::velox::PendingEndpointRegistry::instance().takeEndpoint(
+          binding->sources.front().runtime_source_id);
+  ASSERT_TRUE(endpoint.has_value());
+  ASSERT_NE(endpoint->external_ingress, nullptr);
+
+  const std::string batch = "batch-from-certified-range";
+  auto pushed = sendChunk(pushRequest(0, batch, 0, sha256(batch)));
+  ASSERT_TRUE(pushed.success()) << pushed.error().message();
+  auto data = endpoint->external_ingress->take(std::chrono::seconds(1));
+  ASSERT_EQ(data.kind,
+            pangrova::velox::ExternalShuffleIngress::ResultKind::kData);
+  EXPECT_EQ(data.data, batch);
 
   proto::FinishExchangeSourceRequest finish;
   finish.set_plan_node_id(kPlanNodeId);

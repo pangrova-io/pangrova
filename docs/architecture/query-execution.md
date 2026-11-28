@@ -1572,6 +1572,14 @@ absolute sequence, totals, digest, and terminal coordinates against its
 independent binding. Whole-partition reads keep their existing terminal and
 skip reading the range index.
 
+The Worker task binding carries the selected publication for each source
+partition. A range publication contains the absolute first and last sequence
+numbers and the evidence for the selected batches. After verifying each batch,
+the Worker translates its sequence to the continuous local sequence used by
+the JNI input. Native admission calculates the expected batch count from each
+selected interval. Durable recovery still validates whole source partitions
+against the frozen exchange receipt.
+
 In remote Shuffle mode, logical terminal transition uses the original execution
 grant to seal admission. The live DAG reports its outcome without deleting
 Shuffle. Physical cleanup starts after local operations, report publication and

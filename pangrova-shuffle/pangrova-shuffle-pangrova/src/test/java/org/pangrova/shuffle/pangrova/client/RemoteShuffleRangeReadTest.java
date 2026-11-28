@@ -9,12 +9,12 @@ import org.pangrova.common.util.DigestUtils;
 import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.Checksum;
+import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionTerminal;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
 import org.pangrova.shuffle.api.ShuffleAccess;
-import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
 import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
@@ -23,7 +23,6 @@ import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.shuffle.api.worker.ShuffleChannelLimits;
 import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
 
-import java.util.HexFormat;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -38,7 +37,8 @@ class RemoteShuffleRangeReadTest {
         byte[] batchDigest = DigestUtils.sha256().digest(payload);
         byte[] manifest = ShufflePartitionManifestChecksum.accumulator(4)
                 .add(4, payload.length, 2, batchDigest).finishNonEmpty();
-        var range = new ShuffleCommitReceipt.ReadRange(4, 5, payload.length, 2, HexFormat.of().formatHex(manifest));
+        var range = ShufflePartitionPublication.newBuilder().setStartSequence(4).setLastSequence(4)
+                .setTotalBytes(payload.length).setTotalRows(2).setManifestSha256(ByteString.copyFrom(manifest)).build();
         var received = new AtomicReference<ReadPartitionRequest>();
         var service = new ShuffleServiceGrpc.ShuffleServiceImplBase() {
             @Override
@@ -66,7 +66,7 @@ class RemoteShuffleRangeReadTest {
                     new ExchangeAttemptFence(2, 0, 1), new ShuffleExecutionOwner("owner", "incarnation", 1),
                     "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002");
             var binding = new PangrovaPartitionRead("shuffle", new ExchangeChannelContext(attempt, 0, deadline),
-                    2, 4, new byte[32], new ShuffleCommitReceipt.Partition(8, 64, 16, "00".repeat(32)), range);
+                    2, 4, new byte[32], range);
             try (var source = new RemoteShuffleExchangeSource(binding, new ShuffleAccess(new byte[] {1}, deadline),
                     lease)) {
                 assertThat(source.nextVerifiedChunk().getBatchSequence()).isEqualTo(4);

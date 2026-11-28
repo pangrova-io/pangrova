@@ -509,24 +509,27 @@ public final class CanonicalTaskRequests {
     private static boolean validPublications(java.util.List<ShufflePartitionPublication> publications) {
         long batches = 0;
         for (var publication : publications) {
-            if (!validPartitionPublication(publication)
-                    || publication.getLastSequence() + 1 > Long.MAX_VALUE - batches) {
+            if (!validPartitionPublication(publication)) {
                 return false;
             }
-            batches += publication.getLastSequence() + 1;
+            long count = publication.getLastSequence() - publication.getStartSequence() + 1;
+            if (count > Long.MAX_VALUE - batches) return false;
+            batches += count;
         }
         return true;
     }
 
     /** Checks coordinator-attested partition bounds before a Worker opens any external read. */
     public static boolean validPartitionPublication(ShufflePartitionPublication evidence) {
-        return evidence.hasLastSequence() && evidence.getLastSequence() >= -1
+        long first = evidence.getStartSequence();
+        long last = evidence.getLastSequence();
+        return evidence.hasLastSequence() && last >= -1 && last < Long.MAX_VALUE && first >= 0
                 && evidence.hasTotalBytes() && evidence.getTotalBytes() >= 0
                 && evidence.hasTotalRows() && evidence.getTotalRows() >= 0
                 && evidence.getManifestSha256().size() == SHA256_BYTES
-                && (evidence.getLastSequence() == -1
-                        ? evidence.getTotalBytes() == 0 && evidence.getTotalRows() == 0
-                        : evidence.getLastSequence() < Math.min(evidence.getTotalBytes(), evidence.getTotalRows()));
+                && (last == -1
+                        ? !evidence.hasStartSequence() && evidence.getTotalBytes() == 0 && evidence.getTotalRows() == 0
+                        : first <= last && last - first < Math.min(evidence.getTotalBytes(), evidence.getTotalRows()));
     }
 
     private static boolean validExternalIdentity(

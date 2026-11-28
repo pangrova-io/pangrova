@@ -389,4 +389,6 @@ message ShufflePartitionPublication {
   optional int64 total_bytes = 2;
   optional int64 total_rows = 3;
   bytes manifest_sha256 = 4;
+  // Present only for a certified subrange. All other fields describe that range.
+  optional int64 start_sequence = 5;
 }
