@@ -26,7 +26,6 @@ import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelS
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -171,22 +170,21 @@ class MetadataCollectionOwnershipTest {
         var partition = new GenerationExchangeFinalization.Partition(0, 0, 0, -1, digest("manifest"));
         var partitions = new ArrayList<>(List.of(partition));
         var value = finalization(registration, partitions);
-        byte[] responseBytes = GenerationExchangeEvidenceCodec.encode(value);
-        String responseDigest = GenerationExchangeEvidenceCodec.sha256(value);
+        byte[] receiptBytes = GenerationExchangeEvidenceCodec.encode(value);
+        String receiptDigest = GenerationExchangeEvidenceCodec.sha256(value);
 
         payload[0] ^= 1;
         registration.descriptor().payload()[1] ^= 1;
         partitions.clear();
-        value.responseBytes()[0] ^= 1;
 
         assertThat(registration.descriptor().payload()).containsExactly(1, 2, 3);
         assertThat(value.partitions()).containsExactly(partition);
         assertThatThrownBy(() -> value.partitions().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThat(GenerationExchangeEvidenceCodec.encode(registration)).containsExactly(allocationBytes);
         assertThat(GenerationExchangeEvidenceCodec.sha256(registration)).isEqualTo(allocationDigest);
-        assertThat(GenerationExchangeEvidenceCodec.encode(value)).containsExactly(responseBytes);
-        assertThat(GenerationExchangeEvidenceCodec.sha256(value)).isEqualTo(responseDigest);
-        assertThat(value.responseBytes()).containsExactly(allocationBytes);
+        assertThat(GenerationExchangeEvidenceCodec.encode(value)).containsExactly(receiptBytes);
+        assertThat(GenerationExchangeEvidenceCodec.sha256(value)).isEqualTo(receiptDigest);
+        assertThat(value.responseSha256()).isEqualTo(DigestUtils.sha256Hex(allocationBytes));
     }
 
     @Test
@@ -240,7 +238,7 @@ class MetadataCollectionOwnershipTest {
         return new GenerationExchangeFinalization(registration.exchangeId(), GenerationExchangeEvidenceCodec.sha256(registration),
                 registration.shuffleId(), registration.planEpoch(), registration.registeredOwner(),
                 registration.producerCount(), registration.producerSetSha256(), partitions, 0, 0,
-                Base64.getEncoder().encodeToString(bytes), DigestUtils.sha256Hex(bytes));
+                DigestUtils.sha256Hex(bytes));
     }
 
     private static byte[] bytes(String value) {

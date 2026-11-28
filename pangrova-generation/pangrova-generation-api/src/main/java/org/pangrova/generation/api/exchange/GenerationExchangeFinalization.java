@@ -2,19 +2,16 @@ package org.pangrova.generation.api.exchange;
 
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 
-import org.pangrova.common.util.DigestUtils;
-
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
-/** Validated, real external-store finalize response with its exact capability-free RPC identity. */
+/** Compact, capability-free receipt for a published exchange and the digest of the exact provider response. */
 public record GenerationExchangeFinalization(
         String exchangeId, String registrationSha256, String shuffleId, long planEpoch,
         GenerationExecutionOwner finalizingOwner, int producerCount, String producerSetSha256,
         List<Partition> partitions, long totalBytes, long totalRows,
-        String responseBase64, String responseSha256) {
+        String responseSha256) {
     public GenerationExchangeFinalization {
         GenerationExchangeRegistration.requireText(exchangeId);
         GenerationExchangeRegistration.requireText(shuffleId);
@@ -24,12 +21,6 @@ public record GenerationExchangeFinalization(
         Objects.requireNonNull(finalizingOwner, "finalizingOwner");
         if (planEpoch <= 0 || producerCount <= 0 || totalBytes < 0 || totalRows < 0) {
             throw new IllegalArgumentException("Invalid external finalize identity or totals");
-        }
-        byte[] response = Base64.getDecoder().decode(responseBase64);
-        if (response.length == 0 || response.length > 16 * 1024 * 1024
-                || !DigestUtils.matchesSha256(response, responseSha256)
-                || !Base64.getEncoder().encodeToString(response).equals(responseBase64)) {
-            throw new IllegalArgumentException("External finalize response checksum or size is invalid");
         }
         partitions = partitions.stream().sorted(Comparator.comparingInt(Partition::partitionId)).toList();
         long bytes = 0;
@@ -56,6 +47,4 @@ public record GenerationExchangeFinalization(
             }
         }
     }
-
-    public byte[] responseBytes() { return Base64.getDecoder().decode(responseBase64); }
 }

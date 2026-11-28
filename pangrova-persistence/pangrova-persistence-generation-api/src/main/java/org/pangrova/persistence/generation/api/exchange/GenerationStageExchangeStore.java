@@ -20,9 +20,9 @@ public interface GenerationStageExchangeStore {
     Optional<GenerationExchangeRegistration> findRegistration(
             GenerationJobKey job, GenerationExecutionOwner owner, String exchangeId);
 
-    /** Persists strictly validated external finalization only after exact producer winners exist. */
+    /** Records the compact receipt and the exact provider message after verifying the producer winners. */
     void finalizeExchange(GenerationJobKey job, GenerationExecutionOwner owner,
-            GenerationExchangeFinalization finalization);
+            GenerationExchangeFinalization finalization, byte[] providerResponse);
 
     /** Restores immutable evidence; live access capabilities are supplied by the actual external service. */
     List<ExchangeEvidence> load(GenerationJobKey job, GenerationExecutionOwner owner);

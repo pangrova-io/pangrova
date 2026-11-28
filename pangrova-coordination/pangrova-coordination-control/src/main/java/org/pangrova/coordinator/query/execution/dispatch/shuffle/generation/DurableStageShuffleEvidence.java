@@ -15,7 +15,6 @@ import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.shuffle.api.ShuffleRegistration;
 import org.pangrova.shuffle.api.coordinator.ShuffleLifecycleEvidence;
 
-import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -114,9 +113,9 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
                         .reduce(0, Math::addExact),
                 partitions.stream().mapToLong(GenerationExchangeFinalization.Partition::totalRows).reduce(0,
                         Math::addExact),
-                Base64.getEncoder().encodeToString(response), DigestUtils.sha256Hex(response));
+                DigestUtils.sha256Hex(response));
         GenerationExchangeEvidenceCodec.requireRegistration(proof, allocation);
-        store.finalizeExchange(job, owner, proof);
+        store.finalizeExchange(job, owner, proof, response);
     }
 
     private org.pangrova.generation.api.graph.GenerationStageGraph.Exchange requireStage(

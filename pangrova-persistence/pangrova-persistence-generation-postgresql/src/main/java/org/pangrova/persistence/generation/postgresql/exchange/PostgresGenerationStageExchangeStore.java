@@ -100,7 +100,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             if (!registration.registeredOwner().equals(owner)) {
                 throw new IllegalArgumentException("Registration must carry its actual issued owner");
             }
-            var existing = findRegistration(connection, job, registration.exchangeId(), true);
+            var existing = findRegistration(connection, job, registration.exchangeId());
             if (existing.isPresent()) {
                 var original = existing.orElseThrow();
                 if (!original.equals(withOriginalIssuer(registration, original.registeredOwner()))) {
@@ -109,8 +109,16 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                 return original;
             }
             byte[] bytes = GenerationExchangeEvidenceCodec.encode(registration);
-            insertEvidence(connection, job, registration.exchangeId(), bytes,
-                    org.pangrova.common.util.DigestUtils.sha256Hex(bytes), false);
+            try (var statement = connection.prepareStatement("""
+                    INSERT INTO artifact_exchange_registrations
+                        (tenant_id, job_id, exchange_id, registration_bytes, registration_sha256)
+                    VALUES (?, ?, ?, ?, ?)
+                    """)) {
+                bindKey(statement, job, registration.exchangeId());
+                statement.setBytes(4, bytes);
+                statement.setString(5, org.pangrova.common.util.DigestUtils.sha256Hex(bytes));
+                statement.executeUpdate();
+            }
             return registration;
         });
     }
@@ -157,11 +165,12 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     /** The caller supplies the actual RPC response only after strict protocol validation, never page statistics. */
     @Override
     public void finalizeExchange(GenerationJobKey job, GenerationExecutionOwner owner,
-            GenerationExchangeFinalization finalization) {
+            GenerationExchangeFinalization finalization, byte[] providerResponse) {
+        Objects.requireNonNull(providerResponse, "providerResponse");
         transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
-            var registration = findRegistration(connection, job, finalization.exchangeId(), true).orElseThrow(() ->
+            var registration = findRegistration(connection, job, finalization.exchangeId()).orElseThrow(() ->
                     new IllegalStateException("Cannot finalize an unregistered durable exchange"));
             validateRegistration(connection, context, registration, requireGraphEdges(connection, context));
             GenerationExchangeEvidenceCodec.requireRegistration(finalization, registration);
@@ -169,14 +178,9 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                 throw new IllegalArgumentException("External finalize response belongs to a different current owner");
             }
             requireProducerWinners(connection, job, registration);
-            var existing = findFinalization(connection, job, finalization.exchangeId(), true);
-            if (existing.isPresent()) {
-                requireSameFinalizedData(existing.orElseThrow(), finalization);
-                return null;
+            if (!insertFinalization(connection, job, finalization, providerResponse)) {
+                requireSameFinalizedData(connection, job, registration, finalization, providerResponse);
             }
-            byte[] bytes = GenerationExchangeEvidenceCodec.encode(finalization);
-            insertEvidence(connection, job, finalization.exchangeId(), bytes,
-                    org.pangrova.common.util.DigestUtils.sha256Hex(bytes), true);
             return null;
         });
     }
@@ -400,49 +404,58 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         }
     }
 
-    private static void requireSameFinalizedData(GenerationExchangeFinalization existing,
-            GenerationExchangeFinalization requested) {
-        if (!existing.registrationSha256().equals(requested.registrationSha256())
-                || !java.util.Arrays.equals(existing.responseBytes(), requested.responseBytes())) {
-            throw new IllegalStateException("Immutable external finalized data changed");
-        }
-    }
-
-    private static Optional<GenerationExchangeRegistration> findRegistration(Connection connection,
-            GenerationJobKey job, String exchange, boolean lock) throws SQLException {
-        var value = findEvidence(connection, job, exchange, false, lock);
-        return value.map(bytes -> GenerationExchangeEvidenceCodec.decodeRegistration(bytes.bytes(), bytes.sha256()));
-    }
-
-    private static Optional<GenerationExchangeFinalization> findFinalization(Connection connection,
-            GenerationJobKey job, String exchange, boolean lock) throws SQLException {
-        var value = findEvidence(connection, job, exchange, true, lock);
-        return value.map(bytes -> GenerationExchangeEvidenceCodec.decodeFinalization(bytes.bytes(), bytes.sha256()));
-    }
-
-    private static Optional<EvidenceBytes> findEvidence(Connection connection, GenerationJobKey job,
-            String exchange, boolean finalized, boolean lock) throws SQLException {
-        String name = finalized ? "finalization" : "registration";
-        try (var statement = connection.prepareStatement("SELECT " + name + "_bytes," + name
-                + "_sha256 FROM artifact_exchange_" + name + "s WHERE tenant_id=? AND job_id=? AND exchange_id=?"
-                + (lock ? " FOR SHARE" : ""))) {
-            bindKey(statement, job, exchange);
+    private static void requireSameFinalizedData(Connection connection, GenerationJobKey job,
+            GenerationExchangeRegistration registration, GenerationExchangeFinalization requested,
+            byte[] providerResponse) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                SELECT finalization_bytes, finalization_sha256, provider_response
+                FROM artifact_exchange_finalizations
+                WHERE tenant_id = ? AND job_id = ? AND exchange_id = ? FOR SHARE
+                """)) {
+            bindKey(statement, job, requested.exchangeId());
             try (var row = statement.executeQuery()) {
-                return row.next()
-                        ? Optional.of(new EvidenceBytes(row.getBytes(1), row.getString(2))) : Optional.empty();
+                if (!row.next()) {
+                    throw new IllegalStateException("Finalized exchange is missing after receipt conflict");
+                }
+                var existing = GenerationExchangeEvidenceCodec.decodeFinalization(row.getBytes(1), row.getString(2));
+                GenerationExchangeEvidenceCodec.requireRegistration(existing, registration);
+                if (!existing.partitions().equals(requested.partitions())
+                        || !existing.responseSha256().equals(requested.responseSha256())
+                        || !java.util.Arrays.equals(row.getBytes(3), providerResponse)) {
+                    throw new IllegalStateException("Immutable external finalized data changed");
+                }
             }
         }
     }
 
-    private static void insertEvidence(Connection connection, GenerationJobKey job, String exchange,
-            byte[] bytes, String sha256, boolean finalized) throws SQLException {
-        String name = finalized ? "finalization" : "registration";
-        try (var statement = connection.prepareStatement("INSERT INTO artifact_exchange_" + name + "s "
-                + "(tenant_id,job_id,exchange_id," + name + "_bytes," + name + "_sha256) VALUES(?,?,?,?,?)")) {
+    private static Optional<GenerationExchangeRegistration> findRegistration(Connection connection,
+            GenerationJobKey job, String exchange) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                SELECT registration_bytes,registration_sha256 FROM artifact_exchange_registrations
+                WHERE tenant_id=? AND job_id=? AND exchange_id=? FOR SHARE
+                """)) {
             bindKey(statement, job, exchange);
+            try (var row = statement.executeQuery()) {
+                return row.next() ? Optional.of(GenerationExchangeEvidenceCodec.decodeRegistration(
+                        row.getBytes(1), row.getString(2))) : Optional.empty();
+            }
+        }
+    }
+
+    private static boolean insertFinalization(Connection connection, GenerationJobKey job,
+            GenerationExchangeFinalization finalization, byte[] providerResponse) throws SQLException {
+        byte[] bytes = GenerationExchangeEvidenceCodec.encode(finalization);
+        try (var statement = connection.prepareStatement("""
+                INSERT INTO artifact_exchange_finalizations
+                    (tenant_id, job_id, exchange_id, finalization_bytes, finalization_sha256, provider_response)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (tenant_id, job_id, exchange_id) DO NOTHING
+                """)) {
+            bindKey(statement, job, finalization.exchangeId());
             statement.setBytes(4, bytes);
-            statement.setString(5, sha256);
-            statement.executeUpdate();
+            statement.setString(5, org.pangrova.common.util.DigestUtils.sha256Hex(bytes));
+            statement.setBytes(6, providerResponse);
+            return statement.executeUpdate() == 1;
         }
     }
 
@@ -475,8 +488,6 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                     "Cannot persist current-authorized external shuffle evidence", failure);
         }
     }
-
-    private record EvidenceBytes(byte[] bytes, String sha256) {}
 
     private interface Transaction<T> { T run(Connection connection) throws SQLException; }
 }

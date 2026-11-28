@@ -18,7 +18,7 @@ public final class GenerationExchangeEvidenceCodec {
         return GenerationCanonicalJson.encode(registration, DESCRIPTION);
     }
 
-    /** Encodes the finalization envelope, including expansion of its exact response bytes. */
+    /** Encodes the compact finalization receipt. The provider message is stored as binary data. */
     public static byte[] encode(GenerationExchangeFinalization finalization) {
         return GenerationCanonicalJson.encode(finalization, DESCRIPTION);
     }

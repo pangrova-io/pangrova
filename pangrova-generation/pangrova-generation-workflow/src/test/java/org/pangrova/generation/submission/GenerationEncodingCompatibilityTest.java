@@ -19,7 +19,6 @@ import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import java.util.function.BiFunction;
 
@@ -53,7 +52,7 @@ class GenerationEncodingCompatibilityTest {
                 r.registeredOwner(), 2, r.producerSetSha256(),
                 List.of(new GenerationExchangeFinalization.Partition(1, 10, 2, 0, "d".repeat(64)),
                         new GenerationExchangeFinalization.Partition(0, 0, 0, -1, "e".repeat(64))),
-                10, 2, Base64.getEncoder().encodeToString(response), DigestUtils.sha256Hex(response));
+                10, 2, DigestUtils.sha256Hex(response));
     }
     @Test
     void graphKeepsPersistedBytesAndDigest() throws Exception {
@@ -75,7 +74,7 @@ class GenerationEncodingCompatibilityTest {
     void finalizationKeepsPersistedBytesAndDigest() throws Exception {
         byte[] expected = golden("exchange-finalization.json");
         assertThat(GenerationExchangeEvidenceCodec.encode(finalization())).isEqualTo(expected);
-        assertThat(GenerationExchangeEvidenceCodec.sha256(finalization())).isEqualTo("d347fd6cde18debebc9bdd2da0c5bd823d3f2f295e59b9737893a659b2927a98");
+        assertThat(GenerationExchangeEvidenceCodec.sha256(finalization())).isEqualTo("f8fdba58edecb6a39a348a5c5d28f48a949d897daf6954ac267691cb2fa30602");
         assertThat(GenerationExchangeEvidenceCodec.decodeFinalization(expected, GenerationExchangeEvidenceCodec.sha256(finalization()))).isEqualTo(finalization());
     }
 
@@ -98,12 +97,12 @@ class GenerationEncodingCompatibilityTest {
     }
 
     @Test
-    void finalizationEncodingCountsBase64ExpansionAndEnvelope() {
-        var r = registration();
-        byte[] response = new byte[12 * 1024 * 1024];
-        var oversized = new GenerationExchangeFinalization(r.exchangeId(), GenerationExchangeEvidenceCodec.sha256(r), r.shuffleId(), 7,
-                r.registeredOwner(), 2, r.producerSetSha256(), finalization().partitions(), 10, 2,
-                Base64.getEncoder().encodeToString(response), DigestUtils.sha256Hex(response));
+    void finalizationEncodingEnforcesTheCanonicalReceiptLimit() {
+        var receipt = finalization();
+        var oversized = new GenerationExchangeFinalization(receipt.exchangeId(), receipt.registrationSha256(),
+                "x".repeat(16 * 1024 * 1024), receipt.planEpoch(), receipt.finalizingOwner(), receipt.producerCount(),
+                receipt.producerSetSha256(), receipt.partitions(), receipt.totalBytes(), receipt.totalRows(),
+                receipt.responseSha256());
         assertThatThrownBy(() -> GenerationExchangeEvidenceCodec.encode(oversized)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("size limit");
     }

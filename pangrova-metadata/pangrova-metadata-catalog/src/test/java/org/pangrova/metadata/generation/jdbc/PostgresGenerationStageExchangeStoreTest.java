@@ -50,7 +50,6 @@ import javax.sql.DataSource;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 
@@ -91,7 +90,7 @@ class PostgresGenerationStageExchangeStoreTest {
         var before = snapshot(dataSource);
         Throwable primary = failure(kind);
         Throwable rollback = rollback(rollbackKind, primary);
-        var faulty = JdbcMutationFault.afterMutation(dataSource, "INSERT INTO artifact_exchange_registrations ", primary, rollback);
+        var faulty = JdbcMutationFault.afterMutation(dataSource, "INSERT INTO artifact_exchange_registrations", primary, rollback);
         assertFailure(catchThrowable(() -> GenerationAuthorityFixtures.artifacts().exchanges(faulty)
                 .register(KEY, owner(), allocation)), primary, rollback);
         assertThat(snapshot(dataSource)).isEqualTo(before);
@@ -112,16 +111,46 @@ class PostgresGenerationStageExchangeStoreTest {
         var before = snapshot(dataSource);
         Throwable primary = failure(kind);
         Throwable rollback = rollback(rollbackKind, primary);
-        var faulty = JdbcMutationFault.afterMutation(dataSource, "INSERT INTO artifact_exchange_finalizations ", primary, rollback);
+        var faulty = JdbcMutationFault.afterMutation(dataSource, "INSERT INTO artifact_exchange_finalizations", primary, rollback);
         assertFailure(catchThrowable(() -> GenerationAuthorityFixtures.artifacts().exchanges(faulty)
-                .finalizeExchange(KEY, owner(), finalization)), primary, rollback);
+                .finalizeExchange(KEY, owner(), finalization, providerResponse())), primary, rollback);
         assertThat(snapshot(dataSource)).isEqualTo(before);
         assertThat(builds.claimNextPage(KEY.tenantId(), KEY.jobId(), anchor, 8, Duration.ofMinutes(1), NOW)).isEmpty();
-        exchanges.finalizeExchange(KEY, owner(), finalization);
+        exchanges.finalizeExchange(KEY, owner(), finalization, providerResponse());
         assertThat(exchanges.load(KEY, owner())).singleElement()
                 .satisfies(evidence -> assertThat(evidence.finalization()).contains(finalization));
         assertThat(builds.claimNextPage(KEY.tenantId(), KEY.jobId(), anchor, 8, Duration.ofMinutes(1), NOW))
                 .hasValueSatisfying(lease -> assertThat(lease.pageId()).isEqualTo("terminal-0"));
+    }
+
+    @Test
+    void storesExactProviderBytesAndChecksTheirDigestBeforeOpeningTheBarrier() throws Exception {
+        var allocation = registration();
+        exchanges.register(KEY, owner(), allocation);
+        completeProducer();
+        var receipt = proof(allocation);
+        assertThatThrownBy(() -> exchanges.finalizeExchange(KEY, owner(), receipt, new byte[]{8, 2}))
+                .isInstanceOf(org.pangrova.persistence.generation.api.exception.GenerationStorageException.class)
+                .rootCause().hasMessageContaining("artifact_exchange_provider_response_digest");
+        assertThat(exchanges.load(KEY, owner())).singleElement()
+                .satisfies(evidence -> assertThat(evidence.finalization()).isEmpty());
+        exchanges.finalizeExchange(KEY, owner(), receipt, providerResponse());
+        exchanges.finalizeExchange(KEY, owner(), receipt, providerResponse());
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT provider_response, finalization_bytes FROM artifact_exchange_finalizations
+                WHERE tenant_id=? AND job_id=? AND exchange_id=?
+                """)) {
+            statement.setString(1, KEY.tenantId());
+            statement.setString(2, KEY.jobId());
+            statement.setString(3, allocation.exchangeId());
+            try (var row = statement.executeQuery()) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getBytes(1)).isEqualTo(providerResponse());
+                assertThat(row.getBytes(2)).isEqualTo(GenerationExchangeEvidenceCodec.encode(receipt));
+            }
+        }
+        assertThat(exchanges.load(KEY, owner())).singleElement()
+                .satisfies(evidence -> assertThat(evidence.finalization()).contains(receipt));
     }
 
     @ParameterizedTest(name = "partition claim: primary={0}, rollback={1}")
@@ -213,12 +242,12 @@ class PostgresGenerationStageExchangeStoreTest {
     void successfulMetadataProducerDoesNotOpenConsumerUntilExternalFinalizedProofIsPersisted() {
         var allocation = registration();
         exchanges.register(KEY, owner(), allocation);
-        assertThatThrownBy(() -> exchanges.finalizeExchange(KEY, owner(), proof(allocation)))
+        assertThatThrownBy(() -> exchanges.finalizeExchange(KEY, owner(), proof(allocation), providerResponse()))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("immutable producer winners");
         completeProducer();
         assertThat(builds.listRunnableJobs(10, NOW)).isEmpty();
         assertThat(builds.claimNextPage(KEY.tenantId(), KEY.jobId(), anchor, 8, Duration.ofMinutes(1), NOW)).isEmpty();
-        exchanges.finalizeExchange(KEY, owner(), proof(allocation));
+        exchanges.finalizeExchange(KEY, owner(), proof(allocation), providerResponse());
         assertThat(builds.listRunnableJobs(10, NOW)).containsExactly(KEY);
         assertThat(builds.claimNextPage(KEY.tenantId(), KEY.jobId(), anchor, 8, Duration.ofMinutes(1), NOW))
                 .hasValueSatisfying(lease -> assertThat(lease.pageId()).isEqualTo("terminal-0"));
@@ -236,9 +265,9 @@ class PostgresGenerationStageExchangeStoreTest {
             assertThat(value.registration()).isEqualTo(original);
             assertThat(value.finalization()).isEmpty();
         });
-        assertThatThrownBy(() -> exchanges.finalizeExchange(KEY, firstOwner, proof(original)))
+        assertThatThrownBy(() -> exchanges.finalizeExchange(KEY, firstOwner, proof(original), providerResponse()))
                 .isInstanceOf(GenerationExecutionOwnerLostException.class);
-        exchanges.finalizeExchange(KEY, owner(), proof(original));
+        exchanges.finalizeExchange(KEY, owner(), proof(original), providerResponse());
         assertThat(GenerationAuthorityFixtures.artifacts().exchanges(dataSource).load(KEY, owner()))
                 .singleElement().satisfies(value -> assertThat(value.finalization()).isPresent());
     }
@@ -305,7 +334,7 @@ class PostgresGenerationStageExchangeStoreTest {
         assertThat(stages.preparePartition(partitionClaim(0, 0, 1), value -> callbacks.incrementAndGet())).isEmpty();
         var allocation = registration();
         exchanges.register(KEY, owner(), allocation);
-        exchanges.finalizeExchange(KEY, owner(), proof(allocation));
+        exchanges.finalizeExchange(KEY, owner(), proof(allocation), providerResponse());
         assertThat(stages.preparePartition(partitionClaim(0, 0, 1), value -> callbacks.incrementAndGet())).hasValue(1);
     }
 
@@ -357,7 +386,7 @@ class PostgresGenerationStageExchangeStoreTest {
             assertThat(rows.getString(3)).isEqualTo("SUCCEEDED");
         }
         assertThat(stages.preparePartition(partitionClaim(0, 0, 1), value -> value.lease())).isEmpty();
-        exchanges.finalizeExchange(KEY, owner(), proof(registration()));
+        exchanges.finalizeExchange(KEY, owner(), proof(registration()), providerResponse());
         assertThat(stages.preparePartition(partitionClaim(0, 0, 1), value -> value.exchanges()))
                 .hasValueSatisfying(values -> assertThat(values).singleElement()
                         .satisfies(value -> assertThat(value.finalization()).isPresent()));
@@ -494,11 +523,14 @@ class PostgresGenerationStageExchangeStoreTest {
 
     private GenerationExchangeFinalization proof(GenerationExchangeRegistration allocation) {
         // Metadata is wire-neutral. RPC authenticity/cohort decoding is exercised in Coordinator boundary tests.
-        byte[] response = new byte[]{8, 1};
         return new GenerationExchangeFinalization(allocation.exchangeId(), GenerationExchangeEvidenceCodec.sha256(allocation), allocation.shuffleId(),
                 allocation.planEpoch(), owner(), 1, allocation.producerSetSha256(),
                 List.of(new GenerationExchangeFinalization.Partition(0, 0, 0, -1, "d".repeat(64))), 0, 0,
-                Base64.getEncoder().encodeToString(response), DigestUtils.sha256Hex(response));
+                DigestUtils.sha256Hex(providerResponse()));
+    }
+
+    private static byte[] providerResponse() {
+        return new byte[]{8, 1};
     }
 
     private static GenerationDispatchSpec specification() {

@@ -789,6 +789,12 @@ caller-owned transactions. Domain record construction alone is not persistence
 admission. Stored graph format 2, immutable bindings, owner/fence validation
 and canonical replay comparison remain unchanged.
 
+Finalization stores the original provider message in a PostgreSQL binary column.
+The same insert binds its SHA-256 to the compact receipt. Stage claims and graph
+recovery read the compact partition evidence. An idempotent finalization conflict
+compares the retained provider bytes and the exact partition evidence. This
+schema cut applies to new generation stores.
+
 Durable graph startup validates the complete exchange index. Afterwards, partition
 progress reads only the exact page window under the current authority. Claims
 and issued-lease preparation read only the immutable registrations and finalized
