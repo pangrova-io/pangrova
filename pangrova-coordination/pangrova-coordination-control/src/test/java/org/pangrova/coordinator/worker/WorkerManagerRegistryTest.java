@@ -187,6 +187,30 @@ class WorkerManagerRegistryTest {
         });
     }
 
+    @Test
+    void registryReloadRefreshesTheSameWorkerWithoutUndoingLocalDecommission() {
+        WorkerInfo info = workerInfo("w-shared");
+        manager.registerWorker(info);
+        var peer = new WorkerManager(SUSPECT_MS, DEAD_MS, registry);
+        peer.loadFromRegistry();
+        assertThat(peer.decommission(info.workerId())).isTrue();
+
+        var registered = registry.getWorker(info.workerId()).orElseThrow();
+        manager.onHeartbeat(registered.registrationIdentity(),
+                new WorkerManager.HeartbeatData(MemoryPressure.LOW, 0.75, 5, 512));
+        var latest = registry.getWorker(info.workerId()).orElseThrow();
+
+        peer.loadFromRegistry();
+        WorkerInfo recovered = peer.getWorker(info.workerId());
+        assertThat(recovered.workerExecutionIdentity()).isEqualTo(info.workerExecutionIdentity());
+        assertThat(recovered.inFlightTaskCount()).isEqualTo(5);
+        assertThat(recovered.availableMemoryBytes()).isEqualTo(512);
+        assertThat(recovered.memoryPressure()).isEqualTo(MemoryPressure.LOW);
+        assertThat(recovered.lastHeartbeat()).isEqualTo(Instant.ofEpochMilli(latest.lastHeartbeatMs()));
+        assertThat(recovered.healthState()).isEqualTo(HealthState.DECOMMISSIONING);
+        assertThat(peer.isDecommissionComplete(info.workerId())).isFalse();
+    }
+
     /**
      * Req 5.7: expireStaleFromRegistry() delegates to registry.expireStale().
      */

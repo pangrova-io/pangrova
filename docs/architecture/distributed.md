@@ -596,6 +596,12 @@ public class FairScheduler {
 
 The Coordinator scheduler makes scheduling decisions based on the real-time resource feedback reported via Worker heartbeats, forming a scheduling–resource closed loop that prevents over-scheduling onto high-pressure Workers.
 
+When a Coordinator reloads Worker membership from the registry, it refreshes
+the heartbeat metrics and timestamp for the same admission domain and
+incarnation while preserving local decommissioning. The refreshed placement
+sample uses the registry's accepted timestamp. A registry snapshot older than
+the local sample is ignored for that same Worker process.
+
 #### 5.2.1 Scheduling Rules by Memory Pressure
 
 | Worker Memory Pressure | Scheduling Decision | Rationale |

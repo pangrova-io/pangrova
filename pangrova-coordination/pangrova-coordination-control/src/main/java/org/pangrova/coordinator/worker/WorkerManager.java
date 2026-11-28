@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.common.enums.MemoryPressure;
+import org.pangrova.coordination.api.heartbeat.CacheCatalogSummary;
 import org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot;
 import org.pangrova.persistence.coordination.api.membership.WorkerRegistry;
 import org.pangrova.coordination.api.membership.WorkerShuffleDeployment;
@@ -185,7 +186,7 @@ public final class WorkerManager {
                             accepted.orElseThrow().shuffleDeployment())
                     && existing.cdcIngestSupported() == accepted.orElseThrow().cdcIngestSupported();
             WorkerInfo base = same ? existing : inventoryPool.share(fromSnapshot(accepted.orElseThrow()));
-            WorkerInfo next = buildUpdatedWorker(base, data);
+            WorkerInfo next = buildUpdatedWorker(base, accepted.orElseThrow(), data.cacheSummary());
             changed.set(!same || base.healthState() != next.healthState());
             ClusterTenantUsageAggregator aggregator = tenantUsageAggregator;
             if (aggregator != null) aggregator.updateWorkerUsage(id, data.tenantUsage());
@@ -393,21 +394,20 @@ public final class WorkerManager {
         }
     }
 
-    private static WorkerInfo buildUpdatedWorker(WorkerInfo existing, HeartbeatData data) {
-        // F-CHAIN-CACHE-02: refresh cacheSummary on every heartbeat.
-        org.pangrova.coordination.api.heartbeat.CacheCatalogSummary newSummary =
-                data.cacheSummary() != null ? data.cacheSummary() : existing.cacheSummary();
+    private static WorkerInfo buildUpdatedWorker(WorkerInfo existing, WorkerSnapshot snapshot,
+            CacheCatalogSummary cacheSummary) {
         return new WorkerInfo(
                 existing.workerId(), existing.host(),
                 existing.httpPort(), existing.transportPort(),
                 existing.resultServerPort(),
                 existing.healthState() == HealthState.DECOMMISSIONING
-                        ? HealthState.DECOMMISSIONING : HealthState.ACTIVE, data.pressure(),
-                data.cpuUtilization(), data.inFlightTaskCount(),
-                data.availableMemoryBytes(), Instant.now(),
+                        ? HealthState.DECOMMISSIONING : HealthState.ACTIVE,
+                MemoryPressure.valueOf(snapshot.memoryPressure()), snapshot.cpuUtilization(),
+                snapshot.inFlightTaskCount(), snapshot.availableMemoryBytes(),
+                Instant.ofEpochMilli(snapshot.lastHeartbeatMs()),
                 existing.performanceScore(), existing.resourcePoolId(),
                 existing.protocolVersion(),
-                existing.rackId(), existing.dataLocality(), newSummary,
+                existing.rackId(), existing.dataLocality(), cacheSummary != null ? cacheSummary : existing.cacheSummary(),
                 existing.admittedInventory(), existing.copyTaskTlsPort(), existing.workerExecutionIdentity(),
                 existing.shuffleDeployment(), existing.cdcIngestSupported());
     }
@@ -431,7 +431,10 @@ public final class WorkerManager {
                         current.registrationIdentity())
                         && java.util.Objects.equals(existing.shuffleDeployment(), current.shuffleDeployment())
                         && existing.cdcIngestSupported() == current.cdcIngestSupported()) {
-                    return existing;
+                    if (current.lastHeartbeatMs() < existing.lastHeartbeat().toEpochMilli()) {
+                        return existing;
+                    }
+                    return buildUpdatedWorker(existing, current, current.cacheSummary());
                 }
                 if (existing != null) dropTenantUsage(id);
                 return inventoryPool.share(fromSnapshot(current));
