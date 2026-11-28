@@ -82,6 +82,17 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
 | A6 | `8490621ce` 在 Worker 注册表恢复时采纳同 incarnation 的较新负载样本，并保留本地退役状态。定向回归在构造 Worker 的旧 capability fixture 时被 descriptor 校验阻止，见 `a6-registry.log`。多 Coordinator 并发派发以及心跳与本地在途计数的重叠仍待验证。 |
 | A1/A11/A12/A13 | `56dc818b2` 对缺少对象回执的 Paimon 暂存保留回收义务。定向 reactor 共 104 项通过，包含 PostgreSQL query journal 48 项、journal SQL 1 项、write journal 2 项、PostgreSQL/MinIO Shuffle 33 项和 Paimon 20 项，零失败、错误或跳过。见 `write-shuffle-journals.log`。Shuffle 在 32 批次共享一个写窗口的场景断言 8 条总 SQL，独立测试断言读窗口续租 2 条、关闭 1 条。完整进程路径的 SQL 和排空仍待测。 |
 
+- `29e3204de` 增加双独立 Coordinator 的认证并发重放。4 次相同幂等键提交必须获得同一回执，
+  只占用 1 个槽位，并由实际 owner 完成 Flight 交付和退役。`javac --release 17` 已用 reactor
+  测试类路径编译该用例，实际进程运行等待同源 Native。
+- `baf18f9d0` 的 `shuffle-window-sql-final.log` 由 JUnit launcher 在真实 PostgreSQL/MinIO
+  上运行 `DurableShuffleIntegrationTest`，35 项通过。1 批 1 片、32 批 1 片和 32 批 4 片
+  各 8 条窗口总 SQL。已准入的 128 次帧检查、manifest 页读取和 payload 读取合计 0 条。
+- JDK 17 执行 `mvn -B -DskipTests -Pstatic-analysis verify` 完成全 reactor 的 Checkstyle 和
+  SpotBugs，见 `static-analysis-complete.log`。`prepare-e2e-ai-image.py` 已生产本机测试用
+  AI 模型镜像和 digest 回执。Velox 专用目录通过确认 SHA-256 的 simdjson 源归档和已安装的
+  Boost 配置启动编译，证据见 `qualified-velox-warm-boost.log`。
+
 Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
 Paimon、Shuffle 与 journal 的复现命令如下。
 
