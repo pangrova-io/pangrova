@@ -10,6 +10,10 @@ import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.StatusOnlyQueryManagerFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.noop.NoOpMetricsProvider;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
@@ -27,9 +31,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -67,6 +74,9 @@ class CoordinatorQueryStatusWaitHttpTest {
                         .get(4, TimeUnit.SECONDS));
                 assertThat(expired).isEqualTo(initial);
             }
+            assertThat(peer.metrics.active.get()).isZero();
+            assertThat(peer.metrics.outcomes).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    Map.of("target", "NEXT_VERSION", "outcome", "TIMEOUT"), 2L));
             var session = new org.pangrova.query.api.session.JournalSessionPayload("q-peer", "", "anonymous");
             String payload = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(session);
             peer.queries.getStateJournal().appendQueryEventSync(new QueryStateEvent(
@@ -112,12 +122,24 @@ class CoordinatorQueryStatusWaitHttpTest {
             assertThat(finished.state()).isEqualTo("FINISHED");
             assertThat(finished.drained()).isFalse();
 
-            var released = peer.waitFor("q-events", 0, 5_000,
-                    UUID.randomUUID().toString(), QueryWaitTarget.DRAINED);
+            String drainObserver = UUID.randomUUID().toString();
+            var released = peer.waitFor("q-events", 0, 5_000, drainObserver, QueryWaitTarget.DRAINED);
+            var repeated = peer.waitFor("q-events", 0, 5_000, drainObserver, QueryWaitTarget.DRAINED);
+            var duplicateDrain = (HttpResponse<?>) CompletableFuture.anyOf(released, repeated).get(4, TimeUnit.SECONDS);
+            assertThat(duplicateDrain.statusCode()).isEqualTo(409);
+            var acceptedDrain = released.isDone() && released.join().statusCode() == 409 ? repeated : released;
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(2))
+                    .untilAsserted(() -> assertThat(peer.metrics.active.get()).isOne());
             assertThat(state.claimPhysicalCleanup(true)).isTrue();
-            var drained = status(released.get(4, TimeUnit.SECONDS));
+            var drained = status(acceptedDrain.get(4, TimeUnit.SECONDS));
             assertThat(drained.drained()).isTrue();
             assertThat(drained.version()).isGreaterThan(finished.version());
+            assertThat(peer.metrics.active.get()).isZero();
+            assertThat(peer.metrics.outcomes).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    Map.of("target", "TERMINAL", "outcome", "CHANGED"), 1L,
+                    Map.of("target", "TERMINAL", "outcome", "DUPLICATE"), 1L,
+                    Map.of("target", "DRAINED", "outcome", "CHANGED"), 1L,
+                    Map.of("target", "DRAINED", "outcome", "DUPLICATE"), 1L));
         }
     }
 
@@ -127,6 +149,7 @@ class CoordinatorQueryStatusWaitHttpTest {
     }
 
     static final class Peer implements AutoCloseable {
+        private final StatusWaitMetrics metrics = new StatusWaitMetrics();
         private final QueryManager queries;
         private final CoordinatorHttpServer server;
         private final HttpClient client = HttpClient.newHttpClient();
@@ -142,7 +165,8 @@ class CoordinatorQueryStatusWaitHttpTest {
             var receiver = new TaskStatusReceiver(TaskStatusReceiverContext.withoutSpeculation(
                     queries, tasks, workers, new InMemoryWriteCommitJournal()));
             server = new CoordinatorHttpServer(new InetSocketAddress("127.0.0.1", 0),
-                    new CoordinatorHttpServerContext(receiver, queries, null, null, null, null, null, null));
+                    new CoordinatorHttpServerContext(receiver, queries, null, null, null, null, null, null,
+                            null, null, null, null, null, null, metrics));
             server.start();
         }
 
@@ -180,6 +204,35 @@ class CoordinatorQueryStatusWaitHttpTest {
         public void close() throws Exception {
             server.stop();
             queries.getStateJournal().close();
+        }
+    }
+
+    private static final class StatusWaitMetrics extends NoOpMetricsProvider {
+        private final AtomicLong active = new AtomicLong();
+        private final Map<Map<String, String>, Long> outcomes = new ConcurrentHashMap<>();
+
+        @Override
+        public LongUpDownCounter createUpDownCounter(String name, String description, String unit) {
+            return "pangrova.query.status_wait.active".equals(name)
+                    ? active::addAndGet : super.createUpDownCounter(name, description, unit);
+        }
+
+        @Override
+        public LongCounter createCounter(String name, String description, String unit) {
+            if (!"pangrova.query.status_wait.completed".equals(name)) {
+                return super.createCounter(name, description, unit);
+            }
+            return new LongCounter() {
+                @Override
+                public void add(long value) {
+                    throw new AssertionError("Status wait completion requires target and outcome");
+                }
+
+                @Override
+                public void add(long value, MetricAttributes attributes) {
+                    outcomes.merge(attributes.asMap(), value, Long::sum);
+                }
+            };
         }
     }
 }

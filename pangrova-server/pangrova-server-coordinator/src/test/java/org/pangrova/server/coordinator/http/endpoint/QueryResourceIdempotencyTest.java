@@ -34,7 +34,7 @@ class QueryResourceIdempotencyTest {
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new CoordinatorTaskTracker(), journal);
         var resource = new QueryResource(queries, null, null,
-                new OtelExecutionTraceContextFactory(), new QueryStatusWaits(Runnable::run), () -> null, null);
+                new OtelExecutionTraceContextFactory(), new QueryStatusWaits(Runnable::run, null), () -> null, null);
         try {
             var request = new SubmitQueryRequest("SELECT 1", Map.of());
             SubmitQueryResponse original = submit(resource, "alice", "key-a", request);

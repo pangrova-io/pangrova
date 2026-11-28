@@ -345,7 +345,13 @@ terminal state, the logical terminal state, or physical release, respectively.
 Use `afterVersion=0` when starting a targeted wait without a prior status read.
 Timeout returns the current snapshot. The Coordinator
 allows one pending wait per observer, principal and query, with additional
-principal, tenant and process limits. A configured ingress routes a ticketed
+principal, tenant and process limits. Duplicate observers receive HTTP 409.
+Exhausted wait capacity returns HTTP 429. If the HTTP executor stops while
+resuming a wait, the request returns HTTP 503 with `QUERY_STATUS_WAIT_UNAVAILABLE`.
+Coordinator metrics record active waiters, completion counts, and capacity
+hold time. Completion counts and hold time use only the wait target and
+outcome as labels, including separate `TERMINAL` and `DRAINED` outcomes.
+A configured ingress routes a ticketed
 live request to the Coordinator incarnation that issued the receipt.
 Live waits return `QUERY_OWNER_UNAVAILABLE` when the owner cannot serve the
 request. Ordinary state reads use the live owner projection. State, wait, and

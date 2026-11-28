@@ -636,6 +636,10 @@ final class QueryBootstrap {
     WorkerManager workerManager() { return workerManager; }
     AuditEventEmitter auditEmitter() { return auditEmitter; }
     org.pangrova.persistence.query.api.commit.WriteCommitJournal writeCommitJournal() { return writeCommitJournal; }
+    MetricsProvider metricsProvider() {
+        return metricsProvider;
+    }
+
     QueryManager queryManager() { return queryManager; }
     QueryAuditServices queryAuditServices() { return queryAuditServices; }
     org.pangrova.observability.sdk.metrics.CoordinatorMetrics coordinatorMetrics() { return coordinatorMetrics; }

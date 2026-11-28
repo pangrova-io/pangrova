@@ -33,6 +33,7 @@ final class HttpBootstrap {
     private final AuthenticationManager authenticationManager;
     private final TaskStatusReceiver taskStatusReceiver;
     private final QueryManager queryManager;
+    private final org.pangrova.observability.api.metrics.MetricsProvider metricsProvider;
     private final QueryProfileService queryProfileService;
     private final WorkerManager workerManager;
     private final CdcLifecycleManager cdcLifecycleManager;
@@ -56,6 +57,7 @@ final class HttpBootstrap {
         this.authenticationManager = authenticationManager;
         this.taskStatusReceiver = taskStatusReceiver;
         this.queryManager = queryBootstrap.queryManager();
+        this.metricsProvider = queryBootstrap.metricsProvider();
         this.queryProfileService = queryBootstrap.queryAuditServices().profileService();
         this.workerManager = workerManager;
         this.cdcLifecycleManager = cdcLifecycleManager;
@@ -75,7 +77,7 @@ final class HttpBootstrap {
                     config.internalAuthSecret(),
                     coordinatorBootstrap::currentCoordinatorEpoch,
                     coordinatorBootstrap.copySourceReadResource(),
-                    coordinatorBootstrap.fileSpaceFilesResource());
+                    coordinatorBootstrap.fileSpaceFilesResource(), metricsProvider);
             String peerKey = config.securityConfig() == null ? null : config.securityConfig().queryPeerKey();
             if (peerKey != null) {
                 queryPeers = new QueryPeerRouting(peerKey);

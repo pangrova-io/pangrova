@@ -94,7 +94,7 @@ public final class CoordinatorHttpServer {
         handler.setContextPath("/");
         this.server = EmbeddedHttpServerFactory.create(address, handler, COORDINATOR_MAX_THREADS);
 
-        var statusWaits = new QueryStatusWaits(server.getThreadPool());
+        var statusWaits = new QueryStatusWaits(server.getThreadPool(), deps.metricsProvider());
         ResourceConfig config = buildResourceConfig(deps, statusWaits,
                 () -> getQueryOwnerEndpoint(ownerEndpointFactory), queryPeers);
         handler.addServlet(new ServletHolder(new ServletContainer(config)), "/*");
