@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.ToIntFunction;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.analysis.FragmentedPlan;
 import org.pangrova.planner.analysis.PlanStage;
@@ -20,8 +21,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * Edges map each stageId to its upstream dependency stageIds.
  * StageEdges carry distribution type metadata for each edge.
  *
- * <p>Holds both {@link Stage} entities (with state machines) and
- * the underlying {@link StageNode} plan records for backward compatibility.
+ * <p>Holds the immutable plan nodes and the lifecycle entities for an admitted execution.
  *
  * <p>Pre-computes O(1) lookup indexes for stageId-based queries and a
  * reverse (upstream → downstream) edge index for efficient DAG traversal.
@@ -34,7 +34,9 @@ public record StageDAG(
         Map<Integer, Stage> stageEntityIndex,
         Map<Integer, StageNode> stageNodeIndex,
         Map<Integer, List<Integer>> downstreamIndex,
-        List<StageRuntimeFilter> runtimeFilters
+        List<StageRuntimeFilter> runtimeFilters,
+        Map<Integer, List<StageEdge>> incomingStageEdges,
+        Map<Integer, List<StageEdge>> outgoingStageEdges
 ) {
 
     public StageDAG {
@@ -50,6 +52,19 @@ public record StageDAG(
         stageNodeIndex = stageNodeIndex != null ? Map.copyOf(stageNodeIndex) : Map.of();
         downstreamIndex = downstreamIndex != null ? Map.copyOf(downstreamIndex) : Map.of();
         runtimeFilters = List.copyOf(runtimeFilters);
+        incomingStageEdges = Map.copyOf(incomingStageEdges);
+        outgoingStageEdges = Map.copyOf(outgoingStageEdges);
+    }
+
+    private static Map<Integer, List<StageEdge>> indexStageEdges(
+            List<StageEdge> edges, ToIntFunction<StageEdge> stageId) {
+        if (edges.isEmpty()) return Map.of();
+        Map<Integer, List<StageEdge>> grouped = new HashMap<>();
+        for (StageEdge edge : edges) {
+            grouped.computeIfAbsent(stageId.applyAsInt(edge), ignored -> new ArrayList<>()).add(edge);
+        }
+        grouped.replaceAll((ignored, values) -> List.copyOf(values));
+        return Map.copyOf(grouped);
     }
 
     /**
@@ -66,9 +81,11 @@ public record StageDAG(
     private static StageDAG create(List<Stage> stageEntities, List<StageNode> stages,
             Map<Integer, List<Integer>> edges, List<StageEdge> stageEdges, List<StageRuntimeFilter> filters) {
         validateNoCycles(edges);
-        return new StageDAG(stageEntities, stages, edges, stageEdges,
-                buildEntityIndex(stageEntities), buildNodeIndex(stages),
-                buildDownstreamIndex(edges), filters);
+        var immutableStageEdges = List.copyOf(stageEdges);
+        return new StageDAG(stageEntities, stages, edges, immutableStageEdges,
+                buildEntityIndex(stageEntities), buildNodeIndex(stages), buildDownstreamIndex(edges), filters,
+                indexStageEdges(immutableStageEdges, StageEdge::downstreamStageId),
+                indexStageEdges(immutableStageEdges, StageEdge::upstreamStageId));
     }
 
     /**
@@ -122,7 +139,12 @@ public record StageDAG(
      */
     public static StageDAG fromNodes(List<StageNode> nodes, Map<Integer, List<Integer>> edges,
                                      List<StageEdge> stageEdges) {
-        return create(List.of(), nodes, edges, stageEdges);
+        return fromNodes(nodes, edges, stageEdges, List.of());
+    }
+
+    public static StageDAG fromNodes(List<StageNode> nodes, Map<Integer, List<Integer>> edges,
+                                   List<StageEdge> stageEdges, List<StageRuntimeFilter> filters) {
+        return create(List.of(), nodes, edges, stageEdges, filters);
     }
 
     /**
@@ -136,7 +158,8 @@ public record StageDAG(
         List<Stage> entities = stages.stream()
                 .map(node -> Stage.create(node, queryId))
                 .toList();
-        return create(entities, stages, edges, stageEdges, runtimeFilters);
+        return new StageDAG(entities, stages, edges, stageEdges, buildEntityIndex(entities),
+                stageNodeIndex, downstreamIndex, runtimeFilters, incomingStageEdges, outgoingStageEdges);
     }
 
     /**
@@ -144,9 +167,8 @@ public record StageDAG(
      * when no edge metadata is found.
      */
     public ExchangeReadMode getEdgeReadMode(int upstreamId, int downstreamId) {
-        for (StageEdge e : stageEdges) {
-            if (e.upstreamStageId() == upstreamId
-                    && e.downstreamStageId() == downstreamId) {
+        for (StageEdge e : incomingEdges(downstreamId)) {
+            if (e.upstreamStageId() == upstreamId) {
                 return e.readMode();
             }
         }
@@ -159,12 +181,16 @@ public record StageDAG(
      * or {@code null} if no downstream edge exists (e.g., OUTPUT stage).
      */
     public StageEdge findDownstreamEdge(int upstreamStageId) {
-        for (StageEdge e : stageEdges) {
-            if (e.upstreamStageId() == upstreamStageId) {
-                return e;
-            }
-        }
-        return null;
+        var outgoing = outgoingEdges(upstreamStageId);
+        return outgoing.isEmpty() ? null : outgoing.get(0);
+    }
+
+    public List<StageEdge> incomingEdges(int stageId) {
+        return incomingStageEdges.getOrDefault(stageId, List.of());
+    }
+
+    public List<StageEdge> outgoingEdges(int stageId) {
+        return outgoingStageEdges.getOrDefault(stageId, List.of());
     }
 
     /**

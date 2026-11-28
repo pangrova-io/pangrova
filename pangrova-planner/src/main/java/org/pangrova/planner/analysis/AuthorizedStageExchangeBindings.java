@@ -49,11 +49,13 @@ final class AuthorizedStageExchangeBindings {
                         + input.getOutputSchema().getStruct().getTypesList()
                         + " producer=" + schema.getStruct().getTypesList());
             }
+            if (schema.equals(input.getOutputSchema())) continue;
             var envelope = envelope(relation).toBuilder().setExchangeInput(
                     input.toBuilder().setOutputSchema(schema)).build();
             replacements.put(relation, relation.toBuilder().setExtensionLeaf(
                     relation.getExtensionLeaf().toBuilder().setDetail(Any.pack(envelope))).build());
         }
+        if (replacements.isEmpty()) return consumer;
         Rel root = SubstraitRelationLayout.replaceRelations(target.root().getInput(), replacements);
         var plan = target.plan().toBuilder().setRelations(0, target.plan().getRelations(0).toBuilder()
                 .setRoot(target.root().toBuilder().setInput(root))).build();
@@ -165,11 +167,13 @@ final class AuthorizedStageExchangeBindings {
             if (!source.schema().getStruct().equals(input.getOutputSchema().getStruct())) {
                 throw new IllegalArgumentException("Exchange input type differs from producer: " + edge.exchangeId());
             }
+            if (source.schema().equals(input.getOutputSchema())) continue;
             var envelope = envelope(relation).toBuilder().setExchangeInput(
                     input.toBuilder().setOutputSchema(source.schema())).build();
             replacements.put(relation, relation.toBuilder().setExtensionLeaf(
                     relation.getExtensionLeaf().toBuilder().setDetail(Any.pack(envelope))).build());
         }
+        if (replacements.isEmpty()) return fragment;
         Rel root = SubstraitRelationLayout.replaceRelations(fragment.root().getInput(), replacements);
         var plan = fragment.plan().toBuilder().setRelations(0, fragment.plan().getRelations(0).toBuilder()
                 .setRoot(fragment.root().toBuilder().setInput(root))).build();

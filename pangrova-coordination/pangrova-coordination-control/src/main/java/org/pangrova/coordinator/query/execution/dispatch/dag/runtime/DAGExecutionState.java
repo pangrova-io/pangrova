@@ -102,16 +102,16 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
     }
 
     private List<StageTransfer> incomingTransfers(int stageId) {
-        return dag.stageEdges().stream().filter(edge -> edge.downstreamStageId() == stageId)
+        return dag.incomingEdges(stageId).stream()
                 .map(edge -> new StageTransfer(edge.upstreamStageId(), edge.downstreamStageId(),
                         edge.shuffleType(), edge.distributionKeys(), edge.exchangeId(), edge.partitionCount(),
                         edge.batchSerde(), edge.requireComplete())).toList();
     }
 
     private Map<Integer, List<ByteString>> producerPlans(List<StageTransfer> incoming) {
+        var producers = incoming.stream().map(StageTransfer::upstreamStageId).collect(Collectors.toSet());
         return dispatched.stream()
-                .filter(record -> record.request() != null)
-                .filter(record -> incoming.stream().anyMatch(edge -> edge.upstreamStageId() == record.stageId()))
+                .filter(record -> record.request() != null && producers.contains(record.stageId()))
                 .collect(Collectors.groupingBy(StageDispatchRecord::stageId,
                         Collectors.mapping(record -> record.request().taskRequest().getSubstraitPlan(),
                                 Collectors.toList())));

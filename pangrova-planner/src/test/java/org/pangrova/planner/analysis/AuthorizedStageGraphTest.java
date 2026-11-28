@@ -9,6 +9,7 @@ import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
 
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import io.substrait.proto.Plan;
 import io.substrait.proto.Rel;
 import io.substrait.proto.ExchangeRel;
@@ -35,6 +36,7 @@ import org.pangrova.connector.api.metadata.Constraint;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,6 +61,24 @@ class AuthorizedStageGraphTest {
         byte[] bytes = graph.stages().get(0).serializedPlan().planBytes();
         bytes[0] ^= 1;
         assertThat(graph.sha256()).isEqualTo(reordered.sha256());
+    }
+
+    @Test
+    void keepsAValidatedLivePlanWhenBothInputSchemasAlreadyMatch() throws Exception {
+        var first = edge(1, 0, "left");
+        var second = edge(2, 0, "right");
+        var incoming = List.of(first, second);
+        var consumer = new CompiledStagePlan(Plan.parseFrom(consumerPlan(incoming).planBytes()),
+                List.of(), List.of());
+        var producer = ByteString.copyFrom(producerPlan().planBytes());
+        var bound = AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, incoming,
+                Map.of(1, List.of(producer), 2, List.of(producer, producer)));
+
+        assertThat(bound).isSameAs(consumer);
+        var invalid = ByteString.copyFrom(plan().planBytes());
+        assertThatThrownBy(() -> AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, incoming,
+                Map.of(1, List.of(producer), 2, List.of(producer, invalid))))
+                .hasMessageContaining("terminal exchange");
     }
 
     @Test

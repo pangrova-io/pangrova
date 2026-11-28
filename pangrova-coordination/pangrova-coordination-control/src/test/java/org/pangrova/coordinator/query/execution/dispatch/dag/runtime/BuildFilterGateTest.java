@@ -337,8 +337,7 @@ class BuildFilterGateTest {
                             new StageRuntimeFilter.ProbeKey(2, 2, "tag"))));
         }
         stages.add(new StageNode(outputId, fragment, 1, "OUTPUT", List.of()));
-        return new StageDAG(List.of(), stages, Map.of(outputId, dependencies),
-                exchanges, Map.of(), Map.of(), Map.of(), filters).withStages("query");
+        return StageDAG.fromNodes(stages, Map.of(outputId, dependencies), exchanges, filters).withStages("query");
     }
 
     private static RelOptCluster cluster() {

@@ -82,8 +82,7 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
     }
 
     private static StageEdge externalShuffleOutput(StageLifecycleEvent event) {
-        var outputs = event.dag().stageEdges().stream()
-                .filter(edge -> edge.upstreamStageId() == event.stage().stageId())
+        var outputs = event.dag().outgoingEdges(event.stage().stageId()).stream()
                 .filter(edge -> edge.shuffleType() == org.pangrova.planner.enums.ShuffleType.HASH
                         || edge.shuffleType() == org.pangrova.planner.enums.ShuffleType.ROUND_ROBIN
                         || edge.shuffleType() == org.pangrova.planner.enums.ShuffleType.SINGLETON)

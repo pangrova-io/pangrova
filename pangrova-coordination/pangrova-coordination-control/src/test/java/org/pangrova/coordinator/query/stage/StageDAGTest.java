@@ -8,6 +8,7 @@ import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.junit.jupiter.api.Test;
+import org.pangrova.planner.enums.ShuffleType;
 
 import java.util.List;
 import java.util.Map;
@@ -94,6 +95,25 @@ class StageDAGTest {
 
         // both completed — nothing ready
         assertThat(dag.readyStages(Set.of(0, 1))).isEmpty();
+    }
+
+    @Test
+    void indexesExactEdgesInGraphOrder() {
+        var toThree = new StageEdge(0, 3, ShuffleType.SINGLETON, List.of());
+        var fromOne = new StageEdge(1, 2, ShuffleType.SINGLETON, List.of());
+        var fromZero = new StageEdge(0, 2, ShuffleType.SINGLETON, List.of());
+        var nodes = List.of(new StageNode(0, dummyPlan(), 1, "COMPUTE", List.of()),
+                new StageNode(1, dummyPlan(), 1, "COMPUTE", List.of()),
+                new StageNode(2, dummyPlan(), 1, "OUTPUT", List.of()),
+                new StageNode(3, dummyPlan(), 1, "OUTPUT", List.of()));
+        var dag = StageDAG.fromNodes(nodes, Map.of(2, List.of(0, 1), 3, List.of(0)),
+                List.of(toThree, fromOne, fromZero)).withStages("query");
+
+        assertThat(dag.incomingEdges(2)).containsExactly(fromOne, fromZero);
+        assertThat(dag.outgoingEdges(0)).containsExactly(toThree, fromZero);
+        assertThat(dag.findDownstreamEdge(0)).isSameAs(toThree);
+        assertThat(dag.getEdgeReadMode(1, 2)).isEqualTo(fromOne.readMode());
+        assertThat(dag.findDownstreamEdge(3)).isNull();
     }
 
     @Test

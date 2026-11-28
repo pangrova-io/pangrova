@@ -160,12 +160,6 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
         return AuthorizedStageExchangeBindings.bindLive(stageId, consumer, incoming, producerPlans);
     }
 
-    /** Reads the verified wire schema of a dispatched producer across every partition. */
-    public static io.substrait.proto.NamedStruct requireLiveProducerSchema(
-            StageTransfer incoming, Map<Integer, List<ByteString>> producerPlans) {
-        return AuthorizedStageExchangeBindings.requireProducerSchema(incoming, producerPlans);
-    }
-
     /** Returns a stable digest covering stage payloads, scheduling coordinates, exact sources and exchanges. */
     public String sha256() {
         try {

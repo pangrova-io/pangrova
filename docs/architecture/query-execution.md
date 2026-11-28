@@ -1279,6 +1279,10 @@ Each live or durable dispatch cohort resolves its tenant placement before the fi
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
 For live reads, Worker progress and task acknowledgement release downstream preparation onto a bounded Coordinator pool. Multiple readiness signals for the same query share one queued operation. The operation holds query issuance until preparation exits, including split-source close. Queue saturation fails the affected query with a resource-exhaustion error. A Java linkage failure during preparation fails the query with the dispatch error and retains the original cause. The dispatch waiter is notified immediately, and preparation releases its issuance operation as it exits. Fenced publication and durable recovery retain their authoritative completion order.
+The immutable DAG indexes exact incoming and outgoing exchange edges for each
+stage. Preparation checks the dispatched producer cohorts and validates each
+distinct wire plan. When the consumer already declares the exact producer
+schema, the bound Substrait tree can be reused directly.
 
 Live leaf tasks place the largest estimated scan work on the least loaded
 partition. The Coordinator estimates work once while binding each split and

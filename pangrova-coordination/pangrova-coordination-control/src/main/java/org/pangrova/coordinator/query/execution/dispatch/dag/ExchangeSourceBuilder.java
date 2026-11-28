@@ -56,9 +56,8 @@ final class ExchangeSourceBuilder {
         Set<Integer> upstreamIds = Set.copyOf(upstreamIdList);
         Stage consumer = dag.findStage(stage.stageId());
         List<PartitionGroup> grouped = consumer == null ? List.of() : consumer.coalescedInputRanges();
-        for (StageEdge edge : dag.stageEdges()) {
-            if (edge.downstreamStageId() != stage.stageId()
-                    || !upstreamIds.contains(edge.upstreamStageId())) {
+        for (StageEdge edge : dag.incomingEdges(stage.stageId())) {
+            if (!upstreamIds.contains(edge.upstreamStageId())) {
                 continue;
             }
             Stage upstream = dag.findStage(edge.upstreamStageId());
