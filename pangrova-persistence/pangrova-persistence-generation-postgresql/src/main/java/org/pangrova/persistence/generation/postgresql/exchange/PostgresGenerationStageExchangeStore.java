@@ -33,7 +33,8 @@ import java.util.stream.Collectors;
 public final class PostgresGenerationStageExchangeStore implements GenerationStageExchangeStore {
     private static final String LOCKED_EXCHANGE_EVIDENCE = """
             WITH locked_edges AS MATERIALIZED (
-                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256, physical_producer_count
+                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256,
+                physical_producer_count
                 FROM artifact_stage_exchanges WHERE tenant_id = ? AND job_id = ? %s
                 ORDER BY exchange_id FOR SHARE
             ), locked_registrations AS MATERIALIZED (
@@ -61,7 +62,8 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             "AND (producer_stage_id = ? OR consumer_stage_id = ?)");
     private static final String LOCKED_REGISTRATION = """
             WITH exact_registration_edge AS MATERIALIZED (
-                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256, physical_producer_count
+                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256,
+                physical_producer_count
                 FROM artifact_stage_exchanges
                 WHERE tenant_id = ? AND job_id = ? AND exchange_id = ? FOR SHARE
             ), registration AS MATERIALIZED (
@@ -125,9 +127,10 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
 
     private static GenerationExchangeRegistration withOriginalIssuer(GenerationExchangeRegistration requested,
             GenerationExecutionOwner originalIssuer) {
-        return new GenerationExchangeRegistration(requested.exchangeId(), requested.executionId(), requested.shuffleId(),
-                requested.producerStageId(), requested.planEpoch(), requested.graphSha256(), requested.stagePlanSha256(),
-                requested.sourceSnapshot(), requested.producerCount(), requested.producerSetSha256(),
+        return new GenerationExchangeRegistration(requested.exchangeId(), requested.executionId(),
+                requested.shuffleId(), requested.producerStageId(), requested.planEpoch(), requested.graphSha256(),
+                requested.stagePlanSha256(), requested.sourceSnapshot(), requested.producerCount(),
+                requested.producerSetSha256(),
                 requested.partitionCount(), requested.descriptor(), originalIssuer);
     }
 
@@ -331,7 +334,8 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     private static void requireRegistrationIdentity(PostgresCurrentGenerationAuthority context,
             GenerationExchangeRegistration registration,
             org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan stage,
-            org.pangrova.generation.api.graph.GenerationStageGraph.Exchange edge, String graphSha256, int physicalProducers) {
+            org.pangrova.generation.api.graph.GenerationStageGraph.Exchange edge,
+            String graphSha256, int physicalProducers) {
         if (!registration.executionId().equals(context.executionAnchor().executionId())
                 || !registration.graphSha256().equals(graphSha256)
                 || !registration.stagePlanSha256().equals(stage.planSha256())

@@ -52,8 +52,10 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
             long estimatedShuffleBytes, long estimatedShuffleRows, boolean coalescibleHashInputs)
             implements StagePlanAccess {
         public SerializedStage(int stageId, int parallelism, String taskType, SerializedPlanFragment serializedPlan,
-                List<SplitSourceDescriptor> sources, List<String> outputNames, List<ResultColumnModel> resultColumnModels,
-                List<ResultColumnLogicalType> resultColumnTypes, long estimatedShuffleBytes, long estimatedShuffleRows) {
+                List<SplitSourceDescriptor> sources, List<String> outputNames,
+                List<ResultColumnModel> resultColumnModels,
+                List<ResultColumnLogicalType> resultColumnTypes,
+                long estimatedShuffleBytes, long estimatedShuffleRows) {
             this(stageId, parallelism, taskType, serializedPlan, sources, outputNames, resultColumnModels,
                     resultColumnTypes, estimatedShuffleBytes, estimatedShuffleRows, false);
         }

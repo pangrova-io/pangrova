@@ -100,7 +100,8 @@ final class ShuffleReadRanges {
         }
 
         private void seal(long endSequence) {
-            ranges.add(new ReadRange(start, endSequence, bytes, rows, HexFormat.of().formatHex(digest.finishNonEmpty())));
+            ranges.add(new ReadRange(start, endSequence, bytes, rows,
+                HexFormat.of().formatHex(digest.finishNonEmpty())));
         }
     }
 }

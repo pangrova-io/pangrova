@@ -35,6 +35,7 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
     private final ConcurrentMap<Integer, GenerationExchangeRegistration> registered = new ConcurrentHashMap<>();
 
     /** Binds a durable artifact job to its real shuffle allocation and finalization store. */
+    /** Retains Shuffle evidence for one persisted graph and execution authority. */
     public DurableStageShuffleEvidence(GenerationStageExchangeStore store, GenerationDispatchSpec spec,
             String sourceSnapshot, Supplier<GenerationExecutionOwner> currentOwner) {
         this(store, spec, sourceSnapshot, currentOwner, stage -> spec.stageGraph().requireStage(stage).parallelism());
@@ -71,7 +72,8 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
         if (!issued.equals(currentOwner.get())) {
             throw new IllegalStateException("Shuffle registration has a stale owner");
         }
-        var saved = store.register(job, issued, registrationRecord(registration, edge.exchangeId(), allocation, issued));
+        var saved = store.register(
+                job, issued, registrationRecord(registration, edge.exchangeId(), allocation, issued));
         var previous = registered.putIfAbsent(registration.stageId(), saved);
         if (previous != null && !previous.equals(saved)) {
             throw new IllegalStateException("Durable shuffle registration changed after commit");

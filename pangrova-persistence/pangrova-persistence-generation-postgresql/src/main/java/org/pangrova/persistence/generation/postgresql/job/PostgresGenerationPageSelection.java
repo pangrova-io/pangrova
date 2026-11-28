@@ -75,7 +75,8 @@ final class PostgresGenerationPageSelection {
 
     static Optional<PageRow> selectClaimablePage(Connection connection, String tenantId, String jobId, Instant now,
             boolean relational) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(relational ? CLAIMABLE_RELATIONAL : CLAIMABLE_ANY)) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                relational ? CLAIMABLE_RELATIONAL : CLAIMABLE_ANY)) {
             statement.setString(1, tenantId);
             statement.setString(2, jobId);
             setInstant(statement, 3, now);

@@ -50,6 +50,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcWriteCommitJournal.class);
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final int NO_EXACT_PUBLICATION_INTENT = -2;
 
     private static final String SELECT_ADMISSION_RECEIPT =
             "SELECT state, commit_fingerprint FROM write_commit_receipts WHERE query_id = ?";
@@ -528,7 +529,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     case 1 -> true;
                     case 0 -> false;
                     case -1 -> throw new IllegalStateException("Lost execution anchor for write " + intent.queryId());
-                    case -2 -> throw new IllegalStateException("Write publication gate has no exact intent " + intent.queryId());
+                    case NO_EXACT_PUBLICATION_INTENT -> throw new IllegalStateException(
+                        "Write publication gate has no exact intent " + intent.queryId());
                     default -> throw new SQLException("Unknown external publication gate result");
                 };
             }
@@ -909,7 +911,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             statement.setString(1, queryId);
             try (var row = statement.executeQuery()) {
                 if (!row.next() || !WriteCommitState.COMMITTED.name().equals(row.getString(1))) {
-                    throw new IllegalStateException("Cannot commit a missing, aborted or fenced write intent: " + queryId);
+                    throw new IllegalStateException(
+                        "Cannot commit a missing, aborted or fenced write intent: " + queryId);
                 }
             }
         }

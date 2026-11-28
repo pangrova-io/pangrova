@@ -22,6 +22,7 @@ public final class PostgresChangeSubscription implements AutoCloseable {
         this.channel = channel;
     }
 
+    /** Subscribes to committed changes on the named relation. */
     public static PostgresChangeSubscription open(String jdbcUrl, String user, String password,
             String relation, String channelPrefix) throws SQLException {
         if (!channelPrefix.matches("[a-z_]+")) throw new IllegalArgumentException("Invalid notification prefix");
@@ -59,6 +60,7 @@ public final class PostgresChangeSubscription implements AutoCloseable {
         return connection;
     }
 
+    /** Waits for notifications and returns their distinct payloads. */
     public Set<String> awaitChanges(int waitMillis) throws SQLException {
         var received = notifications.getNotifications(waitMillis);
         if (received == null || received.length == 0) return Set.of();

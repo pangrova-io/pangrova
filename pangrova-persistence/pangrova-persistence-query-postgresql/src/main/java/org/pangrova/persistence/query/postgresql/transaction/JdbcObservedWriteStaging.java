@@ -54,6 +54,7 @@ public final class JdbcObservedWriteStaging {
             """ + CLAIM_FENCE;
 
     private final DataSource dataSource;
+
     public JdbcObservedWriteStaging(DataSource dataSource) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }

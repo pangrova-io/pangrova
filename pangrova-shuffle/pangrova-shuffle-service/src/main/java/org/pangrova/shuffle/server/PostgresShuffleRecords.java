@@ -69,6 +69,7 @@ final class PostgresShuffleRecords {
             WHERE a.shuffle_id = ?
             FOR UPDATE OF a
             """;
+
     private PostgresShuffleRecords() {}
 
     static Optional<Allocation> findAllocation(

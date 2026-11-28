@@ -124,13 +124,13 @@ final class ShufflePartitionManifest {
                 // All preceding entries are still in the first leaf. Small outputs never hash a second manifest.
                 ranges = new ShuffleReadRanges.Writer(rangeTargetBytes);
                 ByteBuffer prefix = page.asReadOnlyBuffer().flip();
-                byte[] checksum = new byte[DIGEST_BYTES];
+                byte[] prefixDigest = new byte[DIGEST_BYTES];
                 for (long sequence = 0; prefix.hasRemaining(); sequence++) {
                     prefix.position(prefix.position() + 2 * Integer.BYTES + Long.BYTES);
                     long batchBytes = prefix.getLong();
                     long batchRows = prefix.getLong();
-                    prefix.get(checksum);
-                    ranges.add(sequence, batchBytes, batchRows, checksum);
+                    prefix.get(prefixDigest);
+                    ranges.add(sequence, batchBytes, batchRows, prefixDigest);
                 }
             }
             if (ranges != null) ranges.add(batches, batch.sizeBytes(), batch.rowCount(), digest);
@@ -230,7 +230,8 @@ final class ShufflePartitionManifest {
             ByteBuffer leaf = ByteBuffer.wrap(encoded);
             int firstEntry = (int) (start % BATCHES_PER_PAGE);
             leaf.position(payloadOffset + firstEntry * ENTRY_BYTES);
-            int entries = (int) Math.min(endExclusive - start, Math.min(BATCHES_PER_READ, leaf.remaining() / ENTRY_BYTES));
+            int entries = (int) Math.min(endExclusive - start,
+                    Math.min(BATCHES_PER_READ, leaf.remaining() / ENTRY_BYTES));
             List<ReadBatch> result = new ArrayList<>(entries);
             for (int index = 0; index < entries; index++) {
                 result.add(readEntry(leaf, start + result.size()));

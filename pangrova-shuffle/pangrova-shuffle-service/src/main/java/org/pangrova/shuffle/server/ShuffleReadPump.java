@@ -64,7 +64,8 @@ final class ShuffleReadPump implements Runnable {
         this.executor = executor;
         this.memoryBytes = memoryBytes;
         this.indexMemoryBytes = indexMemoryBytes;
-        this.indexReservation = result.manifest().memoryReservation(result.startSequence(), result.endSequenceExclusive());
+        this.indexReservation = result.manifest().memoryReservation(
+                result.startSequence(), result.endSequenceExclusive());
         this.limits = limits;
         this.sequence = result.startSequence();
         if (!indexMemoryBytes.tryAcquire(indexReservation)) {

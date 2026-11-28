@@ -80,7 +80,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                 throw new IllegalArgumentException(
                         "Native producer report does not belong to a persisted compute stage");
             }
-            var outgoing = graph.exchanges().stream().filter(edge -> edge.upstreamStageId() == stage.stageId()).toList();
+            var outgoing = graph.exchanges().stream()
+                    .filter(edge -> edge.upstreamStageId() == stage.stageId()).toList();
             if (outgoing.size() != 1 || PostgresGenerationStageExchangeStore.lockRegistration(
                     connection, context, outgoing.get(0).exchangeId())
                     .filter(allocation -> allocation.planEpoch() == completion.planEpoch()).isEmpty()) {
@@ -239,7 +240,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         for (int i = 0; i < pages.size(); i++) {
             var lease = PostgresGenerationPageClaim.issue(connection, pages.get(i), inputs.get(i),
                     claim.anchor(), claim.controlTerm(), claim.leaseDuration(), claim.now());
-            var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(i), pages.get(i));
+            var evidence = prepareEvidence(connection, authority, job, lease, exchanges,
+                    publications.get(i), pages.get(i));
             result.add(Objects.requireNonNull(prepare.apply(evidence),
                     "partition preparation must return immutable metadata"));
         }

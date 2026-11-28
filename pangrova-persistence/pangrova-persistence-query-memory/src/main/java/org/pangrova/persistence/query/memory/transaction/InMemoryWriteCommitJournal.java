@@ -99,7 +99,8 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
                     || outcome == WriteCommitState.ABORTED && existing.publication() != null) {
                 throw new IllegalStateException("Conflicting terminal write outcome: " + id);
             }
-            var terminal = existing.state() == outcome ? existing : existing.withState(outcome, System.currentTimeMillis());
+            var terminal = existing.state() == outcome
+                    ? existing : existing.withState(outcome, System.currentTimeMillis());
             retainReceipt(terminal);
             return terminal;
         });

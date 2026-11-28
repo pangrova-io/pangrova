@@ -171,7 +171,8 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
             resource.close();
         } catch (Exception failure) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Failed to close Paimon " + name + " for " + output.schemaName() + "." + output.tableName(), failure);
+                    "Failed to close Paimon " + name + " for " + output.schemaName() + "." + output.tableName(),
+                    failure);
         }
     }
 

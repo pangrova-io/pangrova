@@ -443,7 +443,8 @@ final class ShuffleServiceEngine implements AutoCloseable {
         ReadResult(String shuffleId, PublishedPartition published, long startSequence, ReadRange range,
                 long deadlineEpochMs, long capabilityExpiresAtMs, ShuffleReadLease lease) {
             this(published.partition(), published.planEpoch(), published.committedProducerCount(),
-                    published.producerSetChecksum(), startSequence, range, deadlineEpochMs, capabilityExpiresAtMs, lease,
+                    published.producerSetChecksum(), startSequence, range, deadlineEpochMs,
+                        capabilityExpiresAtMs, lease,
                     new ShufflePartitionManifest.Reader(shuffleId, published.partition().partitionId(),
                             published.partition().committedLastSequence(), published.publication().manifestRoot()));
         }

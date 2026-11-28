@@ -18,6 +18,7 @@ import java.util.Map;
 public final class PaimonObservedWriteStaging {
     private PaimonObservedWriteStaging() { }
 
+    /** Deletes the observed files when the local storage authority matches. */
     public static boolean reclaim(PaimonOutputTableHandle handle, List<byte[]> fragments) throws IOException {
         Path root = PaimonLocalStagingAuthority.absolutePath(
                 new org.apache.paimon.fs.Path(handle.tableLocation()).toUri());

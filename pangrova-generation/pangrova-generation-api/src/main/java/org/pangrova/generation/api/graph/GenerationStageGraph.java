@@ -42,7 +42,8 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
     /** Exact per-stage executable payload and immutable partition cohort. */
     public record StagePlan(int stageId, int parallelism, GenerationPageKind pageKind,
             String planBase64, String planSha256, GenerationStageTemplate template,
-            List<String> sourceKeys, List<String> outputNames, boolean publicationOutput, boolean coalescibleHashInputs) {
+            List<String> sourceKeys, List<String> outputNames, boolean publicationOutput,
+            boolean coalescibleHashInputs) {
         public StagePlan(int stageId, int parallelism, GenerationPageKind pageKind, String planBase64,
                 String planSha256, GenerationStageTemplate template, List<String> sourceKeys,
                 List<String> outputNames, boolean publicationOutput) {
@@ -60,7 +61,8 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
             }
             if (coalescibleHashInputs && (pageKind != GenerationPageKind.RELATIONAL_COMPUTE
                     || parallelism < 2 || !sourceKeys.isEmpty())) {
-                throw new IllegalArgumentException("Only partition-local relational compute can coalesce Shuffle inputs");
+                throw new IllegalArgumentException(
+                        "Only partition-local relational compute can coalesce Shuffle inputs");
             }
             decode(planBase64, planSha256, false, "stage plan");
             Objects.requireNonNull(template, "Durable stage template is absent; explicitly rebuild old jobs");

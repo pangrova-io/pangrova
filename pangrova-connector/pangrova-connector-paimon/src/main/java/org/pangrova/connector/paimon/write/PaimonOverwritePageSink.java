@@ -12,7 +12,8 @@ import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 public final class PaimonOverwritePageSink extends AbstractPaimonPageSink {
 
     PaimonOverwritePageSink(FileStoreTable table, PaimonOutputTableHandle output, String tempDir) {
-        super(new PaimonPageSinkContext(table, output, table.newBatchWriteBuilder().withOverwrite(output.overwritePartition()), tempDir));
+        super(new PaimonPageSinkContext(table, output,
+                table.newBatchWriteBuilder().withOverwrite(output.overwritePartition()), tempDir));
     }
 
     @Override

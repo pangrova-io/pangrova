@@ -1,6 +1,5 @@
 package org.pangrova.connector.paimon;
 
-import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.manifest.FileEntry;
 import org.apache.paimon.manifest.FileKind;
@@ -86,7 +85,8 @@ final class PaimonBoundedPlanningTable {
                 scan = new DataEvolutionFileStoreScan(manifests, buckets, snapshotManager(), schemaManager(), schema,
                         manifestFiles, options.scanManifestParallelism(), options.deletionVectorsEnabled()) {
                     @Override
-                    public Iterator<ManifestEntry> readManifestEntries(List<ManifestFileMeta> files, boolean sequential) {
+                    public Iterator<ManifestEntry> readManifestEntries(
+                            List<ManifestFileMeta> files, boolean sequential) {
                         return readEntries(files, scanMode, parallelism(), planningIo, this::readManifest);
                     }
                 };
@@ -95,7 +95,8 @@ final class PaimonBoundedPlanningTable {
                         manifestFiles, options.scanManifestParallelism(), options.fileIndexReadEnabled(),
                         options.deletionVectorsEnabled(), false) {
                     @Override
-                    public Iterator<ManifestEntry> readManifestEntries(List<ManifestFileMeta> files, boolean sequential) {
+                    public Iterator<ManifestEntry> readManifestEntries(
+                            List<ManifestFileMeta> files, boolean sequential) {
                         return readEntries(files, scanMode, parallelism(), planningIo, this::readManifest);
                     }
                 };

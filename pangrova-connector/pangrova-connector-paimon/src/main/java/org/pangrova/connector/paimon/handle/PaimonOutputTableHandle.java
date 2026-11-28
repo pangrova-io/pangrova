@@ -86,7 +86,8 @@ public record PaimonOutputTableHandle(
     }
 
     public record WriteSemantics(Map<String, String> overwritePartition, String mode, long baseSnapshotId,
-                                 StagedFileNames stagedFileNames, Optional<NativePhysicalWriteAllocation> physicalAllocation) {
+                                 StagedFileNames stagedFileNames,
+                                 Optional<NativePhysicalWriteAllocation> physicalAllocation) {
         public WriteSemantics {
             overwritePartition = Map.copyOf(overwritePartition);
             java.util.Objects.requireNonNull(stagedFileNames, "stagedFileNames");
@@ -143,7 +144,8 @@ public record PaimonOutputTableHandle(
         }
         return new PaimonOutputTableHandle(schemaName, tableName, tableLocation, tableUuid,
                 schemaFingerprint, rowTypeJson, layout,
-                new WriteSemantics(overwritePartition(), mode(), baseSnapshotId(), stagedFileNames(), Optional.of(allocation)));
+                new WriteSemantics(overwritePartition(), mode(), baseSnapshotId(),
+                        stagedFileNames(), Optional.of(allocation)));
     }
 
     /** Rebinds the handle to the base snapshot confirmed by the commit recovery path. */

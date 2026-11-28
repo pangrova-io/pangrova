@@ -6,6 +6,7 @@ import org.pangrova.protocol.v2.ShufflePartitionReadRange;
 public final class CanonicalShuffleReadRanges {
     private CanonicalShuffleReadRanges() {}
 
+    /** Returns whether the range has explicit bounds and valid manifest evidence. */
     public static boolean valid(ShufflePartitionReadRange range) {
         return range.hasStartSequence() && range.getStartSequence() >= 0
                 && range.hasEndSequenceExclusive() && range.getEndSequenceExclusive() > range.getStartSequence()
