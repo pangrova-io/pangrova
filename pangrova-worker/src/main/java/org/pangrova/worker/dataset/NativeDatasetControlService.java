@@ -1,6 +1,6 @@
 package org.pangrova.worker.dataset;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.worker.exception.ControlDeadlineExceededException;
 
@@ -9,7 +9,7 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintRequest;
 import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
@@ -176,7 +176,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
         requireDeadline(request.getDeadlineEpochMs());
         requireCatalog(request.getCatalog());
         if (request.getExecutionId().isBlank()
-                || !DigestUtils.isSha256Hex(request.getCommitFingerprint())
+                || !Sha256Digests.isSha256Hex(request.getCommitFingerprint())
                 || !request.getCleanupId().matches("[0-9a-f]{32}")
                 || request.getDatasetUri().isBlank()
                 || request.getObjectsCount() < 1
@@ -216,7 +216,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
             throw new IllegalArgumentException("Dataset scan requires accepted membership");
         }
         var reference =
-                org.pangrova.protocol.source.SourceSnapshotBindings.decode(
+                org.pangrova.protocol.source.SourceSnapshotCodec.decode(
                         request.getAcceptedSnapshot(), request.getCatalog());
         if (!reference.tenant().equals(request.getSecurity().getTenantId())
                 || reference.version() != request.getVersion()
@@ -273,7 +273,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
         if (!request.getInvocationId().matches("[0-9a-f]{32}")) {
             throw new IllegalArgumentException("Preparation requires its durable invocation nonce");
         }
-        if (!DigestUtils.isSha256Hex(request.getCommitFingerprint())) {
+        if (!Sha256Digests.isSha256Hex(request.getCommitFingerprint())) {
             throw new IllegalArgumentException("Publication requires an exact commit fingerprint");
         }
         if (!request.getOutputBinding().hasLance()) {
@@ -312,7 +312,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
         requireReservedIdentityAndCursor(request);
         if (binding.hasBaseSnapshot()) {
             var base =
-                    org.pangrova.protocol.source.SourceSnapshotBindings.decode(
+                    org.pangrova.protocol.source.SourceSnapshotCodec.decode(
                             binding.getBaseSnapshot(), binding.getCatalog());
             if (!base.tenant().equals(reservation.getTenantId())
                     || !base.tableId().equals(reservation.getTableId())
@@ -376,7 +376,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
             }
             // Validates the complete owner/control/plan/attempt fence; recovery may
             // intentionally carry winners from an earlier execution owner.
-            org.pangrova.protocol.write.NativeWriteBindings.attemptPrefix("control-validation", attempt);
+            org.pangrova.protocol.write.NativeWriteBinder.attemptPrefix("control-validation", attempt);
         }
     }
 

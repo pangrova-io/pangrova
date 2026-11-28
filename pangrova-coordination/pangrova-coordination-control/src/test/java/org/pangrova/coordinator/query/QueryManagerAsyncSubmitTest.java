@@ -1,5 +1,5 @@
 package org.pangrova.coordinator.query;
-import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses.Analysis;
 import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;

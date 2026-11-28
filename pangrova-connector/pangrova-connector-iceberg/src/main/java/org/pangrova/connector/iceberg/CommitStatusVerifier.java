@@ -4,7 +4,7 @@ import org.pangrova.connector.iceberg.enums.IcebergCommitOutcome;
 
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -133,7 +133,7 @@ final class CommitStatusVerifier {
 
     private static void sleep(long millis, String tableId) {
         boolean interruptedBefore = Thread.currentThread().isInterrupted();
-        ThreadUtils.sleepQuietly(millis);
+        ThreadSleeper.sleepQuietly(millis);
         if (!interruptedBefore && Thread.currentThread().isInterrupted()) {
             LOG.warn("event=commit_verification_interrupted table={}", tableId);
         }

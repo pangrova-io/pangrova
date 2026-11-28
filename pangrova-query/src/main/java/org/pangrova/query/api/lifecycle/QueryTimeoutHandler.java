@@ -3,7 +3,7 @@ package org.pangrova.query.api.lifecycle;
 import java.time.Duration;
 import java.time.Instant;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Query owner's timeout entry point, independent of scheduling and transport.

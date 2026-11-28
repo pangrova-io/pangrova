@@ -2,7 +2,7 @@ package org.pangrova.parser.property;
 
 import net.jqwik.api.*;
 import org.pangrova.parser.format.AstPrinter;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.AlterTableStatement;
 

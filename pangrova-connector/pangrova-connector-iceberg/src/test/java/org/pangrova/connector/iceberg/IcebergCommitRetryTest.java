@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.common.concurrent.RetryingCommitWrapper;
+import org.pangrova.common.concurrency.RetryingCommitWrapper;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.DeleteFilter;

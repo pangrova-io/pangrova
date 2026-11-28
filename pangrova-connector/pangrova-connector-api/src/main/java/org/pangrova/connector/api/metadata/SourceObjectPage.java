@@ -1,7 +1,7 @@
 package org.pangrova.connector.api.metadata;
 
 import org.pangrova.connector.api.enums.SourceObjectPurpose;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 import java.io.ByteArrayOutputStream;
@@ -60,7 +60,7 @@ public record SourceObjectPage(int index, String afterPath, List<ObjectReference
      * unsigned 32-bit purpose (1/2), all big endian.
      */
     public static byte[] digest(List<ObjectReference> objects) {
-        var digest = DigestUtils.sha256();
+        var digest = Sha256Digests.sha256();
         int size = 0;
         for (var object : objects) {
             byte[] proof = proof(object);

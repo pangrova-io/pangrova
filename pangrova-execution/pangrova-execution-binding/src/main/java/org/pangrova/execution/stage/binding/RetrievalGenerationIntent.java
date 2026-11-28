@@ -5,7 +5,7 @@ import org.pangrova.protocol.v2.NamedValue;
 
 import java.util.List;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Query-scoped intent to consume one immutable artifact generation.

@@ -2,7 +2,7 @@ package org.pangrova.shuffle.pangrova.client;
 
 import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.BatchChunk;
@@ -102,7 +102,7 @@ final class StreamingBatchChunkValidator {
                 || !validSha256(chunk.getBatchChecksum())) {
             throw RemoteShuffleClientException.corruption("batch chunk count or checksum contract is invalid");
         }
-        batchDigest = DigestUtils.sha256();
+        batchDigest = Sha256Digests.sha256();
         expectedBatchChecksum = chunk.getBatchChecksum();
         batchSize = size;
         batchBytes = 0;
@@ -139,7 +139,7 @@ final class StreamingBatchChunkValidator {
     }
 
     private static boolean matchesChecksum(Checksum checksum, ByteString data) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         digest.update(data.asReadOnlyByteBuffer());
         return matchesDigest(checksum, digest.digest());
     }

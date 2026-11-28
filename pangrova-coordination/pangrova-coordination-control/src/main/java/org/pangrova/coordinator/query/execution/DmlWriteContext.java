@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Carries DML operation metadata through the dispatch chain so that

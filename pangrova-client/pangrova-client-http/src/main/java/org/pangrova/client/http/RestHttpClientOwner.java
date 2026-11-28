@@ -1,8 +1,8 @@
 package org.pangrova.client.http;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.concurrent.GuardedBy;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
 
 import java.net.http.HttpClient;
 import java.util.concurrent.ExecutorService;

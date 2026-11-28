@@ -286,10 +286,15 @@ lease expires, including after retirement of the execution anchor.
 For observed SDK files in the same Linux local storage namespace, the cleanup
 holder verifies identity before unlinking.
 The worker receipt binds the namespace to the kernel boot identity and the
-database directory inode. Recovery verifies that binding before treating any
+database directory inode. The local file fingerprint also binds its inode and
+creation and modification timestamps. Recovery checks that fingerprint and
+length before unlinking. Older fragments without a file fingerprint can still
+be published through the fenced commit journal. They leave reclamation pending.
+Recovery verifies the namespace itself before treating any
 missing path as absent, and uses directory-relative operations that do not
 follow links beneath the database directory. A successor can repeat a partial
 deletion under its new claim. The completion record covers only reported files.
+An empty object receipt leaves the cleanup obligation pending.
 Native physical output, external roots, unreported files, and an unavailable
 original storage namespace retain the staging obligation.
 
@@ -534,7 +539,7 @@ metadata scope. When Calcite requests the declaration, the same metadata provide
 can bind the discovered selector. Subsequent lookups of a bound table share the
 selected snapshot. Explicit enumeration lists tables. Catalog failures propagate as
 metadata errors.
-Each compilation owns one `PlanningReadBindings` instance shared by Calcite table
+Each compilation owns one `PlanningReadBindingResolver` instance shared by Calcite table
 declarations and cost statistics. It verifies table identity, the selected snapshot
 or incremental range, and retained query authority. Calcite's row types and row-count
 estimates use the same immutable binding. Requests that unwrap a connector declaration
@@ -2445,7 +2450,7 @@ and read access. A live retry uses the frozen mapping for that stage. Durable
 replay uses the original persisted partition allocation.
 
 The implementation and verification requirements are tracked in the
-[query performance plan](../development/query-performance-parity-plan.md#q3-让-cbo聚合和-aqe-缩减跨节点工作).
+[execution backlog](../development/execution-backlog.md#focused-probes).
 
 ---
 

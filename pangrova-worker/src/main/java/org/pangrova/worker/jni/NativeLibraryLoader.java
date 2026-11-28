@@ -10,7 +10,7 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.EnumSet;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -170,7 +170,7 @@ public final class NativeLibraryLoader {
             if (candidate.toExternalForm().equals(source.toExternalForm())) {
                 continue;
             }
-            MessageDigest digest = DigestUtils.sha256();
+            MessageDigest digest = Sha256Digests.sha256();
             try (InputStream input = candidate.openStream()) {
                 byte[] buffer = new byte[8192];
                 int count;
@@ -186,7 +186,7 @@ public final class NativeLibraryLoader {
     }
 
     private static byte[] extract(URL source, Path target) throws IOException {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         try (InputStream in = source.openStream();
              OutputStream out = Files.newOutputStream(target)) {
             byte[] buffer = new byte[8192];

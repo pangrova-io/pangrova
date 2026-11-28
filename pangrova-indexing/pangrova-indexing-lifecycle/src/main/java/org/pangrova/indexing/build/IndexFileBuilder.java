@@ -1,6 +1,6 @@
 package org.pangrova.indexing.build;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntent;
 import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntents;
 
@@ -86,7 +86,7 @@ final class IndexFileBuilder {
 
     private static String checksum(byte[] bytes) {
         return HexFormat.of().formatHex(
-                DigestUtils.sha256().digest(bytes));
+                Sha256Digests.sha256().digest(bytes));
     }
 
     private static final class CountingRows implements Iterator<List<Comparable<?>>> {

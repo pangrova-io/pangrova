@@ -22,7 +22,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.zip.GZIPInputStream;
 
-import static org.pangrova.common.util.Preconditions.requirePositiveDuration;
+import static org.pangrova.common.validation.Preconditions.requirePositiveDuration;
 
 /** Imports an allowlisted HTTPS object into the governed content-addressed FILE store. */
 public final class HttpsBlobImporter implements AutoCloseable {

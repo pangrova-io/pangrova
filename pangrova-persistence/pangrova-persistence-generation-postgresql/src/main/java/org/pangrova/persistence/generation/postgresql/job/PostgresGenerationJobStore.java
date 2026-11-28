@@ -36,13 +36,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection.findPage;
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection.selectClaimablePage;
 
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
 @org.pangrova.common.api.annotation.Internal
-public final class PostgresGenerationJobStore extends PostgresGenerationJobStoreSupport
+public final class PostgresGenerationJobStore extends PostgresGenerationJobStoreTransitions
         implements GenerationJobStore, GenerationJobSubmissionTransactions {
 
     private final PostgresGenerationJobReader reader;

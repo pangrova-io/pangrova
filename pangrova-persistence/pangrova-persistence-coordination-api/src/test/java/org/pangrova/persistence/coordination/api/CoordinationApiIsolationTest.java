@@ -31,7 +31,7 @@ class CoordinationApiIsolationTest {
                     org.pangrova.coordination.api.membership.WorkerSnapshot.class,
                     org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot.class,
                     org.pangrova.coordination.api.heartbeat.CacheCatalogSummary.class,
-                    org.pangrova.coordination.api.leadership.MaintenanceLeaderAware.class)) {
+                    org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener.class)) {
                 var contract = loader.loadClass(declared.getName());
                 assertThat(contract.getClassLoader()).isSameAs(loader);
                 contract.getMethods();

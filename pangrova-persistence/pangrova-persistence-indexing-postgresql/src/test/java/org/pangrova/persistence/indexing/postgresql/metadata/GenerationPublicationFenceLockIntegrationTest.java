@@ -9,10 +9,10 @@ import org.pangrova.persistence.generation.postgresql.publication.JdbcGeneratedV
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 import org.pangrova.generation.api.publication.GenerationManifest;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildDescriptor;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
@@ -242,7 +242,7 @@ class GenerationPublicationFenceLockIntegrationTest {
                         32, 4, "b".repeat(64), ""));
             }
             assertThat(buildStore.completePage(new GenerationPageCompletion("tenant", "job", lease.pageId(),
-                    lease.fencingToken(), lease.ownerEpoch(), report, DigestUtils.sha256Hex(report), outputs, start,
+                    lease.fencingToken(), lease.ownerEpoch(), report, Sha256Digests.sha256Hex(report), outputs, start,
                     GenerationExecutionOwner.from(producer)))).isTrue();
             assertThat(anchors.yield(producer)).isTrue();
             var anchor = anchors.tryAcquire(key.executionId(), "publisher", "publisher-process", Duration.ofSeconds(5))

@@ -32,7 +32,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Resolves immutable artifact metadata on the Coordinator control plane.

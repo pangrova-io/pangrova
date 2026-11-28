@@ -1,6 +1,6 @@
 package org.pangrova.persistence.materialization.postgresql;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.sql.PreparedStatement;
@@ -49,7 +49,7 @@ import org.pangrova.connector.api.materialization.CommitEvidence;
 import org.pangrova.connector.api.materialization.SourceRef;
 import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
 
 /**
  * Column projections, row mapping, and state-code translation for the
@@ -347,7 +347,7 @@ final class JdbcMaterializationRows {
     }
 
     static void requireStorableFingerprint(DefinitionRevision definition) {
-        if (!DigestUtils.isSha256Hex(definition.binding().planFingerprint())) {
+        if (!Sha256Digests.isSha256Hex(definition.binding().planFingerprint())) {
             throw MaterializationException.invalidDefinition(
                     "plan fingerprint must be a lowercase SHA-256 digest");
         }

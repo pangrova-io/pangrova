@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+import org.pangrova.testfixtures.tableformat.PaimonCommitFixture;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.data.ConnectorPageSink;
@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Verifies native DELETE survivor fragments use full, atomic replacement semantics. */
-class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
+class PaimonDistributedDeleteCommitTest extends PaimonDeleteFixture {
 
     private static final StoredRow DELETED = new StoredRow(1, "east", "one", "delete");
     private static final StoredRow SURVIVOR = new StoredRow(2, "west", "two", "keep");
@@ -37,7 +37,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         var output = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
                 metadata.beginOverwrite(SESSION, handle(metadata));
         List<byte[]> fragments = List.of(prepare(output, SURVIVOR));
-        var context = PaimonCommitTestSupport.context(metadata, SESSION, output, fragments);
+        var context = PaimonCommitFixture.context(metadata, SESSION, output, fragments);
         var original = (org.apache.paimon.table.FileStoreTable) freshTable();
         var publications = new java.util.concurrent.atomic.AtomicInteger();
         var notifications = new java.util.concurrent.atomic.AtomicInteger();
@@ -84,7 +84,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
 
         // Workers only stage files. The old table remains visible until the single commit.
         assertThat(readRows()).containsExactlyInAnyOrder(DELETED, SURVIVOR, OTHER_SURVIVOR);
-        PaimonCommitTestSupport.finish(metadata, SESSION, output,
+        PaimonCommitFixture.finish(metadata, SESSION, output,
                 List.of(firstWorker, secondWorker, emptyWorker));
 
         assertThat(readRows()).containsExactlyInAnyOrder(SURVIVOR, OTHER_SURVIVOR);
@@ -104,11 +104,11 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         assertThat(emptyWorker).isNotEmpty();
         assertThat(readRows()).containsExactlyInAnyOrder(DELETED, SURVIVOR);
 
-        PaimonCommitTestSupport.finish(metadata, SESSION, output, List.of(emptyWorker));
+        PaimonCommitFixture.finish(metadata, SESSION, output, List.of(emptyWorker));
 
         assertThat(readRows()).isEmpty();
         var repeatOutput = metadata.beginOverwrite(SESSION, handle(metadata));
-        PaimonCommitTestSupport.finish(metadata, SESSION, repeatOutput,
+        PaimonCommitFixture.finish(metadata, SESSION, repeatOutput,
                 List.of(prepare(repeatOutput)));
         assertThat(readRows()).isEmpty();
         writeRows(SURVIVOR);
@@ -123,7 +123,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginOverwrite(SESSION, handle(metadata), Map.of("region", "east"));
 
-        PaimonCommitTestSupport.finish(metadata, SESSION, output, List.of(prepare(output)));
+        PaimonCommitFixture.finish(metadata, SESSION, output, List.of(prepare(output)));
 
         assertThat(readRows()).containsExactly(SURVIVOR);
     }
@@ -138,7 +138,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         ConnectorPageSink sink = provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, output);
         byte[] fragment = finish(sink, SURVIVOR);
 
-        PaimonCommitTestSupport.finish(metadata, SESSION, output, List.of(fragment));
+        PaimonCommitFixture.finish(metadata, SESSION, output, List.of(fragment));
 
         assertThat(readRows()).containsExactlyInAnyOrder(DELETED, SURVIVOR);
     }
@@ -183,6 +183,46 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         changedSize[changedSize.length - 1] ^= 1;
         assertThatThrownBy(() -> org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(changedSize, restored))
                 .hasMessageContaining("differs from its SDK commit metadata");
+        int fingerprintBytes = Short.BYTES + object.localFingerprint().length();
+        byte[] priorVersion = Arrays.copyOf(receipt, receipt.length - fingerprintBytes);
+        java.nio.ByteBuffer.wrap(priorVersion).putInt(2);
+        System.arraycopy(receipt, receipt.length - Long.BYTES, priorVersion,
+                priorVersion.length - Long.BYTES, Long.BYTES);
+        var legacy = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(priorVersion, restored);
+        assertThat(legacy.messages()).isEqualTo(prepared.messages());
+        assertThat(legacy.objects()).singleElement().satisfies(observed -> {
+            assertThat(observed.uri()).isEqualTo(object.uri());
+            assertThat(observed.sizeBytes()).isEqualTo(object.sizeBytes());
+            assertThat(observed.localFingerprint()).isEmpty();
+        });
+        assertThat(snapshotId()).isEqualTo(-1L);
+    }
+
+    @Test
+    void sameLengthReplacementDoesNotMatchTheClosedStagedObject() throws Exception {
+        createTable(false, false);
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var handle = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var receipt = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, handle), SURVIVOR);
+        var observed = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(receipt, handle);
+        var object = observed.objects().get(0);
+        var path = java.nio.file.Path.of(java.net.URI.create(object.uri()));
+        var replacement = java.nio.file.Files.createTempFile(path.getParent(), "replacement-", ".tmp");
+        java.nio.file.Files.copy(path, replacement, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        java.nio.file.Files.move(replacement, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        assertThat(java.nio.file.Files.size(path)).isEqualTo(object.sizeBytes());
+
+        var fragments = List.of(receipt);
+        var context = PaimonCommitFixture.context(metadata, SESSION, handle, fragments);
+        if (observed.localAuthority().isEmpty()) {
+            assertThat(metadata.reclaimObservedStaging(SESSION, handle, fragments, context)).isFalse();
+        } else {
+            assertThat(object.localFingerprint()).hasSize(64);
+            assertThatThrownBy(() -> metadata.reclaimObservedStaging(SESSION, handle, fragments, context))
+                    .rootCause().hasMessageContaining("Observed Paimon staged file differs from its closed-file receipt");
+        }
+        assertThat(path).isRegularFile();
         assertThat(snapshotId()).isEqualTo(-1L);
     }
 
@@ -201,12 +241,29 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         assertThat(deleted).isNotEqualTo(remaining);
         java.nio.file.Files.delete(deleted);
         var fragments = List.of(first, second);
-        var context = PaimonCommitTestSupport.context(metadata, SESSION, handle, fragments);
+        var context = PaimonCommitFixture.context(metadata, SESSION, handle, fragments);
         boolean authoritative = !current.localAuthority().isEmpty();
 
         assertThat(metadata.reclaimObservedStaging(SESSION, handle, fragments, context)).isEqualTo(authoritative);
         assertThat(java.nio.file.Files.exists(remaining)).isEqualTo(!authoritative);
         assertThat(metadata.reclaimObservedStaging(SESSION, handle, fragments, context)).isEqualTo(authoritative);
+        assertThat(snapshotId()).isEqualTo(-1L);
+    }
+
+    @Test
+    void missingStagedObjectReceiptsLeaveCleanupPending() throws Exception {
+        createTable(false, false);
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var handle = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var receipt = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, handle), SURVIVOR);
+        var staged = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(receipt, handle);
+        var stagedFile = java.nio.file.Path.of(java.net.URI.create(staged.objects().get(0).uri()));
+        List<byte[]> missing = List.of();
+        var context = PaimonCommitFixture.context(metadata, SESSION, handle, missing);
+
+        assertThat(metadata.reclaimObservedStaging(SESSION, handle, missing, context)).isFalse();
+        assertThat(stagedFile).isRegularFile();
         assertThat(snapshotId()).isEqualTo(-1L);
     }
 
@@ -218,7 +275,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         ConnectorPageSink sink = provider().createPageSink(
                 ConnectorTransactionHandle.empty(), SESSION, output);
         List<byte[]> fragments = List.of(finish(sink, SURVIVOR));
-        var context = PaimonCommitTestSupport.context(metadata, SESSION, output, fragments);
+        var context = PaimonCommitFixture.context(metadata, SESSION, output, fragments);
 
         metadata.finishDistributedWrite(SESSION, output, fragments, context);
         long publishedSnapshot = snapshotId();
@@ -257,7 +314,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         byte[] insertFragment = finish(insertSink, SURVIVOR);
         byte[] overwriteFragment = prepare(overwrite, OTHER_SURVIVOR);
         List<byte[]> fragments = List.of(insertFragment, overwriteFragment);
-        var context = PaimonCommitTestSupport.context(metadata, SESSION, insert, fragments);
+        var context = PaimonCommitFixture.context(metadata, SESSION, insert, fragments);
 
         assertThatThrownBy(() -> metadata.finishDistributedWrite(
                 SESSION, insert, fragments, context))

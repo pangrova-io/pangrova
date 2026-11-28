@@ -11,7 +11,7 @@ import org.pangrova.materialization.api.port.MaterializationAuthorizer;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
 import org.pangrova.materialization.api.port.PublicationVerifier;
-import org.pangrova.materialization.api.port.SourcePinning;
+import org.pangrova.materialization.api.port.SourceSnapshotPinner;
 
 /**
  * Complete set of collaborators of the materialization kernel.
@@ -37,7 +37,7 @@ public record KernelPorts(
         MaterializationCatalog catalog,
         DefinitionPlanner planner,
         ExecutionEngine execution,
-        SourcePinning sourcePinning,
+        SourceSnapshotPinner sourcePinning,
         MaterializationAuthorizer authorizer,
         LeaseService leases,
         FenceValidator fences,

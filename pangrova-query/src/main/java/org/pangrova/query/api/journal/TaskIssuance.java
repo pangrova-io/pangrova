@@ -5,7 +5,7 @@ import org.pangrova.common.api.annotation.Experimental;
 import java.util.Arrays;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Exact Worker control address, issuing fence and canonical binary admission seal for one attempt. */
 @Experimental

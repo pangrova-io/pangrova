@@ -241,7 +241,7 @@
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.runtime.classification.ColumnTagBindings"/>
+        <Class name="org.pangrova.governance.runtime.classification.ColumnTagAuthority"/>
         <Field name="events"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
@@ -424,7 +424,7 @@
     </Match>
     <Match>
         <Class name="org.pangrova.parser.diagnostic.RecoveryParseDetails"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.parser.api.parse.ParseResult,org.antlr.v4.runtime.tree.ParseTree" returns="void"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.parser.api.syntax.ParseResult,org.antlr.v4.runtime.tree.ParseTree" returns="void"/>
         <Field name="partialTree" type="org.antlr.v4.runtime.tree.ParseTree"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
@@ -437,7 +437,7 @@
 
     <!-- Public parser constructors validate limits but the API remains extensible and has no finalizer. -->
     <Match>
-        <Class name="org.pangrova.parser.parse.AntlrSqlParser"/>
+        <Class name="org.pangrova.parser.syntax.AntlrSqlParser"/>
         <Bug pattern="CT_CONSTRUCTOR_THROW"/>
     </Match>
 
@@ -529,7 +529,7 @@
 
     <!-- Retry jitter is not used for secrets or security-sensitive randomness. -->
     <Match>
-        <Class name="org.pangrova.common.concurrent.RetryingCommitWrapper"/>
+        <Class name="org.pangrova.common.concurrency.RetryingCommitWrapper"/>
         <Bug pattern="PREDICTABLE_RANDOM"/>
     </Match>
 
@@ -778,7 +778,7 @@
          no resource during construction, publishes no object and has no finalizer.
          Keep only the exact constructor classification after the persistence owner move. -->
     <Match>
-        <Class name="org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport"/>
+        <Class name="org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase"/>
         <Method name="&lt;init&gt;" params="javax.sql.DataSource" returns="void"/>
         <Bug pattern="CT_CONSTRUCTOR_THROW"/>
     </Match>
@@ -1166,13 +1166,13 @@
     <!-- LiveStatisticsOwnershipTest proves these consumers must observe changes made through
          their owner-managed statistics/feedback services, rather than copy stale DTO state. -->
     <Match>
-        <Class name="org.pangrova.planner.adaptive.AdaptiveQueryExecutor"/>
+        <Class name="org.pangrova.planner.adaptivequery.AdaptiveQueryExecutor"/>
         <Method name="&lt;init&gt;"/>
         <Field name="statisticsCollector"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.adaptive.StageReplanCoordinator"/>
+        <Class name="org.pangrova.planner.adaptivequery.StageReplanCoordinator"/>
         <Method name="&lt;init&gt;"/>
         <Field name="feedbackStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -1667,7 +1667,7 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceSupport"/>
+        <Class name="org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceBase"/>
         <Method name="&lt;init&gt;" params="javax.sql.DataSource" returns="void"/>
         <Field name="dataSource" type="javax.sql.DataSource"/>
         <Bug pattern="EI_EXPOSE_REP2"/>

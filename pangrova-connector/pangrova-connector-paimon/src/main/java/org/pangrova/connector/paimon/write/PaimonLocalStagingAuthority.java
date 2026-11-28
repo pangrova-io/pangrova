@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.io.IOException;
 import java.net.URI;
@@ -46,10 +46,27 @@ final class PaimonLocalStagingAuthority {
         return view == null ? "" : fingerprint(view.readAttributes());
     }
 
+    static String observeObject(Path path, long size) throws IOException {
+        if (BOOT_ID.isEmpty() || path == null) return "";
+        try {
+            return objectFingerprint(Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS),
+                    size);
+        } catch (NoSuchFileException | AccessDeniedException unavailable) {
+            return "";
+        }
+    }
+
+    static String objectFingerprint(BasicFileAttributes attributes, long size) {
+        Object key = attributes.fileKey();
+        if (BOOT_ID.isEmpty() || !attributes.isRegularFile() || attributes.size() != size || key == null) return "";
+        return Sha256Digests.sha256Hex(BOOT_ID + ":" + key + ":" + attributes.creationTime()
+                + ":" + attributes.lastModifiedTime());
+    }
+
     private static String fingerprint(BasicFileAttributes attributes) {
         Object key = attributes.fileKey();
         if (!attributes.isDirectory() || key == null) return "";
-        return DigestUtils.sha256Hex(BOOT_ID + ":" + key);
+        return Sha256Digests.sha256Hex(BOOT_ID + ":" + key);
     }
 
     private static String readBootId() {

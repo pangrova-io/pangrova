@@ -1,6 +1,6 @@
 package org.pangrova.generation.codec.column;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.v2.ExecutionMode;
@@ -15,7 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Canonical connector-property codec for generated-column catalog metadata.
@@ -47,7 +47,7 @@ public final class GeneratedColumnMetadataCodec {
         }
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put(PAYLOAD_PROPERTY, Base64.getEncoder().encodeToString(payload));
-        properties.put(SHA256_PROPERTY, Base64.getEncoder().encodeToString(DigestUtils.sha256().digest(payload)));
+        properties.put(SHA256_PROPERTY, Base64.getEncoder().encodeToString(Sha256Digests.sha256().digest(payload)));
         return Map.copyOf(properties);
     }
 
@@ -95,7 +95,7 @@ public final class GeneratedColumnMetadataCodec {
 
     private static void validateDigest(byte[] expectedDigest, byte[] payload) {
         if (expectedDigest.length != 32
-                || !MessageDigest.isEqual(expectedDigest, DigestUtils.sha256().digest(payload))) {
+                || !MessageDigest.isEqual(expectedDigest, Sha256Digests.sha256().digest(payload))) {
             throw new IllegalArgumentException(
                     "generated-column metadata SHA-256 mismatch");
         }

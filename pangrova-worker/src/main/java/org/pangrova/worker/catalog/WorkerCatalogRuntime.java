@@ -4,7 +4,7 @@ import org.pangrova.protocol.checksum.ProtocolChecksums;
 import org.pangrova.worker.catalog.WorkerCatalogRegistry.CatalogEntry;
 import org.pangrova.worker.catalog.WorkerCatalogRegistry.CatalogRuntime;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.worker.connector.session.TaskConnectorSession;
 import org.pangrova.security.secret.resolution.SecretResolverRegistry;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;

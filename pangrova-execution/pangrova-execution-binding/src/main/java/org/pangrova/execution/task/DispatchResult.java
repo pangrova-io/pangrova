@@ -16,7 +16,7 @@ package org.pangrova.execution.task;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.http.TaskShuffleEndpoint;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Control-plane outcome of dispatching one task.

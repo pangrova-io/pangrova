@@ -7,7 +7,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
@@ -101,7 +101,7 @@ record IcebergReadSchema(Schema schema, String schemaJson, Optional<Map<String, 
     }
 
     static TableIdentity identity(TableMetadata metadata, String schemaJson) {
-        return new TableIdentity("ICEBERG", metadata.uuid(), metadata.location(), DigestUtils.sha256Hex(schemaJson));
+        return new TableIdentity("ICEBERG", metadata.uuid(), metadata.location(), Sha256Digests.sha256Hex(schemaJson));
     }
 
     private static Optional<Map<String, String>> creationProperties(Table table, Snapshot snapshot,

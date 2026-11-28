@@ -80,11 +80,11 @@ class GovernedBindingProjectionTest {
                 .setResources(binding().getResources().toBuilder().setProviderAttempts(-1)).build()))
                 .isInstanceOf(IllegalArgumentException.class);
         for (String value : List.of("01", "+1", "-1", "9223372036854775808")) {
-            assertThatThrownBy(() -> GovernedScalarEncoding.decode(value, "UNSIGNED_DECIMAL"))
+            assertThatThrownBy(() -> GovernedScalarDecoder.decode(value, "UNSIGNED_DECIMAL"))
                     .isInstanceOf(IllegalArgumentException.class);
         }
         for (String value : List.of("NaN", "Infinity", "0x1.0p0", "1.0suffix")) {
-            assertThatThrownBy(() -> GovernedScalarEncoding.decode(value, "EXACT_FLOAT"))
+            assertThatThrownBy(() -> GovernedScalarDecoder.decode(value, "EXACT_FLOAT"))
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }

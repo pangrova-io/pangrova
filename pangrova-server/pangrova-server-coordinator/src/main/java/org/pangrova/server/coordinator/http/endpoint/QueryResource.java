@@ -4,7 +4,7 @@ import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.query.api.enums.QueryState;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;
@@ -96,10 +96,11 @@ public final class QueryResource {
         if (queryPeers != null) {
             localOwner = queryPeers.issue(localOwner, queryId, identity.principal());
         }
-        String keyDigest = key == null || key.isBlank()
-                ? QueryRequestFingerprint.freshKeyDigest(queryId) : QueryRequestFingerprint.keyDigest(key);
+        boolean explicitKey = key != null && !key.isBlank();
+        String keyDigest = explicitKey
+                ? QueryRequestFingerprint.keyDigest(key) : QueryRequestFingerprint.freshKeyDigest(queryId);
         var acceptance = new QueryAcceptanceRequest(identity.principal(),
-                keyDigest, QueryRequestFingerprint.request(request), localOwner);
+                keyDigest, QueryRequestFingerprint.request(request), localOwner, explicitKey);
         QuerySession session = new QuerySession(
                 queryId, request.sessionProperties(), identity, null, Optional.empty(), traceContexts.capture());
         queryManager.submitQueryAsync(queryId, request.query(), session, acceptance)

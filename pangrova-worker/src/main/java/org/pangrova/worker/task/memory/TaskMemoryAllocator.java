@@ -1,6 +1,6 @@
 package org.pangrova.worker.task.memory;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.jni.NativeRuntime;

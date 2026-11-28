@@ -1,6 +1,6 @@
 package org.pangrova.protocol.function.catalog;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
@@ -29,7 +29,7 @@ public final class FunctionContractHashes {
         try {
             message.writeTo(output);
             output.checkNoSpaceLeft();
-            return ByteString.copyFrom(DigestUtils.sha256().digest(bytes));
+            return ByteString.copyFrom(Sha256Digests.sha256().digest(bytes));
         } catch (IOException failure) {
             throw new IllegalStateException("Canonical function contract digest failed", failure);
         }

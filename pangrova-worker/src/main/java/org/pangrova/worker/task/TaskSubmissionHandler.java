@@ -18,7 +18,7 @@ import org.pangrova.worker.exception.TaskAdmissionException;
 import org.pangrova.worker.task.report.TaskStatusReporter;
 import org.pangrova.worker.enums.TaskState;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.task.ValidatedTaskSubmission;

@@ -1,6 +1,6 @@
 package org.pangrova.security.mask;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
@@ -68,7 +68,7 @@ public final class MaskFunctions {
         if (perTableSalt == null || perTableSalt.isEmpty()) {
             throw new IllegalArgumentException("perTableSalt must not be null or empty");
         }
-        byte[] digest = DigestUtils.hmacSha256(perTableSalt.getBytes(StandardCharsets.UTF_8))
+        byte[] digest = Sha256Digests.hmacSha256(perTableSalt.getBytes(StandardCharsets.UTF_8))
                 .doFinal(input.getBytes(StandardCharsets.UTF_8));
         return HexFormat.of().formatHex(digest);
     }

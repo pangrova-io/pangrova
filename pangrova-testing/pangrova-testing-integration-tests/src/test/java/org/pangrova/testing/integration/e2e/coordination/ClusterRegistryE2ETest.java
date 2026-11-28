@@ -8,16 +8,16 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry;
-import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
+import org.pangrova.persistence.jdbc.datasource.DriverManagerDataSource;
 import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.membership.WorkerSnapshot;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.integration.e2e.CanonicalWorkerInventory;
-import org.pangrova.testing.integration.e2e.fixture.RegistryTestSchemaHelper;
+import org.pangrova.testing.integration.e2e.fixture.RegistryPostgresFixture;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;
-import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
+import org.pangrova.testing.integration.e2e.fixture.schema.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -63,11 +63,11 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        var pg = RegistryTestSchemaHelper.requirePostgres();
+        var pg = RegistryPostgresFixture.requirePostgres();
         dataSource = new DriverManagerDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
         MetadataSchemaInitializer.createSchema(dataSource);
-        RegistryTestSchemaHelper.truncateAll(dataSource,
+        RegistryPostgresFixture.truncateAll(dataSource,
                 "worker_registry", "coordinator_registry");
         workerRegistry = new JdbcWorkerRegistry(dataSource);
         coordinatorRegistry = new JdbcCoordinatorRegistry(dataSource);
@@ -79,7 +79,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
         if (dataSource == null) {
             return;
         }
-        RegistryTestSchemaHelper.truncateAll(dataSource,
+        RegistryPostgresFixture.truncateAll(dataSource,
                 "worker_registry", "coordinator_registry");
     }
 

@@ -1,6 +1,6 @@
 package org.pangrova.worker.result;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.ResultReadGrant;
@@ -51,6 +51,7 @@ public final class ResultReadTickets {
     }
 
     private String signature(String message) {
-        return HexFormat.of().formatHex(DigestUtils.hmacSha256(key).doFinal(message.getBytes(StandardCharsets.UTF_8)));
+        return HexFormat.of().formatHex(
+                Sha256Digests.hmacSha256(key).doFinal(message.getBytes(StandardCharsets.UTF_8)));
     }
 }

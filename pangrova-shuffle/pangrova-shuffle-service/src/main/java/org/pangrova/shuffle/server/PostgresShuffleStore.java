@@ -21,6 +21,7 @@ import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.security.enums.CapabilityOperation;
+import org.pangrova.shuffle.server.ShuffleObjectStorage.ManifestWriteReceipt;
 import org.pangrova.shuffle.server.authority.ExecutionAnchorFence;
 import org.pangrova.shuffle.server.enums.FailureKind;
 import org.pangrova.shuffle.server.exception.ShuffleServiceException;
@@ -443,6 +444,11 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
+    public void settleRejectedManifestWrite(String reservation, String shuffleId, String objectKey) {
+        transitions.settleRejectedManifestWrite(reservation, shuffleId, objectKey);
+    }
+
+    @Override
     public CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease) {
         return transitions.beginCleanup(command, lease);
     }
@@ -453,8 +459,8 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
-    public void settleVisibleManifestWrites(String shuffleId, List<String> keys) {
-        transitions.settleVisibleManifestWrites(shuffleId, keys);
+    public void settleVisibleManifestWrites(String shuffleId, List<ManifestWriteReceipt> receipts) {
+        transitions.settleVisibleManifestWrites(shuffleId, receipts);
     }
 
     @Override

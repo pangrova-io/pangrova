@@ -5,7 +5,7 @@ import org.pangrova.observability.sdk.enums.AlertSeverity;
 
 import java.time.Duration;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Immutable definition of a single alert rule.

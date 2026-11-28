@@ -1,6 +1,6 @@
 package org.pangrova.persistence.file.postgresql.space;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -17,7 +17,7 @@ import java.util.UUID;
 import javax.sql.DataSource;
 
 import org.pangrova.file.api.exception.FileStorageException;
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.file.api.space.FileSpace;
 import org.pangrova.file.api.space.FileSpaceDefinition;
@@ -59,7 +59,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                     return existing.get();
                 }
                 assertNoLocationConflict(connection, location, null);
-                Instant now = JdbcSupport.canonicalInstant(Instant.now());
+                Instant now = JdbcOperations.canonicalInstant(Instant.now());
                 UUID id = UUID.randomUUID();
                 String managedRoot = definition.external() ? "" : "managed/"
                         + definition.type().name().toLowerCase(Locale.ROOT) + "s/" + id;
@@ -142,9 +142,9 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                 try (PreparedStatement statement = connection.prepareStatement(
                         "UPDATE file_space_registry SET space_name=?, updated_at=? "
                                 + "WHERE file_space_id=?")) {
-                    Instant now = JdbcSupport.canonicalInstant(Instant.now());
+                    Instant now = JdbcOperations.canonicalInstant(Instant.now());
                     statement.setString(1, newName);
-                    JdbcSupport.setInstant(statement, 2, now);
+                    JdbcOperations.setInstant(statement, 2, now);
                     statement.setObject(3, locked.id());
                     statement.executeUpdate();
                     connection.commit();
@@ -302,7 +302,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
             return new FileSpace(current.id(), current.type(), current.catalog(), current.schema(),
                     current.name(), current.external(), current.storageProfile(),
                     current.location(), current.managedRoot(), directory.enabled(), current.comment(),
-                    current.owner(), current.createdAt(), JdbcSupport.canonicalInstant(Instant.now()));
+                    current.owner(), current.createdAt(), JdbcOperations.canonicalInstant(Instant.now()));
         }
         if (mutation instanceof FileSpaceMutation.SetLocation location) {
             if (!current.external()) {
@@ -313,7 +313,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                     current.name(), current.external(), current.storageProfile(),
                     normalizeLocation(location.location()), current.managedRoot(), current.directoryEnabled(),
                     current.comment(), current.owner(), current.createdAt(),
-                    JdbcSupport.canonicalInstant(Instant.now()));
+                    JdbcOperations.canonicalInstant(Instant.now()));
         }
         String storageProfile = current.storageProfile();
         String comment = current.comment();
@@ -328,7 +328,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
         return new FileSpace(current.id(), current.type(), current.catalog(), current.schema(), current.name(),
                 current.external(), storageProfile, current.location(), current.managedRoot(),
                 current.directoryEnabled(), comment, owner, current.createdAt(),
-                JdbcSupport.canonicalInstant(Instant.now()));
+                JdbcOperations.canonicalInstant(Instant.now()));
     }
 
     private static void insert(Connection connection, UUID id, FileSpace space)
@@ -356,7 +356,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
             statement.setBoolean(index++, space.directoryEnabled());
             statement.setString(index++, space.comment());
             statement.setString(index++, space.owner());
-            JdbcSupport.setInstant(statement, index++, space.updatedAt());
+            JdbcOperations.setInstant(statement, index++, space.updatedAt());
             statement.setString(index++, type.name());
             statement.setString(index++, catalog);
             statement.setString(index++, schema);
@@ -379,8 +379,8 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
         statement.setBoolean(index++, space.directoryEnabled());
         statement.setString(index++, space.comment());
         statement.setString(index++, space.owner());
-        JdbcSupport.setInstant(statement, index++, space.createdAt());
-        JdbcSupport.setInstant(statement, index, space.updatedAt());
+        JdbcOperations.setInstant(statement, index++, space.createdAt());
+        JdbcOperations.setInstant(statement, index, space.updatedAt());
     }
 
     private static Optional<FileSpace> find(Connection connection, FileSpaceType type,
@@ -454,8 +454,8 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                 rows.getString("managed_root"),
                 rows.getBoolean("directory_enabled"), rows.getString("comment"),
                 rows.getString("owner_name"),
-                JdbcSupport.getInstant(rows, "created_at"),
-                JdbcSupport.getInstant(rows, "updated_at"));
+                JdbcOperations.getInstant(rows, "created_at"),
+                JdbcOperations.getInstant(rows, "updated_at"));
     }
 
     private record LockedFileSpace(UUID id, FileSpace space) {}

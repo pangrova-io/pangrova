@@ -22,7 +22,7 @@ import org.pangrova.semantic.api.identity.SemanticViewId;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Fenced active-version pointer for one Semantic View identity. */
 public record SemanticViewPublication(

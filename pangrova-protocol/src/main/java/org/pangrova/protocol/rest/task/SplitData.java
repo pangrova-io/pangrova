@@ -3,7 +3,7 @@ package org.pangrova.protocol.rest.task;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.Map;
-import org.pangrova.common.util.OrderedMaps;
+import org.pangrova.common.collection.OrderedMaps;
 
 /**
  * Strong-typed DTO representing split metadata for native engine serialization.

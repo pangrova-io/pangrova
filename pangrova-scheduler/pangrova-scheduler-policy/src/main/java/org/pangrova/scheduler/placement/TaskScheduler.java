@@ -16,7 +16,7 @@ import org.pangrova.common.enums.MemoryPressure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Enforces placement eligibility and locality before delegating ranking to a

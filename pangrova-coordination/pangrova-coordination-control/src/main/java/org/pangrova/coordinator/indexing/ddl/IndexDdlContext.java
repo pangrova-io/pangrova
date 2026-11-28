@@ -5,7 +5,7 @@ import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable dependency bundle for IndexDdlExecutor (≤4 fields per governance).

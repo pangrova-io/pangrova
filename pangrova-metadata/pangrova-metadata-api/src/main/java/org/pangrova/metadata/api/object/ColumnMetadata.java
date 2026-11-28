@@ -2,7 +2,7 @@ package org.pangrova.metadata.api.object;
 
 import java.util.Map;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable column metadata with name, type, nullability, comment, and tags.

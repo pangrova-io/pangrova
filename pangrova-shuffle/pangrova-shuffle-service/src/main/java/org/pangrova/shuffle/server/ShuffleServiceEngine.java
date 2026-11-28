@@ -3,11 +3,11 @@ package org.pangrova.shuffle.server;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
-import java.io.ByteArrayInputStream;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.BooleanSupplier;
 
 import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
@@ -345,7 +345,12 @@ final class ShuffleServiceEngine implements AutoCloseable {
         String shuffleId = allocation.identity().shuffleId();
         String key = ShufflePartitionManifest.objectKey(shuffleId, digest);
         String reservation = lifecycle.beginManifestWrite(allocation, key, recoveryDelayMillis());
-        objects.putImmutable(key, () -> new ByteArrayInputStream(bytes), bytes.length, digest);
+        try {
+            objects.putManifestNode(key, bytes, digest, UUID.fromString(reservation));
+        } catch (ShuffleObjectStorage.RejectedPutException stopped) {
+            lifecycle.settleRejectedManifestWrite(reservation, shuffleId, key);
+            throw stopped;
+        }
         lifecycle.settleManifestWrite(reservation, shuffleId, key);
     }
 

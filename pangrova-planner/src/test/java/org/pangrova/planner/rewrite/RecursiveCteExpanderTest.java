@@ -3,7 +3,7 @@ package org.pangrova.planner.rewrite;
 import org.junit.jupiter.api.Test;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.api.exception.PlannerException;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

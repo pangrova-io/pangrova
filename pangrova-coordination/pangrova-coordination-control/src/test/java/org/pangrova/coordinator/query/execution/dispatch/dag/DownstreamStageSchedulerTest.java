@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;

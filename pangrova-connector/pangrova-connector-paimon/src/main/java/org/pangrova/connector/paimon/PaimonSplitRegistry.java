@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 import org.pangrova.connector.api.query.ConnectorQueryOperation;

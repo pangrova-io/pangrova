@@ -1,6 +1,6 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
@@ -22,7 +22,7 @@ import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadat
 /**
  * JDBC operations for {@link IndexFileMapping} CRUD and queries.
  */
-final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
+final class JdbcIndexFileMappingStore extends JdbcIndexMetadataStoreBase {
 
     JdbcIndexFileMappingStore(DataSource dataSource) {
         super(dataSource);

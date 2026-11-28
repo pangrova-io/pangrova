@@ -5,7 +5,7 @@ import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.testing.testkit.ContainerTestBase;
 

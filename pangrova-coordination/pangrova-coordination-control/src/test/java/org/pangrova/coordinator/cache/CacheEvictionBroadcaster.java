@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.cache;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.connector.api.cache.CacheEvictionListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -4,7 +4,7 @@ import org.pangrova.transport.client.exception.TransportConnectionException;
 
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightStream;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.ArrayList;
 import java.util.HashMap;

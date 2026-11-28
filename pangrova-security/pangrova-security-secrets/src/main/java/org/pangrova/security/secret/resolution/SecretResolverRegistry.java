@@ -1,6 +1,6 @@
 package org.pangrova.security.secret.resolution;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.exception.ConfigurationException;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.security.api.secret.SecretProvider;

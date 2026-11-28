@@ -1,7 +1,7 @@
 package org.pangrova.query.api.lifecycle;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 /**

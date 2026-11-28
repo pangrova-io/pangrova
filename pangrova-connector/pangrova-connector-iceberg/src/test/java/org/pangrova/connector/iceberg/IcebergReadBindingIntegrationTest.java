@@ -19,7 +19,7 @@ import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -170,7 +170,7 @@ class IcebergReadBindingIntegrationTest {
             assertThat(current.declaration().metadata().columns()).containsExactly("id", "added");
             var selectedHandle = (org.pangrova.connector.iceberg.handle.IcebergTableHandle) current.handle();
             assertThat(current.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint())
-                    .isEqualTo(DigestUtils.sha256Hex(selectedHandle.schemaJson()));
+                    .isEqualTo(Sha256Digests.sha256Hex(selectedHandle.schemaJson()));
             String identityKey = org.pangrova.connector.iceberg.handle.IcebergTableHandle.SOURCE_IDENTITY_PROPERTY;
             assertThat(selectedHandle.withLimit(1).properties()).containsKey(identityKey);
             assertThat(selectedHandle.withSnapshotId(selected).properties()).doesNotContainKey(identityKey);
@@ -184,7 +184,7 @@ class IcebergReadBindingIntegrationTest {
                     .isNotEqualTo(historical.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint());
             var historicalHandle = (org.pangrova.connector.iceberg.handle.IcebergTableHandle) historical.handle();
             assertThat(historical.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint())
-                    .isEqualTo(DigestUtils.sha256Hex(historicalHandle.schemaJson()));
+                    .isEqualTo(Sha256Digests.sha256Hex(historicalHandle.schemaJson()));
             assertThat(historical.schemaIdentity().orElseThrow().fields()).hasSize(1);
             assertThat(org.pangrova.connector.api.metadata.table.ColumnSchemaEncoding.encode(
                     current.schemaIdentity().orElseThrow().fields().get(0)))

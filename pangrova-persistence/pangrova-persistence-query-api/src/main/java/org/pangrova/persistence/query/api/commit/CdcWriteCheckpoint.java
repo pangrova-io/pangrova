@@ -5,7 +5,7 @@ import org.pangrova.persistence.query.api.enums.WriteCommitState;
 
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Exact journal identity and source ranges needed to decide whether CDC can admit another batch. */
 @Stable(since = "1.0")

@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.worker.bootstrap.phase.WorkerObservabilitySetup;
+import org.pangrova.worker.bootstrap.phase.WorkerTelemetryInitializer;
 import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 import org.pangrova.testing.testkit.constants.TestObservability;
 
@@ -32,7 +32,7 @@ class WorkerBootstrapCleanupTest {
             }
         };
         refs.retainStatusReporter(reporter);
-        var observability = new WorkerObservabilitySetup();
+        var observability = new WorkerTelemetryInitializer();
         assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config, observability))
                 .hasMessageContaining("reporter still draining");
         assertThat(attempts).hasValue(1);
@@ -63,7 +63,7 @@ class WorkerBootstrapCleanupTest {
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             Thread.currentThread().interrupt();
             try {
-                assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup()))
+                assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config, new WorkerTelemetryInitializer()))
                         .isInstanceOf(IllegalStateException.class).hasMessageContaining("CDC consumer");
                 assertThat(Thread.currentThread().isInterrupted()).isTrue();
                 assertThat(scheduler.isShutdown()).isFalse();
@@ -73,7 +73,7 @@ class WorkerBootstrapCleanupTest {
             assertThat(refs.cdcConsumer()).isSameAs(cdc);
             assertThat(exited.await(5, TimeUnit.SECONDS)).isTrue();
             cdcBlocked.set(false);
-            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup());
+            new WorkerBootstrapCleanup(refs).close(config, new WorkerTelemetryInitializer());
             assertThat(scheduler.isTerminated()).isTrue();
             assertThat(dependent.isOpen()).isFalse();
             assertThat(refs.nativeFunctionResources()).isEmpty();
@@ -105,7 +105,7 @@ class WorkerBootstrapCleanupTest {
                 }
             };
             refs.setWorker(worker);
-            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup());
+            new WorkerBootstrapCleanup(refs).close(config, new WorkerTelemetryInitializer());
             assertThat(drainObserved).isTrue();
             assertThat(aliveDuringDrain).isTrue();
             assertThat(scheduler.isTerminated()).isTrue();

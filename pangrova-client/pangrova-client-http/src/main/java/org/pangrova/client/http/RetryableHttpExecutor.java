@@ -1,6 +1,6 @@
 package org.pangrova.client.http;
 
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.slf4j.Logger;
@@ -22,11 +22,11 @@ final class RetryableHttpExecutor {
 
     private final RestHttpClientOwner httpOwner;
     private final RetryPolicy retryPolicy;
-    private final EndpointRouting routing;
+    private final EndpointSelector routing;
     private final Duration requestTimeout;
 
     RetryableHttpExecutor(RestHttpClientOwner httpOwner, RetryPolicy retryPolicy,
-                          EndpointRouting routing, Duration requestTimeout) {
+                          EndpointSelector routing, Duration requestTimeout) {
         this.httpOwner = httpOwner;
         this.retryPolicy = retryPolicy;
         this.routing = routing;
@@ -40,13 +40,13 @@ final class RetryableHttpExecutor {
      * After exhausting retries, returns the last response for normal error handling
      * (connection failures are thrown directly).
      */
-    HttpResponse<String> executeWithRetry(EndpointRouting.SelectedRequest selectedRequest) {
+    HttpResponse<String> executeWithRetry(EndpointSelector.SelectedRequest selectedRequest) {
         routing.validate(selectedRequest);
         HttpRequest request = selectedRequest.request();
         PangrovaConnectionException lastConnectionException = null;
         HttpResponse<String> lastRetryableResponse = null;
         long maxAttempts = (long) retryPolicy.maxRetries() + 1;
-        EndpointRouting.Selection selection = selectedRequest.selection();
+        EndpointSelector.Selection selection = selectedRequest.selection();
 
         for (long attempt = 0; attempt < maxAttempts; attempt++) {
             if (attempt > 0) {
@@ -84,7 +84,7 @@ final class RetryableHttpExecutor {
      * Executes a single HTTP request without retry, mapping I/O failures
      * to {@link PangrovaConnectionException}.
      */
-    HttpResponse<String> execute(EndpointRouting.SelectedRequest selectedRequest) {
+    HttpResponse<String> execute(EndpointSelector.SelectedRequest selectedRequest) {
         routing.validate(selectedRequest);
         return executeOnce(selectedRequest.request());
     }
@@ -116,7 +116,7 @@ final class RetryableHttpExecutor {
         }
     }
 
-    private HttpRequest rebuildRequestForEndpoint(HttpRequest original, EndpointRouting.Selection selection) {
+    private HttpRequest rebuildRequestForEndpoint(HttpRequest original, EndpointSelector.Selection selection) {
         String newBaseUrl = selection.baseUrl();
         URI originalUri = original.uri();
         String path = originalUri.getRawPath();
@@ -134,7 +134,7 @@ final class RetryableHttpExecutor {
     }
 
     private void sleepForRetry(Duration delay) {
-        ThreadUtils.sleepQuietly(delay);
+        ThreadSleeper.sleepQuietly(delay);
         if (Thread.currentThread().isInterrupted()) {
             throw new PangrovaConnectionException(
                     "RETRY_INTERRUPTED", "Retry sleep interrupted", null);

@@ -17,8 +17,8 @@
  */
 package org.pangrova.ai.control.evaluation;
 
-import static org.pangrova.common.util.Preconditions.requireOptionalText;
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireOptionalText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable metric evidence emitted by one completed evaluation run. */
 public record EvaluationMetric(

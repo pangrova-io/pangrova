@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.split;
 
-import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
+import org.pangrova.coordinator.metadata.CatalogExecutionBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.api.enums.CatalogState;
@@ -44,7 +44,7 @@ public final class NativeReadSplitBinding {
         }
         requireSession(session);
         requireCatalog(catalog, descriptor, session);
-        return new NativeReadSplitBinding(catalog, descriptor, CatalogExecutionBindings.from(descriptor));
+        return new NativeReadSplitBinding(catalog, descriptor, CatalogExecutionBindingFactory.from(descriptor));
     }
 
     /** Retains connector metadata while capturing the trusted Native execution split. */

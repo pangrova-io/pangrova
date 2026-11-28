@@ -2,7 +2,7 @@ package org.pangrova.transport.flight;
 
 import org.pangrova.transport.flight.exception.TicketValidationException;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -17,7 +17,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.transport.DataTicket;
 
 /**
@@ -114,7 +114,7 @@ public final class TransportTicketSigner {
             out.flush();
 
             byte[] dataToSign = baos.toByteArray();
-            byte[] signature = DigestUtils.hmacSha256(secretKey).doFinal(dataToSign);
+            byte[] signature = Sha256Digests.hmacSha256(secretKey).doFinal(dataToSign);
 
             baos.write(signature);
             return baos.toByteArray();
@@ -152,7 +152,7 @@ public final class TransportTicketSigner {
             // Reconstruct the data that was signed
             byte[] dataToVerify = Arrays.copyOf(signedTicket,
                     signedTicket.length - SIGNATURE_LENGTH);
-            byte[] expectedSignature = DigestUtils.hmacSha256(secretKey).doFinal(dataToVerify);
+            byte[] expectedSignature = Sha256Digests.hmacSha256(secretKey).doFinal(dataToVerify);
 
             // Constant-time comparison to prevent timing attacks
             if (!MessageDigest.isEqual(expectedSignature, receivedSignature)) {
@@ -189,6 +189,6 @@ public final class TransportTicketSigner {
         // derived the identical key). Derive a well-diffused 32-byte key via SHA-256 instead.
         // This does not manufacture entropy — a short secret is still weak, so production
         // callers should supply >= 32 random bytes (enforced by the byte[] constructors).
-        return DigestUtils.sha256().digest(raw);
+        return Sha256Digests.sha256().digest(raw);
     }
 }

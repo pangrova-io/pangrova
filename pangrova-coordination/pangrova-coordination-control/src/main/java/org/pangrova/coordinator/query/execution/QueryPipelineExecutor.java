@@ -36,8 +36,8 @@ import org.pangrova.parser.api.ast.Query;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.api.ast.statement.IncrementalReadStatement;
-import org.pangrova.parser.parse.TimeTravelSqlClauses;
-import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses.Analysis;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.api.exception.PlannerException;
@@ -53,7 +53,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Thread safety: stateless beyond references to thread-safe collaborators.</p>
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 final class QueryPipelineExecutor {
 
     private static final int SQL_PREVIEW_LIMIT = 80;

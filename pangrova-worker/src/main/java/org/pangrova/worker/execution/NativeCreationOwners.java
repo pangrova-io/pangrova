@@ -6,7 +6,7 @@ import org.pangrova.protocol.execution.AiTaskLifecycle;
 import org.pangrova.shuffle.api.worker.ShuffleProducerSession;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.concurrent.ConcurrentHashMap;
 

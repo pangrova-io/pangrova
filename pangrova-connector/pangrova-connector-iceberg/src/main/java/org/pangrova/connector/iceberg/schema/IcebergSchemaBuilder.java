@@ -7,7 +7,7 @@ import java.util.Map;
 
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.RowType;
@@ -197,9 +197,9 @@ public final class IcebergSchemaBuilder {
         int keyFieldId = nestedBaseFieldId;
         int valFieldId = nestedBaseFieldId + MAP_VALUE_FIELD_ID_OFFSET;
         Type keyIceberg = IcebergTypeMapper.toIcebergType(
-                PangrovaTypeMapping.toPangrovaType(mapType.keyType()));
+                PangrovaTypeConverter.toPangrovaType(mapType.keyType()));
         Type valIceberg = IcebergTypeMapper.toIcebergType(
-                PangrovaTypeMapping.toPangrovaType(mapType.valueType()));
+                PangrovaTypeConverter.toPangrovaType(mapType.valueType()));
         return Types.MapType.ofOptional(keyFieldId, valFieldId, keyIceberg, valIceberg);
     }
 
@@ -211,7 +211,7 @@ public final class IcebergSchemaBuilder {
         Type elementIcebergType;
         if (col.parameterizedType() instanceof ArrayType arrType) {
             elementIcebergType = IcebergTypeMapper.toIcebergType(
-                    PangrovaTypeMapping.toPangrovaType(arrType.elementType()));
+                    PangrovaTypeConverter.toPangrovaType(arrType.elementType()));
         } else {
             elementIcebergType = IcebergTypeMapper.toIcebergType(
                     PangrovaType.fromSqlTypeName(elemTypeStr));

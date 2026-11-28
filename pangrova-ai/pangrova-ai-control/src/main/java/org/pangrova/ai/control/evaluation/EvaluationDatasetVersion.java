@@ -20,7 +20,7 @@ package org.pangrova.ai.control.evaluation;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable manifest and source snapshot for one evaluation dataset version. */
 public record EvaluationDatasetVersion(
@@ -42,7 +42,7 @@ public record EvaluationDatasetVersion(
         requireText(ownerPrincipal, "ownerPrincipal");
         requireText(sourceSnapshot, "sourceSnapshot");
         requireText(manifestUri, "manifestUri");
-        org.pangrova.common.util.DigestUtils.requireSha256(manifestSha256, "manifestSha256");
+        org.pangrova.common.crypto.Sha256Digests.requireSha256(manifestSha256, "manifestSha256");
         if (itemCount < 0) {
             throw new IllegalArgumentException("itemCount must not be negative");
         }

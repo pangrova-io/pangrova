@@ -6,7 +6,7 @@ import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.setup.TestCatalogRegistrar;
+import org.pangrova.testing.integration.e2e.fixture.catalog.TestCatalogRegistrar;
 
 import java.io.UncheckedIOException;
 import java.nio.file.Files;

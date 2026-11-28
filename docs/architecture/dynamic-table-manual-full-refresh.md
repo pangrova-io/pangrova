@@ -126,7 +126,7 @@ rewrite in isolation.
 
 ## Refresh strategy provider lifecycle
 
-The Coordinator installs materialization SQL handlers through `MaterializationDdlRegistration`.
+The Coordinator installs materialization SQL handlers through `MaterializationDdlRegistrar`.
 Query-serving Coordinators bind the shared execution authority before assembling the
 statement dispatcher. They install Dynamic Table, Materialized View, and Continuous
 Query handlers before opening the HTTP listener. Scheduled refresh, recovery, and

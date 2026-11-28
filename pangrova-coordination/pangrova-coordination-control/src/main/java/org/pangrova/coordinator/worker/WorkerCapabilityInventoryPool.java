@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.worker;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.protocol.v2.CapabilityInventory;
 

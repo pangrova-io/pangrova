@@ -1,6 +1,6 @@
 package org.pangrova.planner.analysis;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.apache.calcite.rel.RelNode;
 

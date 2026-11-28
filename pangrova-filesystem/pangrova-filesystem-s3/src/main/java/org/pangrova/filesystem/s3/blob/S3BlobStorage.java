@@ -1,6 +1,6 @@
 package org.pangrova.filesystem.s3.blob;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
@@ -310,7 +310,7 @@ public final class S3BlobStorage implements ManagedBlobStorage {
             writeIdentityField(out, settings.encryption().kmsKeyId());
             out.writeBoolean(settings.pathStyleAccess());
             out.flush();
-            return DigestUtils.sha256Hex(bytes.toByteArray());
+            return Sha256Digests.sha256Hex(bytes.toByteArray());
         } catch (IOException failure) {
             throw new IllegalStateException("S3 backend identity cannot be encoded", failure);
         }

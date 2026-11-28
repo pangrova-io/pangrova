@@ -3,7 +3,7 @@ package org.pangrova.persistence.query.postgresql.transaction;
 import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.CdcWriteCheckpoint;

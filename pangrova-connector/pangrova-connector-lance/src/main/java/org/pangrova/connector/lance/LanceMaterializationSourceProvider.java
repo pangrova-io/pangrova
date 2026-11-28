@@ -17,7 +17,7 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Lance materialization source contract.

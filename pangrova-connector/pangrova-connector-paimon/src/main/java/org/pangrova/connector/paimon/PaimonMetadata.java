@@ -119,7 +119,7 @@ public class PaimonMetadata implements ConnectorMetadata,
             return Optional.empty();
         }
         FileStoreTable fileStore = loadFileStore(handle);
-        return Optional.of(PaimonReadBindings.version(fileStore, fileStore.snapshotManager().latestSnapshot()));
+        return Optional.of(PaimonReadBinder.version(fileStore, fileStore.snapshotManager().latestSnapshot()));
     }
 
     @Override
@@ -277,35 +277,35 @@ public class PaimonMetadata implements ConnectorMetadata,
 
     @Override
     public ConnectorReadBinding bindRead(ConnectorSession session, ConnectorTableHandle table) {
-        if (table instanceof PaimonFilesTableHandle files) return PaimonFilesReadBindings.bind(catalog, files);
+        if (table instanceof PaimonFilesTableHandle files) return PaimonFilesReadBinder.bind(catalog, files);
         if (table instanceof PaimonBranchTableHandle branches) {
-            return PaimonBranchReadBindings.bind(catalog, branches);
+            return PaimonBranchReadBinder.bind(catalog, branches);
         }
         if (table instanceof PaimonSystemTableHandle system) {
-            return PaimonSystemReadBindings.bind(catalog, system);
+            return PaimonSystemReadBinder.bind(catalog, system);
         }
         var selector = (PaimonTableHandle) table;
         return session.getQueryAuthority().map(authority -> splitRegistry.bindRead(authority, selector,
-                () -> PaimonReadBindings.bind(catalog, selector)))
-                .orElseGet(() -> PaimonReadBindings.bind(catalog, selector));
+                () -> PaimonReadBinder.bind(catalog, selector)))
+                .orElseGet(() -> PaimonReadBinder.bind(catalog, selector));
     }
 
     @Override
     public void validateReadBinding(ConnectorSession session,
             ConnectorReadBinding binding) {
         if (binding.handle() instanceof PaimonBranchTableHandle) {
-            PaimonBranchReadBindings.validate(catalog, binding);
+            PaimonBranchReadBinder.validate(catalog, binding);
             return;
         }
         if (binding.handle() instanceof PaimonFilesTableHandle) {
-            PaimonFilesReadBindings.validate(catalog, binding);
+            PaimonFilesReadBinder.validate(catalog, binding);
             return;
         }
         if (binding.handle() instanceof PaimonSystemTableHandle) {
-            PaimonSystemReadBindings.validate(catalog, binding);
+            PaimonSystemReadBinder.validate(catalog, binding);
             return;
         }
-        PaimonReadBindings.validate(catalog, binding);
+        PaimonReadBinder.validate(catalog, binding);
     }
 
     boolean ownsReadContext(Catalog candidateCatalog, PaimonSplitRegistry candidateRegistry) {
@@ -570,8 +570,8 @@ public class PaimonMetadata implements ConnectorMetadata,
     }
 
     @Override
-    public java.util.Optional<org.pangrova.connector.api.index.ConnectorIndexSupport> getIndexSupport() {
-        return java.util.Optional.of(new PaimonConnectorIndexSupport(this, catalog));
+    public java.util.Optional<org.pangrova.connector.api.index.ConnectorIndexCapabilities> getIndexSupport() {
+        return java.util.Optional.of(new PaimonIndexCapabilities(this, catalog));
     }
 
     @Override

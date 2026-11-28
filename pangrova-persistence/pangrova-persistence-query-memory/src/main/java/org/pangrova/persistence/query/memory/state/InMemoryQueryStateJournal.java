@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
@@ -26,11 +26,11 @@ import org.pangrova.query.api.session.JournalSessionPayload;
 public final class InMemoryQueryStateJournal implements QueryStateJournal {
     private static final Set<String> TERMINAL = Set.of("FINISHED", "FAILED", "CANCELLED");
     private final int capacity;
-    @org.pangrova.common.concurrent.GuardedBy("this")
+    @org.pangrova.common.concurrency.GuardedBy("this")
     private final LinkedHashMap<UUID, QueryStateEvent> queries = new LinkedHashMap<>();
-    @org.pangrova.common.concurrent.GuardedBy("this")
+    @org.pangrova.common.concurrency.GuardedBy("this")
     private final LinkedHashMap<UUID, TaskStateEvent> tasks = new LinkedHashMap<>();
-    @org.pangrova.common.concurrent.GuardedBy("this")
+    @org.pangrova.common.concurrency.GuardedBy("this")
     private boolean closed;
 
     /** Uses the same finite resident-event policy as the production NONE factory. */
@@ -112,6 +112,7 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         Objects.requireNonNull(principal, "principal");
         Objects.requireNonNull(idempotencyKeyDigest, "idempotencyKeyDigest");
         return Optional.ofNullable(findAcceptanceEvent(principal, idempotencyKeyDigest))
+                .filter(event -> !isExpired(event))
                 .map(QueryStateEvent::acceptance);
     }
 

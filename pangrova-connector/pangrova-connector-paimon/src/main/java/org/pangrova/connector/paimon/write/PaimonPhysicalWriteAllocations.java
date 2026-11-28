@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.connector.paimon.schema.PaimonPhysicalSchemas;
 
@@ -136,7 +136,7 @@ public final class PaimonPhysicalWriteAllocations {
 
     private static byte[] fileSetDigest(List<DataFileMeta> files) {
         try {
-            return DigestUtils.sha256().digest(new DataFileMetaSerializer().serializeList(files));
+            return Sha256Digests.sha256().digest(new DataFileMetaSerializer().serializeList(files));
         } catch (IOException failure) {
             throw new IllegalStateException("SDK source file metadata serialization failed", failure);
         }

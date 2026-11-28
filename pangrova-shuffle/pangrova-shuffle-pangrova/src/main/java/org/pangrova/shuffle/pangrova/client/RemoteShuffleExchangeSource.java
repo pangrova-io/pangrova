@@ -2,11 +2,11 @@ package org.pangrova.shuffle.pangrova.client;
 
 import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import com.google.protobuf.ByteString;
 import io.grpc.Context;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;

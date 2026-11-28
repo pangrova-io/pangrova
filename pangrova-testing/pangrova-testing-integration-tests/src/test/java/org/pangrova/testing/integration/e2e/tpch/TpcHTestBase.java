@@ -6,7 +6,7 @@ import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 import org.pangrova.testing.integration.e2e.SharedTestContainers;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
-import org.pangrova.testing.integration.e2e.setup.TestDataSetup;
+import org.pangrova.testing.integration.e2e.fixture.dataset.TestDatasetLoader;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 
@@ -60,7 +60,7 @@ abstract class TpcHTestBase extends SqlE2ETestBase {
             reference.executeInput(sql.replace(TABLE_PREFIX, ""));
             return rows;
         }));
-        new TestDataSetup(dualRunner).loadTpcHData(CATALOG, SCHEMA, 1);
+        new TestDatasetLoader(dualRunner).loadTpcHData(CATALOG, SCHEMA, 1);
     }
 
     @AfterAll
@@ -77,7 +77,7 @@ abstract class TpcHTestBase extends SqlE2ETestBase {
     }
 
     void assertMatchesReference(List<TypedRow> actual, String filename, String... columns) {
-        TpcHTestSupport.assertMatchesReference(
+        TpcHResultAssertions.assertMatchesReference(
                 actual, reference.query(loadQueryResource(filename)), filename, columns);
     }
 
@@ -85,7 +85,7 @@ abstract class TpcHTestBase extends SqlE2ETestBase {
             String filename, java.util.function.UnaryOperator<String> customize, String... columns) {
         String sql = customize.apply(loadQueryResource(filename));
         List<TypedRow> rows = sqlRunner.execute(prefixTableNames(sql));
-        TpcHTestSupport.assertMatchesReference(rows, reference.query(sql), filename, columns);
+        TpcHResultAssertions.assertMatchesReference(rows, reference.query(sql), filename, columns);
         return rows;
     }
 

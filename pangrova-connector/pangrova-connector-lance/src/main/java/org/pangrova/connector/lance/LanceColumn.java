@@ -4,7 +4,7 @@ import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.RowField;
 import org.pangrova.types.RowType;
 import org.pangrova.types.Type;
@@ -30,7 +30,7 @@ public record LanceColumn(String name, PangrovaType type, TypeSignature signatur
 
     static LanceColumn from(ConnectorTableMetadata.Column column) {
         Type parameterized = column.parameterizedType() == null
-                ? PangrovaTypeMapping.toType(column.type()) : column.parameterizedType();
+                ? PangrovaTypeConverter.toType(column.type()) : column.parameterizedType();
         if (parameterized == null) {
             throw new IllegalArgumentException("Lance column requires structural type parameters");
         }
@@ -58,7 +58,7 @@ public record LanceColumn(String name, PangrovaType type, TypeSignature signatur
             case "REAL" -> RealType.INSTANCE;
             case "INTERVAL_DAY_TIME" -> IntervalDayTimeType.INSTANCE;
             case "INTERVAL_YEAR_MONTH" -> IntervalYearMonthType.INSTANCE;
-            default -> PangrovaTypeMapping.toType(PangrovaType.fromSqlTypeName(signature.base()));
+            default -> PangrovaTypeConverter.toType(PangrovaType.fromSqlTypeName(signature.base()));
         };
     }
 }

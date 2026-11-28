@@ -13,7 +13,7 @@
  */
 package org.pangrova.ai.api.embedding;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -27,7 +27,7 @@ import java.util.Locale;
 
 import org.pangrova.ai.api.model.AiModelDescriptor;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Computes the canonical public binding identity for an embedding deployment. */
 @Experimental
@@ -70,7 +70,7 @@ public final class EmbeddingModelBindingIdentity {
 
     private static byte[] sha256(
             ModelRoute route, EmbeddingServingContract serving) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         update(digest, CONTRACT_VERSION);
         update(digest, requireText(route.provider(), "provider")
                 .toLowerCase(Locale.ROOT));
@@ -99,7 +99,7 @@ public final class EmbeddingModelBindingIdentity {
     }
 
     private static String secretReferenceDigest(String value) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         // An explicitly unauthenticated Worker deployment has no secret
         // reference. Hash the canonical empty value instead of refusing to
         // advertise an otherwise valid model capability.

@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Exercises real manifest-only deletes, including append-only tables and metadata wiring. */
-class PaimonDeleteByFilterExecutorTest extends PaimonDeleteTestSupport {
+class PaimonDeleteByFilterExecutorTest extends PaimonDeleteFixture {
 
     private static final StoredRow EAST_ONE = new StoredRow(1, "east", "one", "east-first");
     private static final StoredRow EAST_TWO = new StoredRow(2, "east", "two", "east-second");

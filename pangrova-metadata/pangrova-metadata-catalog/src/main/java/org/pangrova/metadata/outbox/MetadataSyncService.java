@@ -1,7 +1,7 @@
 package org.pangrova.metadata.outbox;
 
 import org.pangrova.metadata.api.enums.MetadataChangeType;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.metadata.api.cache.MetadataCache;
 import org.pangrova.metadata.api.event.MetadataEvent;
@@ -174,7 +174,7 @@ public class MetadataSyncService {
         checkCancellation();
         if (attempt < MAX_RETRIES) {
             long backoffMs = 1000L * (1L << (attempt - 1));
-            ThreadUtils.sleepQuietly(backoffMs);
+            ThreadSleeper.sleepQuietly(backoffMs);
             checkCancellation();
         }
         LOG.warn("event=metadata_sync_failed catalog={} attempt={} maxRetries={} error={}",

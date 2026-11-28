@@ -2,7 +2,7 @@ package org.pangrova.protocol.checksum;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.protocol.v2.Checksum;
 
 /** Constructs canonical integrity evidence from already selected payload bytes. */
@@ -12,12 +12,12 @@ public final class ProtocolChecksums {
 
     /** Hashes the supplied bytes without changing their serialization or ordering. */
     public static Checksum sha256(byte[] bytes) {
-        return sha256Value(DigestUtils.sha256().digest(bytes));
+        return sha256Value(Sha256Digests.sha256().digest(bytes));
     }
 
     /** Hashes the immutable plan bytes without making a full-size array copy. */
     public static Checksum sha256(ByteString bytes) {
-        var digest = DigestUtils.sha256();
+        var digest = Sha256Digests.sha256();
         for (var buffer : bytes.asReadOnlyByteBufferList()) {
             digest.update(buffer);
         }

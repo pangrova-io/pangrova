@@ -7,7 +7,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.schema.SchemaChange;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.planner.metadata.catalog.PlanningReadBindings;
+import org.pangrova.planner.metadata.catalog.PlanningReadBindingResolver;
 import org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors;
 import org.pangrova.coordinator.metadata.ReadBindingSdkFixture;
 import org.pangrova.planner.analysis.PangrovaPlanner;
@@ -37,7 +37,7 @@ class TimeTravelReadBindingIntegrationTest extends ContainerTestBase {
                     "SELECT id FROM history FOR SYSTEM_VERSION AS OF " + version, fixture.context, null);
             assertThat(extracted.snapshotOverrides()).containsEntry("bound.db.history", version);
             var session = PlanningSnapshotSelectors.bind(fixture.session, extracted.snapshotOverrides());
-            var owner = new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), session);
+            var owner = new PlanningReadBindingResolver(fixture.bootstrap.catalogRegistry(), session);
             var schema = new MetadataSchemaBuilder(
                     fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
                     .buildRootSchema(session, owner);
@@ -62,7 +62,7 @@ class TimeTravelReadBindingIntegrationTest extends ContainerTestBase {
             var current = new MetadataSchemaBuilder(
                     fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
                     .buildRootSchema(fixture.session,
-                    new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), fixture.session));
+                    new PlanningReadBindingResolver(fixture.bootstrap.catalogRegistry(), fixture.session));
             assertThatThrownBy(() -> new PangrovaPlanner(current, List.of("bound", "db"))
                     .planForPolicyApplication("SELECT id FROM history")).hasMessageContaining("id");
         }

@@ -6,7 +6,7 @@ import org.pangrova.query.dispatch.StatementCompletionEvent;
 import org.pangrova.query.dispatch.StatementCompletionListener;
 import org.pangrova.planner.statistics.StatisticsCollector;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Invalidates planner statistics cache entries after table mutations.

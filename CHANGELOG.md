@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive testing: E2E with TestContainers, property-based tests with jqwik, TPC-H/DS benchmarks
 
 ### Changed
+- **BREAKING** Common Java utilities now use responsibility-specific packages. JDBC helpers
+  use `jdbc.datasource`, `jdbc.migration` and `jdbc.operation` while retaining the Maven
+  coordinates and automatic module name. Recompile external Java plugins against the
+  matching Coordinator and Worker release.
+- **BREAKING** Java parser contracts now live in `org.pangrova.parser.api.syntax`,
+  and the connector index capability interface is `ConnectorIndexCapabilities`.
+  Update Java imports before recompiling extensions for this release.
 - Generated-value sidecars now use one nullable segment-v2 contract and matching
   Java/Native build/overlay capability version 2.0.0. Readers reject old formats;
   sidecars must be rebuilt, not silently reinterpreted. Final SQL/distributed
@@ -110,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nested initializer
 - Three `Thread.sleep` call sites whose `catch` blocks did nothing but re-assert the interrupt
   flag (`LineageEventEmitter`, `BatchStreamProducer`, `OutputBufferResultSink`) now delegate to
-  the canonical `ThreadUtils.sleepQuietly`, removing three duplicated helpers. The other 23
+  the canonical `ThreadSleeper.sleepQuietly`, removing three duplicated helpers. The other 23
   sites were each read and left alone: they perform real work after re-asserting the interrupt
   (throw a domain exception, return a documented sentinel, break the loop, set a shutdown
   flag), so routing them through a quiet helper would have discarded behaviour

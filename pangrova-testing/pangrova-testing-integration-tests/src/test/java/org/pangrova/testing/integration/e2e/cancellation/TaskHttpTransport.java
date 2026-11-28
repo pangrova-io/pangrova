@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.cancellation;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
 import java.io.IOException;

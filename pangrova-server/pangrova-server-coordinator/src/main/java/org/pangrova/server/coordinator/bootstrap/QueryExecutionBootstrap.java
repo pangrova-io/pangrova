@@ -188,7 +188,7 @@ final class QueryExecutionBootstrap {
                 metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry(),
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
                 config.effectiveTaskTimeoutSeconds(),
-                org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED,
+                org.pangrova.planner.adaptivequery.AdaptiveQueryConfig.ENABLED,
                 shuffleSession, coordinationService,
                 coordinationService != null ? config.coordinatorId() : null,
                 stateJournal,
@@ -300,7 +300,7 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
                         dmlDispatch, writeCallback,
                         (sql, sess) -> {
-                            boolean timeTravel = org.pangrova.parser.parse.TimeTravelSqlClauses
+                            boolean timeTravel = org.pangrova.parser.syntax.TimeTravelSqlClauses
                                     .extract(sql).references().stream()
                                     .anyMatch(ref -> ref.table().timeTravelSpec().isPresent());
                             var explained = securityApplier.compileForExplain(sql, sess, timeTravel);
@@ -483,7 +483,7 @@ final class QueryExecutionBootstrap {
             org.pangrova.coordinator.query.statement.DdlExecutor ddlExecutor,
             org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch) {
         org.pangrova.coordinator.materialization.MaterializationKernelFactory kernels =
-                org.pangrova.server.coordinator.assembly.materialization.MaterializationDdlRegistration.register(
+                org.pangrova.server.coordinator.assembly.materialization.MaterializationDdlRegistrar.register(
                         factory,
                         metadataBootstrap.materializationRepository(),
                         metadataBootstrap.materializationCatalog(),
@@ -624,7 +624,7 @@ final class QueryExecutionBootstrap {
         if (metadataFactory == null || registry == null) {
             return;
         }
-        EmbeddingModelTaskRegistration.register(
+        EmbeddingModelTaskRegistrar.register(
                 metadataFactory, registry, requireWorkerManager());
     }
 
@@ -641,15 +641,15 @@ final class QueryExecutionBootstrap {
                 java.util.Objects.requireNonNull(store, "store must not be null"), accessControl);
         factory.registerTask(
                 org.pangrova.parser.api.ast.statement.CreateSemanticViewStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.semantic.CreateSemanticViewTask(
+                new org.pangrova.coordinator.query.execution.dispatch.task.semanticview.CreateSemanticViewTask(
                         service));
         factory.registerTask(
                 org.pangrova.parser.api.ast.statement.PublishSemanticViewStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.semantic.PublishSemanticViewTask(
+                new org.pangrova.coordinator.query.execution.dispatch.task.semanticview.PublishSemanticViewTask(
                         service));
         factory.registerTask(
                 org.pangrova.parser.api.ast.statement.ShowSemanticViewsStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.semantic.ShowSemanticViewsTask(
+                new org.pangrova.coordinator.query.execution.dispatch.task.semanticview.ShowSemanticViewsTask(
                         service));
     }
 }

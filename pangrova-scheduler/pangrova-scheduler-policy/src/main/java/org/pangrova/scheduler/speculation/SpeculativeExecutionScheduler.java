@@ -9,11 +9,11 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Periodically evaluates all running queries for straggler tasks and launches
@@ -63,7 +63,7 @@ public final class SpeculativeExecutionScheduler implements Closeable {
      */
     public void start() {
         scheduledTask = executor.scheduleAtFixedRate(
-                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(executor, this::evaluateAllQueries),
+                () -> org.pangrova.common.concurrency.ExecutorDrain.runOwned(executor, this::evaluateAllQueries),
                 intervalMs, intervalMs, TimeUnit.MILLISECONDS);
         LOG.info("event=speculation_scheduler_started intervalMs={}", intervalMs);
     }
@@ -77,7 +77,7 @@ public final class SpeculativeExecutionScheduler implements Closeable {
         if (task != null) {
             task.cancel(false);
         }
-        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, EXECUTOR_SHUTDOWN_TIMEOUT_MS);
+        org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(executor, EXECUTOR_SHUTDOWN_TIMEOUT_MS);
         LOG.info("event=speculation_scheduler_stopped");
     }
 

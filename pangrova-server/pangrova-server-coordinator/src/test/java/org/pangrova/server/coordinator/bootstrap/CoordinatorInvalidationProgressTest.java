@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.sql.DataSource;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
@@ -131,7 +131,7 @@ class CoordinatorInvalidationProgressTest {
             await().atMost(Duration.ofSeconds(5)).until(() -> poller.getLastProcessedId() == 2);
             assertThat(registry.getCoordinator("maintenance")).isEmpty();
             var removed = new CopyOnWriteArrayList<Integer>();
-            var cleanup = new MaintenanceLeaderAware() {
+            var cleanup = new MaintenanceLeadershipListener() {
                 @Override public void onLeaderElected() { removed.add(poller.cleanup()); }
                 @Override public void onLeadershipLost() {}
             };

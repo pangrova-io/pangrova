@@ -1,6 +1,6 @@
 package org.pangrova.worker.bootstrap.lifecycle;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 
 /** Attempts independent bootstrap cleanup steps and retains their actual failures. */
 @NotThreadSafe

@@ -1,6 +1,6 @@
 package org.pangrova.indexing.storage;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 
 import java.util.Objects;
@@ -90,7 +90,7 @@ public final class IndexStorageLayout {
     }
 
     static String sha256Prefix(String input) {
-        return DigestUtils.sha256Hex(input)
+        return Sha256Digests.sha256Hex(input)
                 .substring(0, HASH_PREFIX_LENGTH);
     }
 

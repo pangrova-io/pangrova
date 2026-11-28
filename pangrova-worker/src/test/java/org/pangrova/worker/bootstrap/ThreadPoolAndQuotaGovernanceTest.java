@@ -199,7 +199,7 @@ class ThreadPoolAndQuotaGovernanceTest {
     @Test
     void managedExecutorFactoryCreatesNamedDaemonThreads() {
         java.util.concurrent.ExecutorService exec =
-                org.pangrova.common.concurrent.ManagedExecutorFactory.newSingleThreadExecutor("audit-test");
+                org.pangrova.common.concurrency.ManagedExecutorFactory.newSingleThreadExecutor("audit-test");
         java.util.concurrent.Future<?> future = exec.submit(() ->
                 assertThat(Thread.currentThread().getName()).startsWith("audit-test-"));
         try {

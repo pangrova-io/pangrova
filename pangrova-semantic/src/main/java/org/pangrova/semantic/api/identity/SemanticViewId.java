@@ -17,7 +17,7 @@
  */
 package org.pangrova.semantic.api.identity;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Tenant-scoped identity of a governed Semantic View. */
 public record SemanticViewId(

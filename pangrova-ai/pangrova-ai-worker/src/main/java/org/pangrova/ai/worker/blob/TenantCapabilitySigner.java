@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.blob;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -59,7 +59,7 @@ public final class TenantCapabilitySigner {
         }
         byte[] tenantKey = deriveTenantKey(tenantScope);
         try {
-            Mac mac = DigestUtils.hmacSha256(tenantKey);
+            Mac mac = Sha256Digests.hmacSha256(tenantKey);
             update(mac, tenantScope);
             update(mac, mimeType);
             update(mac, Long.toString(size));
@@ -76,7 +76,7 @@ public final class TenantCapabilitySigner {
     }
 
     private byte[] deriveTenantKey(String tenantScope) {
-        Mac mac = DigestUtils.hmacSha256(masterKey);
+        Mac mac = Sha256Digests.hmacSha256(masterKey);
         mac.update(DERIVATION_CONTEXT);
         mac.update((byte) 0);
         mac.update(tenantScope.getBytes(StandardCharsets.US_ASCII));

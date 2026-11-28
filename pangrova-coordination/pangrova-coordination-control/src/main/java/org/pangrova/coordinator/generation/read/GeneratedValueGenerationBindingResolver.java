@@ -3,8 +3,8 @@ package org.pangrova.coordinator.generation.read;
 import org.pangrova.generation.publication.enums.GenerationSourceCoverage;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueGenerationReference;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildMetadataStore;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueGenerationReference;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.CoveragePolicy;
@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Resolves an exact generated-value sidecar into the common operator binding contract. */
 public final class GeneratedValueGenerationBindingResolver {

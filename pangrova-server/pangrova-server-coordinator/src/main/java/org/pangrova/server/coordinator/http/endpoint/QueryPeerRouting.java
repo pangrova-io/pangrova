@@ -10,7 +10,7 @@ import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.transport.http.client.HttpClientConfig;
 import org.pangrova.transport.http.client.HttpClientFactory;
 import org.pangrova.transport.http.client.ManagedHttpClient;
@@ -212,7 +212,7 @@ public final class QueryPeerRouting implements AutoCloseable {
     }
 
     private Mac mac(byte domain) {
-        Mac mac = DigestUtils.hmacSha256(key);
+        Mac mac = Sha256Digests.hmacSha256(key);
         mac.update(domain);
         return mac;
     }

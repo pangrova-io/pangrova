@@ -2,7 +2,7 @@ package org.pangrova.protocol.rest.task;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Exact fenced identity of the process that owns a query or background job. */
 public record ExecutionOwnerIdentity(

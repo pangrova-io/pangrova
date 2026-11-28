@@ -1,6 +1,6 @@
 package org.pangrova.materialization.api.domain;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * One output column of a materialization definition.

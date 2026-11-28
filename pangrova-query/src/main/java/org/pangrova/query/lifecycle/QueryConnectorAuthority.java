@@ -13,7 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 /** Binds connector admission to the actual query state and its issued-operation owner. */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 final class QueryConnectorAuthority implements ConnectorMetadataScope {
     private final QueryStateMachine state;
     private final ConnectorQueryAuthority issued;

@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.connector;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.fixture.WriteTestHelper;
+import org.pangrova.testing.integration.e2e.fixture.SqlTestRowWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -153,11 +153,11 @@ class StorageFormatEquivalenceTest extends SqlE2ETestBase {
     // -----------------------------------------------------------------------
 
     private void insertRows(String table, List<TypedRow> rows) {
-        WriteTestHelper.insertRows(sqlRunner, fqn(table), rows);
+        SqlTestRowWriter.insertRows(sqlRunner, fqn(table), rows);
     }
 
     private List<TypedRow> buildRows(int startId, int endId) {
-        return WriteTestHelper.buildRows(startId, endId);
+        return SqlTestRowWriter.buildRows(startId, endId);
     }
 
     // -----------------------------------------------------------------------

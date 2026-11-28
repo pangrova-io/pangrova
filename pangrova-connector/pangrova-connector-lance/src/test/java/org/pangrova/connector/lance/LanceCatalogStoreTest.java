@@ -3,8 +3,8 @@ package org.pangrova.connector.lance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.protocol.source.SourceSnapshotBindings;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.protocol.source.SourceSnapshotCodec;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.connector.api.metadata.PreparedSourcePublication;
@@ -70,7 +70,7 @@ class LanceCatalogStoreTest extends ContainerTestBase {
         byte[] changed = accepted.getManifestSha256().getDigest().toByteArray(); changed[0] ^= 1;
         var changedReference = accepted.toBuilder().setManifestSha256(Checksum.newBuilder()
                 .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256).setDigest(com.google.protobuf.ByteString.copyFrom(changed))).build();
-        var conflicting = new PreparedSourcePublication(SourceSnapshotBindings.decode(changedReference, fixture.catalog()),
+        var conflicting = new PreparedSourcePublication(SourceSnapshotCodec.decode(changedReference, fixture.catalog()),
                 publication.rows(), publication.objectsCount(), publication.objectsSha256(), publication.inheritedMembership());
         assertThatThrownBy(() -> fixture.acceptRegistered(prepared.allocation().executionId(), conflicting))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("replay differs");

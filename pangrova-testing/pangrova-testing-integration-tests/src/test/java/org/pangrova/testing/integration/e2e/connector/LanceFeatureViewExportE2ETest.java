@@ -124,7 +124,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
                 .contains("source_plan_base64");
         executeDdl("CREATE FEATURE VIEW " + view + "_limit VERSION 1 AS '"
                 + definition.replace("FROM " + source, "FROM " + source + " LIMIT 1") + "'");
-        var limited = org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores.jdbc(
+        var limited = org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores.jdbc(
                 stateStoreDataSource(), ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource())).features()
                 .findFeatureView(new org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewId(
                         tenant, CATALOG, "default", view.substring(view.lastIndexOf('.') + 1) + "_limit"), 1)
@@ -190,7 +190,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
             Path path = output.opaqueUri().startsWith("file:") ? Path.of(URI.create(output.opaqueUri())) : Path.of(output.opaqueUri());
             byte[] bytes = Files.readAllBytes(path);
             assertThat(bytes.length).isEqualTo(output.sizeBytes());
-            assertThat(org.pangrova.common.util.DigestUtils.sha256Hex(bytes)).isEqualTo(output.checksumSha256());
+            assertThat(org.pangrova.common.crypto.Sha256Digests.sha256Hex(bytes)).isEqualTo(output.checksumSha256());
             try (var allocator = new RootAllocator(); var input = Files.newInputStream(path);
                  var reader = new ArrowStreamReader(input, allocator)) {
                 assertThat(reader.getVectorSchemaRoot().getSchema().getFields()).extracting(field -> field.getName())
@@ -218,7 +218,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         String runId = "feature-export-" + suffix;
         // The persisted release decision uses PostgreSQL timestamp precision.
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var evaluations = org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores
+        var evaluations = org.pangrova.persistence.ai.postgresql.controlplane.AiInfrastructureStores
                 .jdbc(stateStoreDataSource(),
                         ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource())).evaluations();
         evaluations.createDatasetVersion(new EvaluationDatasetVersion(

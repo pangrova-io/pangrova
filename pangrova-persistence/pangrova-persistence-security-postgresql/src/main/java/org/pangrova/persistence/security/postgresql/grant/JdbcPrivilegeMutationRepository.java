@@ -1,6 +1,6 @@
 package org.pangrova.persistence.security.postgresql.grant;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.security.api.enums.PrivilegeOperation;
 import org.pangrova.persistence.security.api.grant.PrivilegeMutationRepository;
@@ -59,7 +59,7 @@ public final class JdbcPrivilegeMutationRepository implements PrivilegeMutationR
     public PrivilegeMutationReceipt apply(UserIdentity actor, PrivilegeMutation mutation) {
         Objects.requireNonNull(mutation, "mutation");
         requireActor(actor);
-        byte[] encoded = PrivilegeMutationEncoding.encode(mutation);
+        byte[] encoded = PrivilegeMutationEncoder.encode(mutation);
         boolean committing = false;
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);

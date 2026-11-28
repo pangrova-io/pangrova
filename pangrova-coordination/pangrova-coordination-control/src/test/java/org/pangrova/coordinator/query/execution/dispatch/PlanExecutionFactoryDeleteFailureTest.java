@@ -10,7 +10,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.Fixture;
+import org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.Fixture;
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
@@ -19,10 +19,10 @@ import org.pangrova.connector.api.exception.ConnectorException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.arithmeticPredicate;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.deleteAll;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.deleteWhere;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.equalToSeven;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.arithmeticPredicate;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.deleteAll;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.deleteWhere;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.equalToSeven;
 
 /** DELETE cannot invoke unfenced connector deletion; planner and write errors propagate. */
 class PlanExecutionFactoryDeleteFailureTest {
@@ -35,7 +35,7 @@ class PlanExecutionFactoryDeleteFailureTest {
         fixture.metadata.deleteFailure = failure;
         var statement = all ? deleteAll() : deleteWhere(equalToSeven("id"));
 
-        PlanExecutionFactoryDeleteTestSupport.assertDmlResult(fixture.execute(statement));
+        DeleteDispatchFixture.assertDmlResult(fixture.execute(statement));
         assertThat(fixture.metadata.filters).isEmpty();
         fixture.assertNativePending("dispatch");
     }
@@ -84,7 +84,7 @@ class PlanExecutionFactoryDeleteFailureTest {
 
         assertThat(fixture.metadata.overwriteTables).isEmpty();
         fixture.assertNativePending("dispatch");
-        assertThat(fixture.tracker.hasWriteContext(PlanExecutionFactoryDeleteTestSupport.QUERY_ID)).isFalse();
+        assertThat(fixture.tracker.hasWriteContext(DeleteDispatchFixture.QUERY_ID)).isFalse();
     }
 
     private static Stream<Arguments> metadataFailures() {

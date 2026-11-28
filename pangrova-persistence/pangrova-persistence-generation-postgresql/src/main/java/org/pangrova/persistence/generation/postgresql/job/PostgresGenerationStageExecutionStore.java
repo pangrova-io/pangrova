@@ -32,7 +32,7 @@ import java.util.function.Function;
 
 /** Same-authority transaction boundary for preparing exact partitions in the shared stage engine. */
 @Internal
-public final class PostgresGenerationStageExecutionStore extends PostgresGenerationJobStoreSupport
+public final class PostgresGenerationStageExecutionStore extends PostgresGenerationJobStoreTransitions
         implements GenerationStageExecutionStore {
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
@@ -94,7 +94,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             byte[] bytes = completion.originalWireBytes();
             var report = new GenerationPageCompletion(key.tenantId(), key.jobId(), page.pageId(),
                     completion.fencingToken(),
-                    completion.controlTerm(), bytes, org.pangrova.common.util.DigestUtils.sha256Hex(bytes), List.of(),
+                    completion.controlTerm(), bytes, org.pangrova.common.crypto.Sha256Digests.sha256Hex(bytes),
+                List.of(),
                     completion.completedAt(), completion.executionOwner());
             return PostgresGenerationCompletion.completeLockedProducer(
                     executionFence, connection, report, job, page);

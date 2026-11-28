@@ -14,7 +14,7 @@ import java.util.concurrent.ScheduledExecutorService;
 /** Test-only query assembly. Each context receives an independent in-memory journal. */
 public final class QueryManagerTestContexts {
     public static final ScheduledExecutorService SUBMIT_DEADLINES =
-            org.pangrova.common.concurrent.ManagedExecutorFactory.newSingleThreadScheduledExecutor("test-submit-deadline");
+            org.pangrova.common.concurrency.ManagedExecutorFactory.newSingleThreadScheduledExecutor("test-submit-deadline");
 
     private QueryManagerTestContexts() {}
 

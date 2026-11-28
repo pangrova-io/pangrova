@@ -1,7 +1,7 @@
 package org.pangrova.worker;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
-import static org.pangrova.common.util.Preconditions.checkState;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkState;
 
 import org.pangrova.worker.task.TaskManager;
 import org.slf4j.Logger;

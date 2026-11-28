@@ -308,7 +308,7 @@ class LocalObjectConcurrencyTest {
             catch (Throwable caught) { failure.set(caught); interruptRetained.set(Thread.currentThread().isInterrupted()); }
         }, "interrupted-publisher");
         String identity = space.toRealPath().resolve(".pangrova-mutation.lock").toString();
-        try (var admission = org.pangrova.common.concurrent.ProcessResourceLocks.acquire(List.of(identity));
+        try (var admission = org.pangrova.common.concurrency.ProcessResourceLocks.acquire(List.of(identity));
                 var channel = FileChannel.open(space.resolve(".pangrova-mutation.lock"),
                         StandardOpenOption.CREATE, StandardOpenOption.WRITE); var lock = channel.lock()) {
             thread.start();

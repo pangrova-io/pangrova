@@ -3,8 +3,8 @@ package org.pangrova.streaming.api.cdc;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import org.pangrova.common.util.NumberConversions;
-import org.pangrova.common.util.OrderedMaps;
+import org.pangrova.common.numeric.NumberConversions;
+import org.pangrova.common.collection.OrderedMaps;
 
 /**
  * Strong-typed immutable row model for CDC events.

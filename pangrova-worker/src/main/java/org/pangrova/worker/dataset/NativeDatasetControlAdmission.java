@@ -2,7 +2,7 @@ package org.pangrova.worker.dataset;
 
 import org.pangrova.worker.exception.ControlAdmissionRejectedException;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -16,7 +16,7 @@ final class NativeDatasetControlAdmission implements AutoCloseable {
     private final Semaphore permits = new Semaphore(MAX_CONCURRENT_COMMANDS);
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    @org.pangrova.common.concurrent.GuardedBy("this")
+    @org.pangrova.common.concurrency.GuardedBy("this")
     private boolean drained;
 
     Lease acquire() {

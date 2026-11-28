@@ -1,6 +1,6 @@
 package org.pangrova.materialization.api.domain;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Physical table that stores one generation.

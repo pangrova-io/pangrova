@@ -8,11 +8,16 @@ import org.pangrova.common.client.query.QueryOwnerEndpoint;
 /** Principal-scoped idempotency material supplied before a candidate query is published. */
 @Experimental
 public record QueryAcceptanceRequest(String principal, String idempotencyKeyDigest, String requestFingerprint,
-        QueryOwnerEndpoint ownerEndpoint) {
+        QueryOwnerEndpoint ownerEndpoint, boolean explicitKey) {
     private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
 
     public QueryAcceptanceRequest(String principal, String idempotencyKeyDigest, String requestFingerprint) {
-        this(principal, idempotencyKeyDigest, requestFingerprint, null);
+        this(principal, idempotencyKeyDigest, requestFingerprint, null, true);
+    }
+
+    public QueryAcceptanceRequest(String principal, String idempotencyKeyDigest, String requestFingerprint,
+            QueryOwnerEndpoint ownerEndpoint) {
+        this(principal, idempotencyKeyDigest, requestFingerprint, ownerEndpoint, true);
     }
 
     public QueryAcceptanceRequest {

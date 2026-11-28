@@ -9,15 +9,15 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import javax.sql.DataSource;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntent;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 /** Durable handoff between one scalar writer, its mapping transaction and the orphan collector. */
-final class JdbcScalarArtifactIntentStore extends JdbcStoreSupport {
+final class JdbcScalarArtifactIntentStore extends JdbcIndexMetadataStoreBase {
     private static final String IDENTITY = "artifact_digest=? AND index_id=? AND generation=? "
             + "AND attempt_owner=? AND data_file_path=? AND artifact_path=?";
     private static final String SELECT_IDENTITY =
@@ -198,7 +198,7 @@ final class JdbcScalarArtifactIntentStore extends JdbcStoreSupport {
     private static LockedIntent lockIntent(Connection connection, String path) throws SQLException {
         String sql = SELECT_IDENTITY + ",state FROM " + TABLE + " WHERE artifact_digest=? FOR UPDATE";
         try (var statement = connection.prepareStatement(sql)) {
-            statement.setString(1, DigestUtils.sha256Hex(path));
+            statement.setString(1, Sha256Digests.sha256Hex(path));
             try (var rows = statement.executeQuery()) {
                 return rows.next() ? new LockedIntent(readIntent(rows), rows.getString(6)) : null;
             }
@@ -244,7 +244,7 @@ final class JdbcScalarArtifactIntentStore extends JdbcStoreSupport {
     }
 
     private static void bindIdentity(PreparedStatement statement, ScalarArtifactIntent intent) throws SQLException {
-        statement.setString(1, DigestUtils.sha256Hex(intent.artifactPath()));
+        statement.setString(1, Sha256Digests.sha256Hex(intent.artifactPath()));
         statement.setString(2, intent.indexId());
         statement.setInt(3, intent.generation());
         statement.setString(4, intent.attemptOwner());

@@ -91,4 +91,4 @@ remain part of the profile.
 
 Additional key types, connector coverage, filters sharing a build or probe
 stage, and production load evidence remain in the
-[query performance plan](../development/query-performance-parity-plan.md).
+[execution backlog](../development/execution-backlog.md#remaining-work).

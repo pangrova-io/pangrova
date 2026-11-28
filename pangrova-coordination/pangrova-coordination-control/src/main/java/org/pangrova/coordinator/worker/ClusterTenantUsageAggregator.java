@@ -19,7 +19,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.scheduler.api.quota.GlobalTenantUsageView;
 import org.pangrova.protocol.rest.worker.TenantUsageSnapshot;
 

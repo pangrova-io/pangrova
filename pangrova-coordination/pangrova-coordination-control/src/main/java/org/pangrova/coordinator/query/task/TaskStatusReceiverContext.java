@@ -15,7 +15,7 @@ import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
 import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Groups TaskStatusReceiver dependencies into a single parameter object.

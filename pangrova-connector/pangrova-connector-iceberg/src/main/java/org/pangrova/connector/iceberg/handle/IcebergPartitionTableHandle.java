@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.metadata.table.ConnectorDerivedQuery;
 import org.pangrova.connector.api.metadata.table.ConnectorDerivedTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
@@ -23,7 +23,7 @@ public record IcebergPartitionTableHandle(IcebergTableHandle baseTable,
     public String tableName() { return baseTable.tableName() + "$partitions"; }
 
     public String sourceIdentity() {
-        return DigestUtils.sha256Hex(derivedQuery.sql() + "\0" + derivedQuery.inputs().stream()
+        return Sha256Digests.sha256Hex(derivedQuery.sql() + "\0" + derivedQuery.inputs().stream()
                 .map(input -> input.binding().sourceIdentity()).collect(Collectors.joining("\0")));
     }
 }

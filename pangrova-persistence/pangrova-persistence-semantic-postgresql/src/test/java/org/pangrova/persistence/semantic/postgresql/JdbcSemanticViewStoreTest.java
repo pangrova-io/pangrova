@@ -19,7 +19,7 @@ package org.pangrova.persistence.semantic.postgresql;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.semantic.api.exception.SemanticStoreException;
 import org.pangrova.semantic.api.identity.SemanticViewId;
 import org.pangrova.semantic.api.publication.SemanticViewPublication;

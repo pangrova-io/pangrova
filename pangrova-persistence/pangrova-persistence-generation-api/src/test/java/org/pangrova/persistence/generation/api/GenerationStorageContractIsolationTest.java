@@ -1,7 +1,7 @@
 package org.pangrova.persistence.generation.api;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
 import org.pangrova.generation.api.enums.GenerationGraphPurpose;
@@ -28,7 +28,7 @@ class GenerationStorageContractIsolationTest {
     void graphEvidenceAndDispatchValuesDoNotLinkSerializationOrStoreImplementations() throws Exception {
         URL[] locations = {
                 GenerationDispatchSpec.class.getProtectionDomain().getCodeSource().getLocation(),
-                DigestUtils.class.getProtectionDomain().getCodeSource().getLocation(),
+                Sha256Digests.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.persistence.generation.api.job.GenerationJobStore.class
                         .getProtectionDomain().getCodeSource().getLocation(),
                 ShuffleProviderDescriptor.class.getProtectionDomain().getCodeSource().getLocation(),
@@ -195,7 +195,7 @@ class GenerationStorageContractIsolationTest {
         byte[] wire = {1, 2, 3};
         Object winner = winnerType.getConstructor(String.class, int.class, long.class, long.class, ownerType,
                 byte[].class, String.class).newInstance("page", 0, 1L, 1L, owner, wire,
-                        DigestUtils.sha256Hex(wire));
+                        Sha256Digests.sha256Hex(wire));
         wire[0] = 9;
         byte[] returned = (byte[]) winnerType.getMethod("originalWireBytes").invoke(winner);
         assertThat(returned).containsExactly(1, 2, 3);

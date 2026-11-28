@@ -8,7 +8,7 @@ import java.util.List;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
-import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.Fixture;
+import org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.Fixture;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
@@ -24,11 +24,11 @@ import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.CATALOG;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.SCHEMA;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.TABLE_NAME;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.assertDmlResult;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.deleteAll;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.CATALOG;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.SCHEMA;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.TABLE_NAME;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.assertDmlResult;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.deleteAll;
 
 /** Compiles the original DELETE AST through the domain-facing planner and canonical protocol. */
 class PlanExecutionFactoryDeleteCompilationTest {
@@ -44,13 +44,13 @@ class PlanExecutionFactoryDeleteCompilationTest {
             var connectorSession = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                     fixture.session, CATALOG, SCHEMA);
             var actual = fixture.metadata.getTableMetadata(connectorSession,
-                    fixture.metadata.getTableHandle(connectorSession, PlanExecutionFactoryDeleteTestSupport.TABLE));
+                    fixture.metadata.getTableHandle(connectorSession, DeleteDispatchFixture.TABLE));
             var definitions = org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec.decode(actual.properties());
             assertThat(write.dmlWriteTarget()).contains(
                     new DmlWriteTarget(TABLE_NAME.parts(), PlannedDmlOperation.DELETE,
                             java.util.Optional.of(org.pangrova.connector.api.commit.WriteDeclarationSnapshot.capture(
                                     new org.pangrova.connector.api.metadata.table.QualifiedTableName(CATALOG, SCHEMA,
-                                            PlanExecutionFactoryDeleteTestSupport.TABLE.table()),
+                                            DeleteDispatchFixture.TABLE.table()),
                                     actual, definitions.toByteArray(), false))));
             try {
                 var proto = io.substrait.proto.Plan.parseFrom(write.serializeValidated(compiler));

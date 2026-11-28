@@ -8,7 +8,7 @@ import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 
 import java.util.List;
@@ -31,7 +31,7 @@ class GenerationStageGraphTest {
         byte[] canonical = GenerationStageGraphCodec.encode(graph);
         byte[] noncanonical = java.util.Arrays.copyOf(canonical, canonical.length + 1);
         noncanonical[canonical.length] = '\n';
-        assertThatThrownBy(() -> GenerationStageGraphCodec.decode(noncanonical, DigestUtils.sha256Hex(noncanonical)))
+        assertThatThrownBy(() -> GenerationStageGraphCodec.decode(noncanonical, Sha256Digests.sha256Hex(noncanonical)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not canonical");
         assertThatThrownBy(() -> GenerationStageGraphCodec.decode(null, GenerationStageGraphCodec.sha256(graph)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("bytes or checksum");

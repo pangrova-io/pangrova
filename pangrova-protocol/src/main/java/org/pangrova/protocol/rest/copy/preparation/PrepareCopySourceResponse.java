@@ -1,6 +1,6 @@
 package org.pangrova.protocol.rest.copy.preparation;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
@@ -64,8 +64,8 @@ public final class PrepareCopySourceResponse {
             throw new IllegalArgumentException("Invalid prepared source URI", invalid);
         }
         if (source.getSourceVersionId().isBlank() || source.getSourceVersionId().length() > MAX_TEXT_CHARS
-                || source.getContentSize() < 0 || !DigestUtils.isSha256Hex(source.getContentSha256())
-                || !DigestUtils.isSha256Hex(source.getTenantScope()) || !"s3".equals(uri.getScheme())
+                || source.getContentSize() < 0 || !Sha256Digests.isSha256Hex(source.getContentSha256())
+                || !Sha256Digests.isSha256Hex(source.getTenantScope()) || !"s3".equals(uri.getScheme())
                 || uri.getHost() == null || uri.getUserInfo() != null || uri.getPort() != -1
                 || uri.getRawQuery() != null || uri.getRawFragment() != null
                 || uri.getRawPath() == null || uri.getRawPath().length() <= 1) {

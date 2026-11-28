@@ -1,6 +1,6 @@
 package org.pangrova.scheduler.speculation;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /** Routing metadata only; the task registry remains the sole issued/drain authority. */
 @ThreadSafe

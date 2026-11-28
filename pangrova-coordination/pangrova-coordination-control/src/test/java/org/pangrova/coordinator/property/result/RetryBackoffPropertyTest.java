@@ -3,7 +3,7 @@ package org.pangrova.coordinator.property.result;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.common.concurrent.BackoffStrategy;
+import org.pangrova.common.concurrency.BackoffStrategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

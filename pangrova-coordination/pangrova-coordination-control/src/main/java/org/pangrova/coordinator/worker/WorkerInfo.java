@@ -13,7 +13,7 @@ import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.scheduler.api.placement.PlacementWorker;
 import org.pangrova.coordination.api.heartbeat.CacheCatalogSummary;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable snapshot of a Worker's current state and metrics.

@@ -28,7 +28,7 @@ import org.pangrova.persistence.generation.api.exception.GenerationStorageExcept
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
@@ -428,7 +428,7 @@ class PostgresGenerationStageExchangeStoreTest {
                      + "WHERE tenant_id='stage-tenant' AND job_id='stage-job' AND page_id='producer-0'")) {
             assertThat(rows.next()).isTrue();
             assertThat(rows.getBytes(1)).isEqualTo(original);
-            assertThat(rows.getString(2)).isEqualTo(DigestUtils.sha256Hex(original));
+            assertThat(rows.getString(2)).isEqualTo(Sha256Digests.sha256Hex(original));
             assertThat(rows.getString(3)).isEqualTo("SUCCEEDED");
         }
         assertThat(stages.preparePartition(partitionClaim(0, 0, 1), value -> value.lease())).isEmpty();
@@ -469,7 +469,7 @@ class PostgresGenerationStageExchangeStoreTest {
                 "UPDATE artifact_build_dispatch_specs SET stage_graph_bytes=?,stage_graph_sha256=? "
                         + "WHERE tenant_id=? AND job_id=?")) {
             statement.setBytes(1, obsolete);
-            statement.setString(2, DigestUtils.sha256Hex(obsolete));
+            statement.setString(2, Sha256Digests.sha256Hex(obsolete));
             statement.setString(3, KEY.tenantId());
             statement.setString(4, KEY.jobId());
             assertThat(statement.executeUpdate()).isEqualTo(1);
@@ -504,7 +504,7 @@ class PostgresGenerationStageExchangeStoreTest {
         var lease = builds.claimNextPage(KEY.tenantId(), KEY.jobId(), anchor, 8, Duration.ofMinutes(1), NOW).orElseThrow();
         byte[] report = "validated-producer-task-report".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         assertThat(builds.completePage(new GenerationPageCompletion(KEY.tenantId(), KEY.jobId(), lease.pageId(),
-                lease.fencingToken(), lease.ownerEpoch(), report, DigestUtils.sha256Hex(report), List.of(), NOW, owner())))
+                lease.fencingToken(), lease.ownerEpoch(), report, Sha256Digests.sha256Hex(report), List.of(), NOW, owner())))
                 .isTrue();
     }
 
@@ -746,7 +746,7 @@ class PostgresGenerationStageExchangeStoreTest {
         exchanges.finalizeExchange(key, owner, new GenerationExchangeFinalization(exchange,
                 GenerationExchangeEvidenceCodec.sha256(registration), registration.shuffleId(), registration.planEpoch(),
                 owner, 1, registration.producerSetSha256(), parts, bytes, rows,
-                DigestUtils.sha256Hex(providerResponse())), providerResponse());
+                Sha256Digests.sha256Hex(providerResponse())), providerResponse());
     }
 
     private static GenerationStageGraph skewGraph(boolean splitBoth) {
@@ -801,7 +801,7 @@ class PostgresGenerationStageExchangeStoreTest {
         return new GenerationExchangeFinalization(allocation.exchangeId(),
                 GenerationExchangeEvidenceCodec.sha256(allocation), allocation.shuffleId(), allocation.planEpoch(),
                 owner, allocation.producerCount(), allocation.producerSetSha256(), partitions, 0, 0,
-                DigestUtils.sha256Hex(providerResponse()));
+                Sha256Digests.sha256Hex(providerResponse()));
     }
 
     private static void completeRangeProducer(GenerationStageExecutionStore stages, GenerationJobKey key,
@@ -839,7 +839,7 @@ class PostgresGenerationStageExchangeStoreTest {
         return new GenerationExchangeFinalization(allocation.exchangeId(), GenerationExchangeEvidenceCodec.sha256(allocation), allocation.shuffleId(),
                 allocation.planEpoch(), owner(), 1, allocation.producerSetSha256(),
                 List.of(new GenerationExchangeFinalization.Partition(0, 0, 0, -1, "d".repeat(64))), 0, 0,
-                DigestUtils.sha256Hex(providerResponse()));
+                Sha256Digests.sha256Hex(providerResponse()));
     }
 
     private static byte[] providerResponse() {

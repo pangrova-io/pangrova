@@ -1,7 +1,7 @@
 package org.pangrova.parser.property;
 
 import net.jqwik.api.*;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.Statement;
 
 import static org.assertj.core.api.Assertions.assertThat;

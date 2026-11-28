@@ -1,6 +1,6 @@
 package org.pangrova.streaming.cdc;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;

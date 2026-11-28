@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.security;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -147,7 +147,7 @@ public final class ShuffleCapabilityAuthority {
     }
 
     private byte[] sign(byte[] payload) {
-        return DigestUtils.hmacSha256(secret).doFinal(payload);
+        return Sha256Digests.hmacSha256(secret).doFinal(payload);
     }
 
     private record DecodedCapability(CapabilityScope scope, long expiresAtEpochMs) {}

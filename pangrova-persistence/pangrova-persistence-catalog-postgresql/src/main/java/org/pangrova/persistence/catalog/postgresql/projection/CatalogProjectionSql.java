@@ -14,7 +14,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setJson;
 
 /** SQL participants borrow the workflow connection and never commit, roll back or close it. */
 @Internal

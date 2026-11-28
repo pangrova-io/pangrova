@@ -51,11 +51,12 @@ public final class MetadataSchemaBuilder {
      */
     public CalciteSchema buildRootSchema(ConnectorSession authenticatedSession) {
         return buildRootSchema(authenticatedSession, catalogRegistry == null ? null
-                : new PlanningReadBindings(catalogRegistry, authenticatedSession));
+                : new PlanningReadBindingResolver(catalogRegistry, authenticatedSession));
     }
 
     /** Builds schema and cost metadata with the same query-local selected read owner. */
-    public CalciteSchema buildRootSchema(ConnectorSession authenticatedSession, PlanningReadBindings readBindings) {
+    public CalciteSchema buildRootSchema(ConnectorSession authenticatedSession,
+            PlanningReadBindingResolver readBindings) {
         ConnectorSession session = PlanningConnectorSession.bind(authenticatedSession,
                 authenticatedSession.getCatalog().orElse(null),
                 authenticatedSession.getSchema().orElse(null));
@@ -75,7 +76,7 @@ public final class MetadataSchemaBuilder {
     }
 
     private AbstractSchema catalogSchema(ConnectorSession session, MetadataSessionContext metadataSession,
-                                 String catalog, PlanningReadBindings readBindings) {
+                                 String catalog, PlanningReadBindingResolver readBindings) {
         return new NamespaceSchema(session, () -> readBindings == null
                         ? metadataService.listSchemas(metadataSession, catalog) : readBindings.listSchemaNames(catalog),
                 name -> new LazyMetadataSchema(catalog, name, readBindings),

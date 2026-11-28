@@ -6,7 +6,7 @@ import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient;
-import org.pangrova.worker.bootstrap.phase.WorkerObservabilitySetup;
+import org.pangrova.worker.bootstrap.phase.WorkerTelemetryInitializer;
 
 import java.net.InetSocketAddress;
 import java.nio.channels.Pipe;
@@ -59,7 +59,7 @@ class WorkerBootstrapDeregistrationTest {
 
             new WorkerBootstrapCleanup(refs).close(
                     WorkerBootstrapConfig.withDefaults("startup-rollback"),
-                    new WorkerObservabilitySetup());
+                    new WorkerTelemetryInitializer());
 
             assertThat(deletes).hasValue(1);
             assertThat(org.pangrova.common.json.JsonMapperFactory.shared().readValue(withdrawal.get(),
@@ -97,13 +97,13 @@ class WorkerBootstrapDeregistrationTest {
             register(client, "ordered-deregister");
             var config = WorkerBootstrapConfig.withDefaults("ordered-deregister");
             assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config,
-                    new WorkerObservabilitySetup())).hasMessageContaining("CDC consumer");
+                    new WorkerTelemetryInitializer())).hasMessageContaining("CDC consumer");
             assertThat(deletes).hasValue(0);
             assertThat(refs.registrationClient()).isSameAs(client);
             assertThat(source.isOpen()).isTrue();
 
             blocked.set(false);
-            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup());
+            new WorkerBootstrapCleanup(refs).close(config, new WorkerTelemetryInitializer());
             assertThat(source.isOpen()).isFalse();
             assertThat(deletes).hasValue(1);
             assertThat(premature).isFalse();
@@ -134,11 +134,11 @@ class WorkerBootstrapDeregistrationTest {
             register(client, "unacknowledged-deregister");
             var config = WorkerBootstrapConfig.withDefaults("unacknowledged-deregister");
             assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config,
-                    new WorkerObservabilitySetup())).hasMessageContaining("expected 'deregistered'");
+                    new WorkerTelemetryInitializer())).hasMessageContaining("expected 'deregistered'");
             assertThat(refs.registrationClient()).isSameAs(client);
             assertThat(source.isOpen()).isTrue();
             accepted.set(true);
-            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup());
+            new WorkerBootstrapCleanup(refs).close(config, new WorkerTelemetryInitializer());
             assertThat(deletes).hasValue(2);
             assertThat(source.isOpen()).isFalse();
             assertThat(refs.registrationClient()).isNull();

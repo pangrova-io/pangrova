@@ -8,7 +8,7 @@ import org.pangrova.protocol.v2.CapabilityLimits;
 import org.pangrova.protocol.resource.ModelResourceEnvelopes;
 import org.pangrova.common.api.annotation.Internal;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Wire-neutral contract for a bounded, version-exact model rerank stage. */
 @Internal

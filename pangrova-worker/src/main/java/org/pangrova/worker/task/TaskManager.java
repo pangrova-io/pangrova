@@ -5,7 +5,7 @@ import org.pangrova.worker.enums.TaskAdmissionReason;
 import org.pangrova.worker.exception.TaskAdmissionException;
 import org.pangrova.worker.task.report.TaskStatusReporter;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.task.ValidatedTaskSubmission;
@@ -21,7 +21,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.Consumer;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Worker-side task lifecycle manager with state machine enforcement.
@@ -112,7 +112,7 @@ public class TaskManager implements AutoCloseable {
     private static final long TASK_SETUP_DRAIN_TIMEOUT_MS = 30_000;
 
     private final java.util.concurrent.ExecutorService taskSetupExecutor =
-            org.pangrova.common.concurrent.ManagedExecutorFactory.newBoundedThreadPool(
+            org.pangrova.common.concurrency.ManagedExecutorFactory.newBoundedThreadPool(
                     "worker-task-setup", MAX_CONCURRENT_TASK_SETUPS, MAX_QUEUED_TASK_SETUPS);
     private final java.util.concurrent.Semaphore taskSubmissionBytes =
             new java.util.concurrent.Semaphore(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
@@ -196,7 +196,7 @@ public class TaskManager implements AutoCloseable {
                 },
                 taskAdmissions::sealAndAwaitAdmissions,
                 () -> {
-                    org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                    org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(
                             taskSetupExecutor, TASK_SETUP_DRAIN_TIMEOUT_MS);
                     TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
                             java.util.List.copyOf(tasks.values()));

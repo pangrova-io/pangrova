@@ -2,7 +2,7 @@ package org.pangrova.worker.task;
 
 import org.pangrova.protocol.rest.task.TaskReportEvidence;
 
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +20,7 @@ final class TaskResourceReleaser {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskResourceReleaser.class);
 
-    private final NativeShuffleProducerRegistration shuffleProducers;
+    private final NativeShuffleProducerRegistrar shuffleProducers;
     private final TaskManagerContext deps;
     private final Consumer<TaskInfo> memoryReleaser;
 
@@ -32,7 +32,7 @@ final class TaskResourceReleaser {
      * @param memoryReleaser releases the task memory budget
      */
     TaskResourceReleaser(
-            NativeShuffleProducerRegistration shuffleProducers,
+            NativeShuffleProducerRegistrar shuffleProducers,
             TaskManagerContext deps,
             Consumer<TaskInfo> memoryReleaser) {
         this.shuffleProducers = shuffleProducers;

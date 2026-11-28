@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.pangrova.client.security;
 
-import static org.pangrova.common.util.Preconditions.checkArgument;
+import static org.pangrova.common.validation.Preconditions.checkArgument;
 
 /**
  * TLS configuration for the remote shuffle client pool.

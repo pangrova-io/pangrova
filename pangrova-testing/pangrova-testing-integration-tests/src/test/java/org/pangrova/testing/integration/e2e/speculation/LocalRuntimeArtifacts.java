@@ -10,12 +10,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.zip.ZipFile;
 
 /** Owns the frozen production classpath, canonical JNI identity and source provenance. */
-record LocalRuntimeArtifacts(String coordinatorClasspath, String workerClasspath, Path cliJar, Path manifestPath,
+record LocalRuntimeArtifacts(String coordinatorClasspath, String workerClasspath, Path cliJar,
+                             Optional<Path> shuffleExecutable, Path manifestPath,
                              String manifestSha256, String nativeSha256) {
     private static final String IMAGE_ID = "pangrova.e2e.image-id";
     private static final String IMAGE_PROVENANCE = "pangrova.e2e.local.image-provenance";
@@ -49,6 +51,17 @@ record LocalRuntimeArtifacts(String coordinatorClasspath, String workerClasspath
         inventory.addAll(jars);
         var coordinatorJars = roleJars(lib.resolve("coordinator"), inventory);
         var workerJars = roleJars(lib.resolve("worker"), inventory);
+        Optional<Path> shuffleExecutable = Optional.empty();
+        Path shuffle = stage.resolve("shuffle");
+        if (Files.exists(shuffle)) {
+            var executables = jarInventory(shuffle);
+            Path executable = unique(executables, "pangrova-shuffle-service-", "-exec.jar");
+            if (executables.size() != 1) {
+                throw new IllegalStateException("Shuffle directory must contain only its executable");
+            }
+            inventory.add(executable);
+            shuffleExecutable = Optional.of(executable);
+        }
         verifyManifest(inventory, manifestPath);
         Path bundle = unique(jars, "pangrova-native-bundle-",
                 "-" + platform.classifier() + ".jar");
@@ -61,7 +74,7 @@ record LocalRuntimeArtifacts(String coordinatorClasspath, String workerClasspath
                 "-" + platform.classifier() + ".jar");
         verifyNativeEntries(workerJars, workerBundle, nativeEntry, expected);
         return new LocalRuntimeArtifacts(classpath(coordinatorJars), classpath(workerJars),
-                cli, manifestPath, manifestHash, nativeHash);
+                cli, shuffleExecutable, manifestPath, manifestHash, nativeHash);
     }
 
     private static String classpath(List<Path> jars) {

@@ -1,6 +1,6 @@
 package org.pangrova.metadata.api.object;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Three-part table reference: catalog.schema.table.

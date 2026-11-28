@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -35,7 +35,7 @@ import org.pangrova.connector.api.materialization.SourceProvider;
 import org.pangrova.connector.api.materialization.SourceRef;
 import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Iceberg materialization source contract.
@@ -258,7 +258,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         } else {
             throw unsupported(source, mode);
         }
-        String fingerprint = DigestUtils.sha256Hex("iceberg-change-set-v2|" + source.canonicalName()
+        String fingerprint = Sha256Digests.sha256Hex("iceberg-change-set-v2|" + source.canonicalName()
                 + '|' + fromId + '|' + toId + '|' + mode.name()
                 + '|' + partitionFingerprint(changedPartitions));
         return new ChangeSetPlan(source, from.snapshot(), to.snapshot(), mode,
@@ -281,7 +281,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
             complete = appendOnly(table, fromId, toId, source);
         }
         return new ChangeProof(source, Long.toString(fromId), Long.toString(toId),
-                plan.mode(), DigestUtils.sha256Hex(plan.planFingerprint() + "|verified|" + complete),
+                plan.mode(), Sha256Digests.sha256Hex(plan.planFingerprint() + "|verified|" + complete),
                 STRATEGY_VERSION, Instant.now(), complete);
     }
 
@@ -554,7 +554,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
                     .append(field.fieldId()).append(':').append(field.name())
                     .append(':').append(field.transform());
         }
-        return DigestUtils.sha256Hex(canonical.toString());
+        return Sha256Digests.sha256Hex(canonical.toString());
     }
 
     private static String emptyIdentity(Table table) {
@@ -569,11 +569,11 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
                     MaterializationSourceFailureReason.SOURCE_UNAVAILABLE,
                     "Iceberg table " + table.name() + " has no table UUID");
         }
-        return DigestUtils.sha256Hex(uuid + "\0" + table.location() + "\0EMPTY");
+        return Sha256Digests.sha256Hex(uuid + "\0" + table.location() + "\0EMPTY");
     }
 
     private static String tagName(String pinOwner, long snapshotId) {
-        return TAG_PREFIX + DigestUtils.sha256Hex(pinOwner).substring(0, 32) + '_' + snapshotId;
+        return TAG_PREFIX + Sha256Digests.sha256Hex(pinOwner).substring(0, 32) + '_' + snapshotId;
     }
 
     private static void requireExact(

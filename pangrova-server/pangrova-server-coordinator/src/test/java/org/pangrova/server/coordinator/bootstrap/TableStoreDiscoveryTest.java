@@ -5,7 +5,7 @@ import java.net.URL;
 import java.util.Collections;
 import java.util.Enumeration;
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
+import org.pangrova.persistence.jdbc.datasource.DriverManagerDataSource;
 import org.pangrova.persistence.table.api.provider.TableStoreFactory;
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
 import org.pangrova.persistence.table.postgresql.policy.PostgresTablePolicyRepository;

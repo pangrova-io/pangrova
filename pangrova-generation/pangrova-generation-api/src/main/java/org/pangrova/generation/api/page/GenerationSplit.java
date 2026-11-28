@@ -1,6 +1,6 @@
 package org.pangrova.generation.api.page;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.util.Base64;
 
@@ -13,7 +13,7 @@ public record GenerationSplit(
     public GenerationSplit {
         requireIdentity(dataObjectId, canonicalSplitBase64, splitSha256);
         byte[] bytes = decode(canonicalSplitBase64);
-        if (bytes.length == 0 || !DigestUtils.sha256Hex(bytes).equalsIgnoreCase(splitSha256)) {
+        if (bytes.length == 0 || !Sha256Digests.sha256Hex(bytes).equalsIgnoreCase(splitSha256)) {
             throw new IllegalArgumentException("artifact split is empty or its SHA-256 differs");
         }
     }
@@ -38,7 +38,7 @@ public record GenerationSplit(
     public static GenerationSplit of(String dataObjectId, byte[] canonicalSplit) {
         return new GenerationSplit(
                 dataObjectId, Base64.getEncoder().encodeToString(canonicalSplit),
-                DigestUtils.sha256Hex(canonicalSplit));
+                Sha256Digests.sha256Hex(canonicalSplit));
     }
 
     public byte[] canonicalSplitBytes() {

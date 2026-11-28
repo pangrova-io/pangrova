@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.connector.api.plugin.ConnectorFactory;
-import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
+import org.pangrova.coordinator.metadata.CatalogExecutionBindingFactory;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.enums.CatalogState;
@@ -64,7 +64,7 @@ class ExternalCatalogRolesIntegrationTest {
             try (var runtime = WorkerCatalogRuntime.discover("http://127.0.0.1:" + server.getAddress().getPort(),
                     "role-test-secret", host, Optional.of(workerPlugins))) {
                 var handle = control.create(descriptor);
-                var binding = CatalogExecutionBindings.from(descriptor);
+                var binding = CatalogExecutionBindingFactory.from(descriptor);
                 var security = SecurityContext.newBuilder().setPrincipal("user").setTenantId("tenant").build();
                 try (var lease = runtime.leaseControl(binding, security, Optional.empty())) {
                     assertThatThrownBy(runtime::close).hasMessageContaining("active leases");

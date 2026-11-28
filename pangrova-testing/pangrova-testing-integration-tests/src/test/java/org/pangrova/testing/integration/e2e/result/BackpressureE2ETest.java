@@ -20,7 +20,7 @@ import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.setup.TestConnectorFactory;
+import org.pangrova.testing.integration.e2e.fixture.catalog.TestConnectorFactory;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -3,7 +3,7 @@ package org.pangrova.connector.lance;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import org.pangrova.protocol.write.NativeWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBinder;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.LanceWriteFragment;
 import org.pangrova.protocol.v2.LanceTransactionReference;
@@ -113,7 +113,7 @@ final class LanceCommitFragments {
 
     private static void validateReferenceLocation(NativeWriteAllocation allocation, LanceWriteFragment fragment) {
         LanceTransactionReference reference = fragment.getTransaction();
-        String prefix = NativeWriteBindings.attemptPrefix(
+        String prefix = NativeWriteBinder.attemptPrefix(
                 allocation.stagingPrefix(), fragment.getTaskAttempt());
         String expected = prefix + "/transaction-"
                 + HexFormat.of().formatHex(reference.getSha256().getDigest().toByteArray()) + ".pb";

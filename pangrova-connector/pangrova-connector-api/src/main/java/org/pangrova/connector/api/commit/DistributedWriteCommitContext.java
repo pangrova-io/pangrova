@@ -1,13 +1,13 @@
 package org.pangrova.connector.api.commit;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Durable identity and optional local publication authority for one distributed catalog commit.
@@ -76,7 +76,7 @@ public record DistributedWriteCommitContext(
             throw new IllegalArgumentException("writeOutputBinding must not be empty");
         }
         Objects.requireNonNull(commitFingerprint, "commitFingerprint must not be null");
-        if (!DigestUtils.isSha256Hex(commitFingerprint)) {
+        if (!Sha256Digests.isSha256Hex(commitFingerprint)) {
             throw new IllegalArgumentException(
                     "commitFingerprint must be a lowercase SHA-256 hex digest");
         }

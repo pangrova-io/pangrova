@@ -1,7 +1,5 @@
 package org.pangrova.persistence.security.postgresql.policy;
 
-import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
-
 import org.pangrova.persistence.security.api.policy.GrantStore;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
@@ -27,7 +25,7 @@ import java.util.Set;
  * <p>Per naming rule C13 this is {@code Persistent*} because {@code pangrova-security} is a policy
  * module rather than the owning persistence module.
  */
-public final class JdbcGrantStore extends JdbcPolicyStoreSupport implements GrantStore {
+public final class JdbcGrantStore extends JdbcPolicyStoreBase implements GrantStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcGrantStore.class);
     private static final String SELECT_GRANTS =

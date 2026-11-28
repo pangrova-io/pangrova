@@ -9,13 +9,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import org.pangrova.observability.api.context.TaskWrapping;
+import org.pangrova.observability.api.context.TaskWrapper;
 
 /**
  * An {@link ExecutorService} wrapper that propagates MDC context for every submitted task.
  *
  * <p>Delegates all operations to the underlying service, wrapping each task with MDC
- * snapshot/restore via {@link TaskWrapping}. This ensures trace_id, queryId,
+ * snapshot/restore via {@link TaskWrapper}. This ensures trace_id, queryId,
  * and taskId are available in async execution threads.
  *
  * <p>Thread safety: delegates to the underlying ExecutorService which manages its own
@@ -25,9 +25,9 @@ import org.pangrova.observability.api.context.TaskWrapping;
 final class MdcPropagatingExecutorService implements ExecutorService {
 
     private final ExecutorService delegate;
-    private final TaskWrapping taskWrapping;
+    private final TaskWrapper taskWrapping;
 
-    MdcPropagatingExecutorService(ExecutorService delegate, TaskWrapping taskWrapping) {
+    MdcPropagatingExecutorService(ExecutorService delegate, TaskWrapper taskWrapping) {
         this.delegate = delegate;
         this.taskWrapping = taskWrapping;
     }

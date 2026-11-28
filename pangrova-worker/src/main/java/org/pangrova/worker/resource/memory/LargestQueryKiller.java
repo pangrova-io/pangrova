@@ -1,6 +1,6 @@
 package org.pangrova.worker.resource.memory;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.Comparator;
 import java.util.List;

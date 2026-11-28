@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.handle;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.util.List;
 import java.util.Objects;
@@ -23,7 +23,7 @@ public record PaimonSystemTableHandle(
         public MetadataObject {
             if (!validIdentity(snapshotId, tagName, schemaId)
                     || uri == null || uri.isBlank() || length <= 0
-                    || !DigestUtils.isSha256Hex(sha256)) {
+                    || !Sha256Digests.isSha256Hex(sha256)) {
                 throw new IllegalArgumentException("Metadata object requires kind identity, URI, length and SHA-256");
             }
         }

@@ -27,11 +27,12 @@ import java.util.UUID;
 
 /** SDK messages and exact observations of staged data objects under the bound table root. */
 public final class PaimonSdkWriteFragment {
-    private static final int FRAGMENT_VERSION = 2;
+    private static final int FRAGMENT_VERSION_WITHOUT_OBJECT_IDENTITIES = 2;
+    private static final int FRAGMENT_VERSION = 3;
 
     private PaimonSdkWriteFragment() {}
 
-    public record StagedObject(String uri, long sizeBytes) {}
+    public record StagedObject(String uri, long sizeBytes, String localFingerprint) {}
 
     public record Decoded(CommitEventType eventType, List<CommitMessage> messages,
                           List<StagedObject> objects, String localAuthority) {
@@ -66,6 +67,7 @@ public final class PaimonSdkWriteFragment {
             out.writeInt(objects.size());
             for (var object : objects.values()) {
                 out.writeUTF(object.uri());
+                out.writeUTF(object.localFingerprint());
                 out.writeLong(object.sizeBytes());
             }
             out.flush();
@@ -76,7 +78,8 @@ public final class PaimonSdkWriteFragment {
     /** Reads and validates one fragment against its immutable allocation, without contacting the catalog. */
     public static Decoded decode(byte[] fragment, PaimonOutputTableHandle handle) throws IOException {
         try (var in = new DataInputStream(new ByteArrayInputStream(fragment))) {
-            if (in.readInt() != FRAGMENT_VERSION) {
+            int version = in.readInt();
+            if (version != FRAGMENT_VERSION && version != FRAGMENT_VERSION_WITHOUT_OBJECT_IDENTITIES) {
                 throw new IllegalArgumentException("Unsupported Paimon commit fragment version");
             }
             if (!new UUID(in.readLong(), in.readLong()).equals(handle.stagedFileNames().allocationId())) {
@@ -91,7 +94,7 @@ public final class PaimonSdkWriteFragment {
                 throw new IllegalArgumentException("Invalid Paimon local staging authority");
             }
             var messages = readMessages(in, in.readInt());
-            var objects = readObjects(in, handle, messages);
+            var objects = readObjects(in, handle, messages, version);
             if (in.available() != 0) {
                 throw new IllegalArgumentException("Trailing bytes in Paimon commit fragment");
             }
@@ -119,7 +122,7 @@ public final class PaimonSdkWriteFragment {
     }
 
     private static List<StagedObject> readObjects(DataInputStream in, PaimonOutputTableHandle handle,
-            List<CommitMessage> messages) throws IOException {
+            List<CommitMessage> messages, int version) throws IOException {
         int count = in.readInt();
         if (count < 0 || count > in.available() / (Short.BYTES + Long.BYTES)) {
             throw new IllegalArgumentException("Invalid Paimon staged object count");
@@ -145,6 +148,10 @@ public final class PaimonSdkWriteFragment {
         String previous = null;
         for (int i = 0; i < count; i++) {
             String location = in.readUTF();
+            String fingerprint = version == FRAGMENT_VERSION ? in.readUTF() : "";
+            if (!fingerprint.isEmpty() && !fingerprint.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("Invalid Paimon staged object fingerprint");
+            }
             long size = in.readLong();
             URI uri = URI.create(location);
             if (!beneathTable(root, uri) || (previous != null && previous.compareTo(location) >= 0) || size < 0) {
@@ -154,14 +161,14 @@ public final class PaimonSdkWriteFragment {
             if (!observedNames.add(name) || !Objects.equals(names.get(name), size)) {
                 throw new IllegalArgumentException("Paimon staged object differs from its SDK commit metadata");
             }
-            objects.add(new StagedObject(location, size));
+            objects.add(new StagedObject(location, size, fingerprint));
             previous = location;
         }
         return objects;
     }
 
     private static Map<String, StagedObject> collectObjects(FileStoreTable table, PaimonOutputTableHandle handle,
-            List<CommitMessage> messages) {
+            List<CommitMessage> messages) throws IOException {
         var objects = new TreeMap<String, StagedObject>();
         var alloc = handle.stagedFileNames();
         URI root = new Path(handle.tableLocation()).toUri().normalize();
@@ -193,14 +200,16 @@ public final class PaimonSdkWriteFragment {
     }
 
     private static void recordObject(URI root, DataFilePathFactory paths, DataFileMeta file,
-            Map<String, StagedObject> objects) {
+            Map<String, StagedObject> objects) throws IOException {
         var path = paths.toPath(file);
         var uri = path.toUri();
         if (!beneathTable(root, uri) || !path.getName().equals(file.fileName())) {
             return;
         }
         String location = uri.toASCIIString();
-        var receipt = new StagedObject(location, file.fileSize());
+        String fingerprint = PaimonLocalStagingAuthority.observeObject(
+                PaimonLocalStagingAuthority.absolutePath(uri), file.fileSize());
+        var receipt = new StagedObject(location, file.fileSize(), fingerprint);
         var previous = objects.putIfAbsent(location, receipt);
         if (previous != null && !previous.equals(receipt)) {
             throw new IllegalArgumentException("Conflicting Paimon staged object evidence");

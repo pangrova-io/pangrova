@@ -2,7 +2,7 @@ package org.pangrova.persistence.indexing.api.metadata;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Versioned cross-runtime identity of the bytes stored in an index artifact. */
 @Experimental

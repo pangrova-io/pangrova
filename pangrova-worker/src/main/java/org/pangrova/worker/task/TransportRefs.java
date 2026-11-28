@@ -4,7 +4,7 @@ import org.pangrova.worker.result.ResultTransport;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 
 /**
  * Groups Native serving and result/exchange transport references for TaskManager.
@@ -17,7 +17,7 @@ import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
  * @param exchangeTransport exchange data transport SPI, or unavailable
  */
 public record TransportRefs(
-        NativeShuffleProducerRegistration shuffleProducers,
+        NativeShuffleProducerRegistrar shuffleProducers,
         ResultTransport resultTransport,
         ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport) {
 

@@ -153,7 +153,7 @@ class VectorIndexResilienceE2ETest extends SqlE2ETestBase {
 
     @Nested
     @DisplayName("Multi-Metric Support (P0-04 valueOf)")
-    class MultiMetricSupport {
+    class MultiMetricIndexCases {
 
         @Test
         @DisplayName("L2 distance metric query returns correct nearest neighbor")

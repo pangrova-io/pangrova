@@ -44,7 +44,7 @@ import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAncho
 import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
 import org.pangrova.persistence.file.postgresql.copy.JdbcCopySourceReadAdmissions;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest;

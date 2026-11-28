@@ -136,6 +136,15 @@ using the window 50 ms early for clock uncertainty. Object PUTs run outside
 transactions. One publication transaction rechecks the live fences, publishes
 the ordered inventory as a group and consumes the reservation. The stream
 flushes its last group before acknowledging the producer's half-close.
+For unexpected stream failures, Worker logs record
+`remote_shuffle_producer_failed` with the shuffle ID, task ID and gRPC status
+before the error crosses the JNI boundary.
+
+The PostgreSQL/MinIO regression verifies the same eight authorization and
+inventory statements for one batch, 32 batches and 128 chunks within a single
+write window. The read regression observes zero Shuffle SQL statements while
+checking admitted frames and reading the finalized manifest page and payload.
+Window opening, renewal, close and recovery have separate database accounting.
 
 An unconfirmed object PUT surfaces immediately to the write stream when the SDK
 reports failure. The SDK performs a single attempt for each PUT. Its reservation
@@ -143,7 +152,14 @@ protects the object prefix through the configured call deadline plus 60 seconds
 for drain. Cleanup closes new admission, waits for protected writes and records
 the prefix for compensation before deleting objects. Exact expired reservations
 survive allocation removal. A confirmed late PUT settles its reservation
-without restoring publication authority. The service retires the periodic
+without restoring publication authority. An explicit S3 `NoSuchBucket`
+response to the single PUT attempt proves that write stopped. The service
+settles its exact manifest reservation or closes the producer window after
+the worker handling the write exits. New manifest objects carry their
+write reservation UUID in S3 user metadata. The cleanup service reads that
+metadata before deleting a manifest and settles only the matching reservation
+for that object key. An older object without this metadata leaves the reservation
+pending until the writer acknowledges its own PUT. The service retires the periodic
 sweep after a complete sweep claimed with all reservations settled. Any PUT
 with an unknown outcome keeps the prefix scheduled for compensation. Writers
 for different stages of the same query share the scope lock. Each allocation

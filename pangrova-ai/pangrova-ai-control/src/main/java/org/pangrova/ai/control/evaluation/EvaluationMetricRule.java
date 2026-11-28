@@ -21,7 +21,7 @@ import org.pangrova.ai.control.enums.EvaluationMetricDirection;
 
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable numerical release rule for one named metric. */
 public record EvaluationMetricRule(

@@ -2,7 +2,7 @@ package org.pangrova.shuffle.api;
 
 import java.util.Arrays;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Descriptor for registering a shuffle with the Remote Shuffle Service.

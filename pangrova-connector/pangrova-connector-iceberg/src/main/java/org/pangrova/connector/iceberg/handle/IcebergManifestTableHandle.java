@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg.handle;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.util.List;
 import java.util.Map;
@@ -88,7 +88,7 @@ public record IcebergManifestTableHandle(
         }
         if (sequenceNumber < 0 || listLocation == null || listLocation.isBlank()
                 || listLength <= 0 || listSha256 == null
-                || !DigestUtils.isSha256Hex(listSha256)) {
+                || !Sha256Digests.isSha256Hex(listSha256)) {
             throw new IllegalArgumentException("Selected manifests require a pinned list object");
         }
     }

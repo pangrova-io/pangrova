@@ -1,6 +1,6 @@
 package org.pangrova.connector.api.commit;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
@@ -38,7 +38,7 @@ public record WriteDeclarationSnapshot(QualifiedTableName table, String schemaSh
 
     /** Hashes the validated GeneratedColumnSet protobuf bytes, including its explicit empty declaration. */
     public static String generatedColumnsDigest(byte[] canonicalDefinitions) {
-        return DigestUtils.sha256Hex(Objects.requireNonNull(canonicalDefinitions, "canonicalDefinitions"));
+        return Sha256Digests.sha256Hex(Objects.requireNonNull(canonicalDefinitions, "canonicalDefinitions"));
     }
 
     private static String schemaDigest(ConnectorTableMetadata metadata) {
@@ -51,7 +51,7 @@ public record WriteDeclarationSnapshot(QualifiedTableName table, String schemaSh
                 writeText(output, column.parameterizedType() == null
                         ? "" : column.parameterizedType().getDisplayName());
             }
-            return DigestUtils.sha256Hex(bytes.toByteArray());
+            return Sha256Digests.sha256Hex(bytes.toByteArray());
         } catch (IOException impossible) {
             throw new IllegalStateException("Cannot encode in-memory connector schema", impossible);
         }
@@ -64,7 +64,7 @@ public record WriteDeclarationSnapshot(QualifiedTableName table, String schemaSh
     }
 
     private static void requireDigest(String digest) {
-        if (!DigestUtils.isSha256Hex(digest)) {
+        if (!Sha256Digests.isSha256Hex(digest)) {
             throw new IllegalArgumentException("Write declaration requires a canonical SHA-256 digest");
         }
     }

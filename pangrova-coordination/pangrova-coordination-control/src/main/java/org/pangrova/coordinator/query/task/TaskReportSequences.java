@@ -2,8 +2,8 @@ package org.pangrova.coordinator.query.task;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import javax.annotation.concurrent.GuardedBy;
 
 /** Owns per-task report sequencing; only successful required publication advances acceptance. */

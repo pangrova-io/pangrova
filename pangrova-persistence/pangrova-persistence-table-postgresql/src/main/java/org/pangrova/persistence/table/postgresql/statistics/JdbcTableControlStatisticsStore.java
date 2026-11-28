@@ -9,8 +9,8 @@ import org.pangrova.table.api.statistics.TableControlStatisticsStore;
 import org.pangrova.table.api.statistics.TableStatisticsSnapshotStore;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 
 import javax.sql.DataSource;
@@ -27,7 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setJson;
 
 /**
  * Durable ANALYZE statistics keyed by the stable {@code table_id}. A peer coordinator
@@ -158,7 +158,7 @@ public final class JdbcTableControlStatisticsStore
             statement.setLong(6, values.sourceWorkUnits());
             setJson(statement, 7, serializeColumnStats(values.columnStats()));
             statement.setString(8, statistics.source());
-            JdbcSupport.setInstant(statement, 9, statistics.computedAt());
+            JdbcOperations.setInstant(statement, 9, statistics.computedAt());
             statement.executeUpdate();
         } catch (SQLException e) {
             throw new TableControlException(
@@ -189,7 +189,7 @@ public final class JdbcTableControlStatisticsStore
                         row.getLong("source_work_units"),
                         parseColumnStats(row.getString("column_stats"))),
                 row.getString("source"),
-                JdbcSupport.getInstant(row, "computed_at"));
+                JdbcOperations.getInstant(row, "computed_at"));
     }
 
     private static String serializeColumnStats(

@@ -22,7 +22,7 @@ import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.catalog.CatalogMetadata;
 import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
+import org.pangrova.persistence.jdbc.datasource.PooledDataSourceFactory;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.postgresql.ds.PGSimpleDataSource;
 import java.sql.SQLException;

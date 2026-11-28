@@ -10,6 +10,21 @@ exporter catalogue used by function-contract tests.
 
 ## Current capture
 
+On 2026-11-28 the rebuilt macOS arm64 runtime from the execution backlog
+implementation passed `NativeCapabilityHandshakeE2ETest` with the packaged
+library, PostgreSQL, the configured local models and governed FILE callbacks.
+The complete Worker inventory and the matching function exporter both report
+descriptor SHA-256
+`84c2d3a6b6d9f7396f681ce74f030424989ca5777824ac6a4f3be90012a988e4`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | ---: |
+| Native library | | `15d51352c077e5d3b440a3b772377b86ba9e49a24dadc8365a35b257fb6146b3` | |
+| Worker inventory | 796871 | `5369471d74182358ca4ee6cfec59a956c935e8f4171853ca34128c7a52945821` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `7ea27419f27dd12e1addbefec3840d41bbe739a7e7d116a8f7516ab6f8a72ced` | 9 / 92 / 0 |
+
+## Earlier November 28 cleanup receipt capture
+
 On 2026-11-28 the packaged macOS arm64 Worker handshake and the matching Native
 exporter captured the remote Shuffle cleanup receipt protocol. Java and Native
 protoc agree on all 20 normalized descriptors, with SHA-256

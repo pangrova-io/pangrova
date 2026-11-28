@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.task.report;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.security.MessageDigest;
 import java.util.HashSet;
@@ -147,7 +147,7 @@ final class GenerationTaskReportValidator {
         }
         byte[] claimed = work.getReportChecksum().getDigest().toByteArray();
         byte[] unsigned = work.toBuilder().clearReportChecksum().build().toByteArray();
-        if (!MessageDigest.isEqual(claimed, DigestUtils.sha256().digest(unsigned))) {
+        if (!MessageDigest.isEqual(claimed, Sha256Digests.sha256().digest(unsigned))) {
             throw invalid("artifact report checksum mismatch");
         }
     }

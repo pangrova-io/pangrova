@@ -4,7 +4,7 @@ import org.pangrova.common.api.annotation.Stable;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Compact terminal evidence of one exact write. The fingerprint binds the original authorization,

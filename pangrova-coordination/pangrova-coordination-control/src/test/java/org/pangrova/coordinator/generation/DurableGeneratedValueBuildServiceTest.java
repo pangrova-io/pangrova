@@ -24,7 +24,7 @@ import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmissionStore;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildSubmissionStore;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;

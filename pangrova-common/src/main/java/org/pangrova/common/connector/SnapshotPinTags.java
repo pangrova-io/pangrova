@@ -1,6 +1,6 @@
 package org.pangrova.common.connector;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -22,7 +22,7 @@ public final class SnapshotPinTags {
         if (indexId == null || indexId.isBlank()) {
             throw new IllegalArgumentException("Index ID is required for snapshot pinning");
         }
-        return PREFIX + DigestUtils.sha256Hex(indexId);
+        return PREFIX + Sha256Digests.sha256Hex(indexId);
     }
 
     /** Writes only the v3 format, with delimiter-safe, filesystem-compatible UTF-8 hex. */

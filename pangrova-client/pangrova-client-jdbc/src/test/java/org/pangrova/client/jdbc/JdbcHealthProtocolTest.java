@@ -6,8 +6,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.common.client.session.RetryPolicy;
 import com.sun.net.httpserver.HttpServer;
-import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ExecutorDrain;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;

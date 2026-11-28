@@ -5,7 +5,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.DataField;
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.exception.ConnectorException;
 
 /**
@@ -45,7 +45,7 @@ public final class PaimonTableIdentity {
         for (String partition : schema.partitionKeys()) {
             canonical.append("|p:").append(partition);
         }
-        return DigestUtils.sha256Hex(canonical.toString());
+        return Sha256Digests.sha256Hex(canonical.toString());
     }
 
     /**

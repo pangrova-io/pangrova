@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.blob;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
@@ -191,7 +191,7 @@ public final class GovernedBlobStore implements AutoCloseable {
 
     private Draft writeDraft(InputStream input, Path staging, long limit,
                              long deadlineEpochMs) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         long size = 0;
         try {
             Path parent = staging.getParent();
@@ -304,7 +304,7 @@ public final class GovernedBlobStore implements AutoCloseable {
     }
 
     private static String scopeToken(AiExecutionContext context) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         digest.update(context.tenantId().getBytes(StandardCharsets.UTF_8));
         return HexFormat.of().formatHex(digest.digest());
     }
@@ -397,7 +397,7 @@ public final class GovernedBlobStore implements AutoCloseable {
     private static final class VerifyingInputStream extends FilterInputStream {
         private final BlobReference reference;
         private final long limit;
-        private final MessageDigest digest = DigestUtils.sha256();
+        private final MessageDigest digest = Sha256Digests.sha256();
         private long count;
         private boolean verified;
 

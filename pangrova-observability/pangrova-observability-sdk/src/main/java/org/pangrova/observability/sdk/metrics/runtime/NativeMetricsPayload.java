@@ -7,7 +7,7 @@ import java.nio.ByteOrder;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import org.pangrova.common.util.OrderedMaps;
+import org.pangrova.common.collection.OrderedMaps;
 
 /**
  * Versioned native metrics payload contract.

@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class LocalShuffleTaskBindingTest {
     @Test
     void rejectsForeignOrUnregisteredSourcesAndRetriesBeforeCallingNative() {
-        var local = new NativeShuffleProducerRegistration((h, c) -> { throw new AssertionError(); }, "worker", "", true);
+        var local = new NativeShuffleProducerRegistrar((h, c) -> { throw new AssertionError(); }, "worker", "", true);
         var producer = TaskRequest.newBuilder();
         producer.getExecutionOptionsBuilder().getShuffleBuilder()
                 .setPersistenceMode(ShufflePersistenceMode.SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_DISK);

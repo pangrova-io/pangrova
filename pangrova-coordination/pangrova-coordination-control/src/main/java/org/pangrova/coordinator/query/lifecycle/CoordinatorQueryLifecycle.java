@@ -6,7 +6,7 @@ import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import java.util.UUID;
 

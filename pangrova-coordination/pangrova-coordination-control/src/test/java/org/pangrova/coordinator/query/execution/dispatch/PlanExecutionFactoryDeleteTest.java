@@ -9,17 +9,17 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.Fixture;
+import org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.Fixture;
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.arithmeticPredicate;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.assertDmlResult;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.deleteAll;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.deleteWhere;
-import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.equalToSeven;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.arithmeticPredicate;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.assertDmlResult;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.deleteAll;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.deleteWhere;
+import static org.pangrova.coordinator.query.execution.dispatch.DeleteDispatchFixture.equalToSeven;
 
 /** Every DELETE uses the protected Native survivor-write and durable commit boundary. */
 class PlanExecutionFactoryDeleteTest {

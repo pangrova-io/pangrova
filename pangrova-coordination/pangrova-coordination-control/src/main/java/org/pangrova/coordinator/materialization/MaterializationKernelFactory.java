@@ -83,7 +83,7 @@ public final class MaterializationKernelFactory {
                 catalog,
                 planner,
                 new NativeCtasExecutionEngine(context, catalogs, ctas, metadataDataSource, compiler),
-                new CoordinatorSourcePinning(catalogs),
+                new CoordinatorSourceSnapshotPinner(catalogs),
                 new CoordinatorMaterializationAuthorizer(context.session(), accessControl),
                 fence,
                 fence,
@@ -118,8 +118,8 @@ public final class MaterializationKernelFactory {
         return new NativeCommitPublicationVerifier(metadataDataSource);
     }
 
-    public org.pangrova.materialization.api.port.SourcePinning sourcePinning() {
-        return new CoordinatorSourcePinning(catalogs);
+    public org.pangrova.materialization.api.port.SourceSnapshotPinner sourcePinning() {
+        return new CoordinatorSourceSnapshotPinner(catalogs);
     }
 
     public Clock clock() {

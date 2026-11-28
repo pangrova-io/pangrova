@@ -2,7 +2,7 @@ package org.pangrova.worker.memory;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.resource.memory.ShrinkableMemoryConsumer;

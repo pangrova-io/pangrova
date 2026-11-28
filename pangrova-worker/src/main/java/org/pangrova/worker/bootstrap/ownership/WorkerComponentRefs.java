@@ -1,6 +1,6 @@
 package org.pangrova.worker.bootstrap.ownership;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.memory.RootMemoryPool;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;

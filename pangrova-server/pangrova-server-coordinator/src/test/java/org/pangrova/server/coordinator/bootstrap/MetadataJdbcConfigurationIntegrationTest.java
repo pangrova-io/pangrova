@@ -3,8 +3,8 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.junit.jupiter.api.Test;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.datasource.PooledDataSourceFactory;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.postgresql.ds.PGSimpleDataSource;
 

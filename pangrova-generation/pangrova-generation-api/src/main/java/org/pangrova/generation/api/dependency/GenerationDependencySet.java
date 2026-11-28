@@ -1,7 +1,7 @@
 package org.pangrova.generation.api.dependency;
 
-import org.pangrova.common.util.DigestUtils;
-import org.pangrova.common.util.Utf8Order;
+import org.pangrova.common.crypto.Sha256Digests;
+import org.pangrova.common.text.Utf8Order;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -57,7 +57,7 @@ public record GenerationDependencySet(List<GenerationDependency> dependencies, S
         if (dependencies.isEmpty()) {
             throw new IllegalArgumentException("artifact dependency set must not be empty");
         }
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         for (GenerationDependency dependency : dependencies) {
             update(digest, dependency.kind());
             update(digest, dependency.id());

@@ -6,7 +6,7 @@ import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.parser.api.ast.Statement;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Event fired after a statement completes successfully.

@@ -3,7 +3,7 @@ package org.pangrova.coordinator.ai.branch;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.security.api.authorization.AccessControl;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable dependency bundle for BranchDdlExecutor.

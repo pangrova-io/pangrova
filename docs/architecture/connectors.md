@@ -123,6 +123,10 @@ that directory. A plugin JAR declares its factory in
 `META-INF/services/org.pangrova.connector.api.plugin.ConnectorFactory`.
 Deploy only administrator-trusted JARs. External installations currently use the
 NARROW shared-package policy and must ship their SDK dependencies.
+Recompile external plugins against the same Pangrova release and deploy them with
+the Coordinator and Worker. The shared Common concurrency annotations now live
+under `org.pangrova.common.concurrency`; private Common classes such as
+`org.pangrova.common.validation.Preconditions` remain plugin-local.
 
 At startup, each role builds its own `ConnectorPluginInventory`. The inventory
 sorts the installation directories and JARs, allocates one classloader per

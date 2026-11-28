@@ -1,6 +1,6 @@
 package org.pangrova.persistence.query.api.commit;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
 import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
@@ -44,7 +44,7 @@ public final class WriteCommitFingerprint {
         }
         Objects.requireNonNull(fragments, "fragments must not be null");
         List<byte[]> fragmentDigests = fragments.stream()
-                .map(fragment -> DigestUtils.sha256().digest(Objects.requireNonNull(fragment,
+                .map(fragment -> Sha256Digests.sha256().digest(Objects.requireNonNull(fragment,
                         "fragment must not be null")))
                 .sorted(WriteCommitFingerprint::compareUnsigned)
                 .toList();
@@ -90,7 +90,7 @@ public final class WriteCommitFingerprint {
                     out.write(fragmentDigest);
                 }
             }
-            return HexFormat.of().formatHex(DigestUtils.sha256().digest(bytes.toByteArray()));
+            return HexFormat.of().formatHex(Sha256Digests.sha256().digest(bytes.toByteArray()));
         } catch (IOException impossible) {
             throw new IllegalStateException("Unexpected in-memory fingerprint encoding failure", impossible);
         }

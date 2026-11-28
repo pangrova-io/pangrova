@@ -24,7 +24,7 @@ import org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewId;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewVersion;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeaturePublication;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 
 import java.time.Instant;
 import java.util.List;

@@ -4,7 +4,7 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 
 import java.time.Instant;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Proof that a command still owns the execution right it was admitted with.

@@ -4,7 +4,7 @@ import org.pangrova.query.api.audit.QueryAuditAttribution;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Per-execution context passed to statement factories.

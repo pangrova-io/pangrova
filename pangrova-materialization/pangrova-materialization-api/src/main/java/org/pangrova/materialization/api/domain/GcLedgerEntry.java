@@ -6,7 +6,7 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 
 import java.util.UUID;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Durable GC decision for one generation.

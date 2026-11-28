@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
@@ -64,6 +66,7 @@ import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.interceptor.Context.BeforeExecution;
+import software.amazon.awssdk.core.interceptor.Context.BeforeTransmission;
 import software.amazon.awssdk.core.interceptor.ExecutionAttributes;
 import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -208,13 +211,15 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         assertThat(read.committedProducerCount()).isEqualTo(1);
         assertThat(read.planEpoch()).isEqualTo(2);
         assertThat(read.producerSetChecksum()).isEqualTo(producerChecksum());
+        var dataPlaneBefore = shuffleStatements();
         for (int frame = 0; frame < 128; frame++) restarted.engine.requireReadAuthority(read);
-        assertThat(performedReadWindows()).isEqualTo(grantsBefore + 1);
-        assertThat(protectedReaders("query-1")).isEqualTo(1);
-
         var page = restarted.engine.readPage(read, 0);
         assertThat(page).hasSize(1);
         assertThat(restarted.engine.readPayload(read, page.get(0))).isEqualTo(winnerPayload);
+        assertShuffleStatementCount(dataPlaneBefore, 0);
+
+        assertThat(performedReadWindows()).isEqualTo(grantsBefore + 1);
+        assertThat(protectedReaders("query-1")).isEqualTo(1);
 
         try (S3Client client = s3Client()) {
             String key = "integration/" + shuffleId
@@ -612,6 +617,75 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void missingBucketRejectionSettlesTheProducerWindowAndManifestPut() throws Exception {
+        String query = "rejected-put-" + UUID.randomUUID();
+        String shuffle = "shuffle-" + query;
+        seedAnchor(query, owner());
+        var healthy = openHarness();
+        var store = PostgresShuffleStore.create(config().database());
+        var putAttempts = new AtomicInteger();
+        var client = s3ClientBuilder().overrideConfiguration(configuration ->
+                configuration.retryPolicy(S3ShuffleObjectStorage.requestSafeRetries())
+                        .addExecutionInterceptor(new ExecutionInterceptor() {
+                            @Override
+                            public void beforeTransmission(BeforeTransmission context, ExecutionAttributes attributes) {
+                                if (context.request() instanceof PutObjectRequest) putAttempts.incrementAndGet();
+                            }
+                        })).build();
+        var missing = S3ShuffleObjectStorage.testing(client, "missing-" + UUID.randomUUID(), "integration");
+        try (var engine = healthy.engine;
+             var unavailable = new ShuffleServiceEngine(config(), store, store.batchStore(), missing,
+                     ShuffleCapabilityAuthority.testing(SECRET), Clock.systemUTC());
+             var rpc = WriteRpc.open(unavailable)) {
+            var registrationRequest = registrationFor(query);
+            var registered = engine.register(registrationRequest);
+            var producer = attempt(0, 1).toBuilder().setQueryOrJobId(query).build();
+            var grant = taskGrant(healthy, registered, producer, org.pangrova.protocol.v2.shuffle
+                    .ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE);
+            ByteString payload = ByteString.copyFrom(new byte[] {1, 2, 3, 4});
+            byte[] digest = ShuffleChecksums.sha256(payload.toByteArray());
+            rpc.send(new CompleteWriteBatch(shuffle, 0, 0, 1, producer, grant, payload, digest));
+            assertThatThrownBy(rpc::finish).hasRootCauseMessage("INTERNAL: Shuffle object bucket does not exist");
+            assertThat(putAttempts.get()).isOne();
+            awaitCondition(() -> writeReservations(shuffle) == 0);
+            assertThat(store.batchStore().readAttemptPage(shuffle, producer, 0, -1, 4)).isEmpty();
+
+            int batches = ShufflePartitionManifest.INLINE_BATCHES + 1;
+            var checksum = ShufflePartitionManifestChecksum.accumulator();
+            try (var writer = engine.writeSession(() -> false)) {
+                for (long sequence = 0; sequence < batches; sequence++) {
+                    writer.accept(new CompleteWriteBatch(shuffle, 0, sequence, 1, producer, grant, payload, digest));
+                    checksum.add(sequence, payload.size(), 1, digest);
+                }
+                writer.finish();
+            }
+            engine.commit(CommitProducerAttemptRequest.newBuilder().setShuffleId(shuffle)
+                    .setProducerAttempt(producer).setAccessCapability(grant)
+                    .addPartitions(PartitionCommitSummary.newBuilder().setPartitionId(0)
+                            .setExpectedLastSequence(batches - 1L).setTotalRows(batches)
+                            .setTotalBytes((long) batches * payload.size()).setTotalBatches(batches)
+                            .setOutputChecksum(ShuffleChecksums.protocol(checksum.finishNonEmpty()))).build());
+            var finalize = FinalizeShuffleRequest.newBuilder().setShuffleId(shuffle).setPlanEpoch(2)
+                    .setExecutionOwner(owner()).setExpectedProducerPartitions(1)
+                    .setExpectedProducerSetChecksum(registrationRequest.getExpectedProducerSetChecksum())
+                    .setAccessCapability(registered.getFinalizeCapability()).build();
+            assertThatThrownBy(() -> unavailable.finalizeShuffle(finalize))
+                    .isInstanceOf(ShuffleObjectStorage.RejectedPutException.class)
+                    .hasMessage("Shuffle object bucket does not exist");
+            assertThat(putAttempts.get()).isEqualTo(2);
+            assertThat(writeReservations(shuffle)).isZero();
+            assertThat(store.findAllocation(shuffle).orElseThrow().state()).isEqualTo(ShuffleAllocationState.REGISTERED);
+            assertThat(engine.finalizeShuffle(finalize).getTotalRows()).isEqualTo(batches);
+
+            var receipt = engine.cleanup(CleanupRequest.newBuilder().setQueryId(query).setExecutionOwner(owner())
+                    .setAccessCapability(registered.getCleanupCapability()).build());
+            assertThat(receipt.getUncertainWriteHandoff()).isFalse();
+            assertThat(writeReservations(shuffle)).isZero();
+            assertThat(hasTombstone(shuffle)).isFalse();
+        }
+    }
+
+    @Test
     void renewsTheExactReadWindowInTwoStatements() throws Exception {
         String query = "reader-renew-budget-" + UUID.randomUUID();
         String shuffle = "shuffle-" + query;
@@ -918,8 +992,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 .mapToLong(Map.Entry::getValue).sum()).isOne();
     }
 
-    @Test
-    void acknowledgesOneWriteWindowForThirtyTwoUploadedBatches() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"1,1", "32,1", "32,4"})
+    void writeWindowSqlDoesNotGrowWithBatchesOrChunks(int batchCount, int chunkCount) throws Exception {
         String query = "batch-statements-" + UUID.randomUUID();
         String shuffle = "shuffle-" + query;
         seedAnchor(query, owner());
@@ -935,11 +1010,11 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             byte[] payload = {1, 2, 3, 4};
             byte[] checksum = ShuffleChecksums.sha256(payload);
             ByteString canonical = ByteString.copyFrom(payload);
-            int batchCount = 32;
             var before = shuffleStatements();
             try (var rpc = WriteRpc.open(engine)) {
                 for (int sequence = 0; sequence < batchCount; sequence++) {
-                    rpc.send(new CompleteWriteBatch(shuffle, 0, sequence, 1, producer, grant, canonical, checksum));
+                    rpc.send(new CompleteWriteBatch(shuffle, 0, sequence, 1, producer, grant, canonical, checksum),
+                            chunkCount);
                 }
                 var acknowledgement = rpc.finish();
                 assertThat(acknowledgement.getTotalBatchesAccepted()).isEqualTo(batchCount);
@@ -1464,7 +1539,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         String queryId = "uncertain-write-query";
         String shuffleId = "uncertain-write-shuffle";
         String objectKey = shuffleId + "/late.bin";
-        String manifestKey = ShufflePartitionManifest.objectKey(shuffleId, new byte[32]);
+        byte[] late = "late".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] manifestDigest = ShuffleChecksums.sha256(late);
+        String manifestKey = ShufflePartitionManifest.objectKey(shuffleId, manifestDigest);
         seedAnchor(queryId, owner());
         Harness first = openHarness();
         var registration = first.engine.register(RegisterShuffleRequest.newBuilder()
@@ -1482,9 +1559,11 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 .setExecutionOwner(owner()).setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
                         .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
                         .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
+        UUID manifestReservation;
         try (PostgresShuffleStore store = PostgresShuffleStore.create(config().database())) {
             store.batchStore().openWriteWindow(shuffleId, producer, 300_000);
-            store.beginManifestWrite(store.findAllocation(shuffleId).orElseThrow(), manifestKey, 300_000);
+            manifestReservation = UUID.fromString(store.beginManifestWrite(
+                    store.findAllocation(shuffleId).orElseThrow(), manifestKey, 300_000));
             assertThatThrownBy(() -> first.engine.cleanup(CleanupRequest.newBuilder()
                     .setQueryId(queryId).setExecutionOwner(owner())
                     .setAccessCapability(registration.getCleanupCapability()).build()))
@@ -1505,10 +1584,10 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         assertThat(restarted.engine.cleanup(cleanupRequest)).isEqualTo(receipt);
         assertThat(restarted.engine.sweepUncertainWritePrefixes(1)).isEqualTo(1);
         try (S3Client client = s3Client()) {
-            for (String key : List.of(objectKey, manifestKey)) {
-                client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("integration/" + key).build(),
-                        RequestBody.fromBytes("late".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-            }
+            client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("integration/" + objectKey).build(),
+                    RequestBody.fromBytes(late));
+            S3ShuffleObjectStorage.testing(client, BUCKET, "integration")
+                    .putManifestNode(manifestKey, late, manifestDigest, manifestReservation);
             assertThat(client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET)
                     .prefix("integration/" + shuffleId + "/").build()).contents()).hasSize(2);
         }
@@ -1600,7 +1679,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void visibleManifestWriteSettlesWithoutTheWriterAcknowledgement(boolean beforeScopeRemoval) throws Exception {
+    void visibleManifestWriteSettlesOnlyItsOwnReservation(boolean beforeScopeRemoval) throws Exception {
         String queryId = "visible-manifest-" + UUID.randomUUID();
         String shuffleId = "shuffle-" + queryId;
         byte[] content = queryId.getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -1614,24 +1693,34 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     .setQueryId(queryId).setShuffleId(shuffleId)
                     .setExpectedProducerSetChecksum(ShuffleChecksums.protocol(
                             ShuffleProducerSetChecksum.forContiguousPartitions(queryId, 1, 2, 1))).build());
-            store.beginManifestWrite(store.findAllocation(shuffleId).orElseThrow(), key, 300_000);
-            expireWriteReservations(shuffleId, 1);
+            var allocation = store.findAllocation(shuffleId).orElseThrow();
+            UUID first = UUID.fromString(store.beginManifestWrite(allocation, key, 300_000));
+            UUID second = UUID.fromString(store.beginManifestWrite(allocation, key, 300_000));
+            expireWriteReservations(shuffleId, 2);
             var objects = S3ShuffleObjectStorage.testing(client, BUCKET, "integration");
             if (beforeScopeRemoval) {
-                objects.putImmutable(key, () -> new java.io.ByteArrayInputStream(content), content.length, digest);
+                objects.putManifestNode(key, content, digest, first);
             }
             var receipt = engine.cleanup(CleanupRequest.newBuilder().setQueryId(queryId)
                     .setExecutionOwner(owner()).setAccessCapability(registered.getCleanupCapability()).build());
             assertThat(receipt.getUncertainWriteHandoff()).isTrue();
             if (!beforeScopeRemoval) {
-                assertThat(writeReservations(shuffleId)).isOne();
-                objects.putImmutable(key, () -> new java.io.ByteArrayInputStream(content), content.length, digest);
+                assertThat(writeReservations(shuffleId)).isEqualTo(2);
+                objects.putManifestNode(key, content, digest, first);
                 assertThat(engine.sweepUncertainWritePrefixes(1)).isOne();
-                makeUncertainSweepDue(shuffleId);
             }
+            assertThat(writeReservations(shuffleId)).isOne();
+            assertThat(objects.listPrefixPage(shuffleId + "/", null, 10).keys()).isEmpty();
+            assertThat(isUncertainSweepScheduled(shuffleId)).isTrue();
+
+            // A second PUT for the same content-addressed key can arrive after the first version was deleted.
+            objects.putManifestNode(key, content, digest, second);
+            makeUncertainSweepDue(shuffleId);
+            assertThat(engine.sweepUncertainWritePrefixes(1)).isOne();
             assertThat(writeReservations(shuffleId)).isZero();
             assertThat(objects.listPrefixPage(shuffleId + "/", null, 10).keys()).isEmpty();
             assertThat(isUncertainSweepScheduled(shuffleId)).isTrue();
+            makeUncertainSweepDue(shuffleId);
             assertThat(engine.sweepUncertainWritePrefixes(1)).isOne();
             assertThat(isUncertainSweepScheduled(shuffleId)).isFalse();
         } finally {
@@ -2238,15 +2327,24 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         }
 
         void send(CompleteWriteBatch batch) {
-            var checksum = ShuffleChecksums.protocol(batch.checksum());
-            requests.onNext(WriteBatchRequest.newBuilder().setShuffleId(batch.shuffleId())
-                    .setProducerAttempt(batch.attempt()).setPartitionId(batch.outputPartitionId())
-                    .setStreamSequence(nextSequence++).setRowCount(batch.rowCount())
-                    .setCodec(CompressionCodec.COMPRESSION_CODEC_NONE).setUncompressedSize(batch.canonicalSize())
-                    .setAccessCapability(batch.capability())
-                    .setChunk(BatchChunk.newBuilder().setBatchSequence(batch.batchSequence()).setChunkCount(1)
-                            .setBatchSizeBytes(batch.canonicalSize()).setData(batch.canonicalBytes())
-                            .setBatchChecksum(checksum).setChunkChecksum(checksum)).build());
+            send(batch, 1);
+        }
+
+        void send(CompleteWriteBatch batch, int chunkCount) {
+            var batchChecksum = ShuffleChecksums.protocol(batch.checksum());
+            var bytes = batch.canonicalBytes();
+            for (int index = 0; index < chunkCount; index++) {
+                var chunk = bytes.substring(bytes.size() * index / chunkCount, bytes.size() * (index + 1) / chunkCount);
+                var chunkChecksum = ShuffleChecksums.protocol(ShuffleChecksums.sha256(chunk.toByteArray()));
+                requests.onNext(WriteBatchRequest.newBuilder().setShuffleId(batch.shuffleId())
+                        .setProducerAttempt(batch.attempt()).setPartitionId(batch.outputPartitionId())
+                        .setStreamSequence(nextSequence++).setRowCount(batch.rowCount())
+                        .setCodec(CompressionCodec.COMPRESSION_CODEC_NONE).setUncompressedSize(batch.canonicalSize())
+                        .setAccessCapability(batch.capability())
+                        .setChunk(BatchChunk.newBuilder().setBatchSequence(batch.batchSequence()).setChunkIndex(index)
+                                .setChunkCount(chunkCount).setBatchSizeBytes(batch.canonicalSize()).setData(chunk)
+                                .setBatchChecksum(batchChecksum).setChunkChecksum(chunkChecksum)).build());
+            }
         }
 
         WriteBatchResponse finish() throws Exception {

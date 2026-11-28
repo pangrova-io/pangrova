@@ -6,7 +6,7 @@ import org.pangrova.common.api.annotation.Experimental;
 import java.util.List;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable connector allocation for a Native dataset sink; contains no rows or credentials. */
 @Experimental

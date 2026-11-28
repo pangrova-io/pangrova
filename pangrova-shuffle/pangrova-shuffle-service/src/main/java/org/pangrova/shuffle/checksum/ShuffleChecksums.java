@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.checksum;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.security.MessageDigest;
 
@@ -34,7 +34,7 @@ public final class ShuffleChecksums {
     }
 
     static MessageDigest sha256Digest() {
-        return DigestUtils.sha256();
+        return Sha256Digests.sha256();
     }
 
     /** Validates and extracts one canonical SHA-256 protocol checksum. */

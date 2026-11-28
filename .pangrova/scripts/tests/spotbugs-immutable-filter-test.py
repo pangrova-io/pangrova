@@ -123,7 +123,7 @@ public final class ImmutableFilterBoundary {
 
     private static void verifyPolicyStoreConstructor(String path) throws Exception {
         Filter full = Filter.parseFilter(path);
-        String owner = "org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport";
+        String owner = "org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase";
         String signature = "(Ljavax/sql/DataSource;)V";
         command(full, owner, "<init>", signature, "CT_CONSTRUCTOR_THROW", true);
         command(full, owner + "Other", "<init>", signature, "CT_CONSTRUCTOR_THROW", false);
@@ -132,7 +132,7 @@ public final class ImmutableFilterBoundary {
         command(full, owner, "<init>", "()V", "CT_CONSTRUCTOR_THROW", false);
         command(full, owner, "<init>", signature, "SQL_INJECTION_JDBC", false);
         command(full, owner, "execute", "(Ljava/lang/String;)V", "SQL_INJECTION_JDBC", false);
-        command(full, "org.pangrova.persistence.jdbc.security.support.JdbcPolicyStoreSupport",
+        command(full, "org.pangrova.persistence.jdbc.security.support.JdbcPolicyStoreBase",
                 "<init>", signature, "CT_CONSTRUCTOR_THROW", false);
     }
 
@@ -180,7 +180,7 @@ public final class ImmutableFilterBoundary {
             {"org.pangrova.parser.diagnostic.RecoveryParseDetails", "partialTree", "", tree,
                 "partialTree", tree, "EI_EXPOSE_REP"},
             {"org.pangrova.parser.diagnostic.RecoveryParseDetails", "<init>",
-                "Lorg/pangrova/parser/api/parse/ParseResult;" + tree, "V", "partialTree", tree, "EI_EXPOSE_REP2"},
+                "Lorg/pangrova/parser/api/syntax/ParseResult;" + tree, "V", "partialTree", tree, "EI_EXPOSE_REP2"},
             {"org.pangrova.parser.build.AstBuilder", "<init>",
                 tokens + "Lorg/pangrova/parser/api/enums/SqlDialect;", "V", "tokenStream", tokens, "EI_EXPOSE_REP2"}
         };
@@ -516,7 +516,7 @@ def main():
                                cache, dispatcher))
         registry = 'org.pangrova.metadata.catalog.registry.CatalogRegistry'
         sync = 'org.pangrova.metadata.outbox.MetadataSyncService'
-        support = 'org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceSupport'
+        support = 'org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceBase'
         expected_projection_di = {
             (registry, registry_params, 'store', deployment),
             (registry, registry_params, 'eventDispatcher', dispatcher),
@@ -582,12 +582,14 @@ def main():
             ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationOutputQueries', 'loadSucceededPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.Set'),
             ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection', 'findPage', 'java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
             ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection', 'selectClaimablePage', 'java.sql.Connection,org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection$Selection', 'java.util.Optional'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection', 'selectClaimableCohort', 'java.sql.Connection,java.util.List,boolean', 'java.util.List'),
+            ('org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore', 'readLockedEvidence', 'java.sql.Connection,org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentGenerationAuthority,java.lang.Integer,boolean', 'java.util.List'),
             ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings', 'findJob', 'java.sql.Connection,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
             ('org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore', 'findEvidence', 'java.sql.Connection,org.pangrova.generation.api.identity.GenerationJobKey,java.lang.String,boolean,boolean', 'java.util.Optional'),
             ('org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore', 'insertEvidence', 'java.sql.Connection,org.pangrova.generation.api.identity.GenerationJobKey,java.lang.String,byte[],java.lang.String,boolean', 'void'),
         }
         if len(jdbc_matches) != len(expected_jdbc):
-            raise RuntimeError('Expected 21 exact JDBC forwarding/Artifact SQL classifications')
+            raise RuntimeError(f'Expected {len(expected_jdbc)} exact JDBC forwarding/Artifact SQL classifications, got {len(jdbc_matches)}')
         jdbc_cases = []
         actual_jdbc = set()
         for index, match in enumerate(jdbc_matches):

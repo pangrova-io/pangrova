@@ -1,6 +1,6 @@
 package org.pangrova.protocol.execution;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable identifier for a node within an execution plan.

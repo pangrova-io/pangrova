@@ -4,7 +4,7 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionDrainState;
@@ -50,7 +50,7 @@ public final class CanonicalTaskAdmissionSeals {
         if (request.getWorkerLocalStorageBindingsCount() != 0 || request.hasWorkerLocalCopyInput()) {
             throw new IllegalArgumentException("Admission digest must describe the original NETWORK request");
         }
-        var digest = DigestUtils.sha256();
+        var digest = Sha256Digests.sha256();
         try (var sink = new DigestOutputStream(OutputStream.nullOutputStream(), digest)) {
             var coded = CodedOutputStream.newInstance(sink);
             coded.useDeterministicSerialization();

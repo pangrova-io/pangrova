@@ -1,6 +1,6 @@
 package org.pangrova.protocol.shuffle.codec;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -24,7 +24,7 @@ public final class ShufflePartitionManifestChecksum {
     /** Creates an accumulator for the exact absolute sequences of a committed subrange. */
     public static Accumulator accumulator(long firstSequence) {
         if (firstSequence < 0) throw new IllegalArgumentException("Negative starting batch sequence");
-        return new Accumulator(DigestUtils.sha256(), firstSequence);
+        return new Accumulator(Sha256Digests.sha256(), firstSequence);
     }
 
     /** Mutable single-owner accumulator for fixed-width canonical manifest entries. */

@@ -5,7 +5,7 @@ import org.pangrova.governance.api.enums.OperationType;
 import java.time.Instant;
 import java.util.Map;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable record of a governance operation for the audit trail.

@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.generation;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.generation.api.publication.GenerationManifest;
@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-import static org.pangrova.common.util.Preconditions.requirePositiveDuration;
+import static org.pangrova.common.validation.Preconditions.requirePositiveDuration;
 
 /**
  * Horizontally scalable control loop that atomically publishes completed artifacts.

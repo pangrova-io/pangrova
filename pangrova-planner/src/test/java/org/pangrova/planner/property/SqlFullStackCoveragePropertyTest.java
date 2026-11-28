@@ -1,8 +1,8 @@
 package org.pangrova.planner.property;
 
-import org.pangrova.planner.parse.AstToSqlNodeConverter;
+import org.pangrova.planner.sqlnode.AstToSqlNodeConverter;
 import net.jqwik.api.*;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.Statement;
 import org.apache.calcite.sql.SqlNode;
 

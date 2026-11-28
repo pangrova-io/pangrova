@@ -7,8 +7,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,7 +72,7 @@ class ElectionScheduler {
             return;
         }
         scheduledTask = scheduler.scheduleAtFixedRate(
-                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(
+                () -> org.pangrova.common.concurrency.ExecutorDrain.runOwned(
                         scheduler, () -> handleLeaseRenewal(coordinatorId)),
                 config.heartbeatIntervalMs(),
                 config.heartbeatIntervalMs(),
@@ -111,7 +111,7 @@ class ElectionScheduler {
             return;
         }
         scheduledTask = scheduler.scheduleAtFixedRate(
-                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(
+                () -> org.pangrova.common.concurrency.ExecutorDrain.runOwned(
                         scheduler, () -> handleFailureDetection(coordinatorId)),
                 config.heartbeatIntervalMs(),
                 config.heartbeatIntervalMs(),
@@ -158,6 +158,6 @@ class ElectionScheduler {
         if (scheduler == null) {
             return;
         }
-        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, EXECUTOR_SHUTDOWN_TIMEOUT_MS);
+        org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(scheduler, EXECUTOR_SHUTDOWN_TIMEOUT_MS);
     }
 }

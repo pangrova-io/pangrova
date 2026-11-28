@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import java.time.Instant;
@@ -24,7 +24,7 @@ import org.pangrova.connector.api.materialization.SourceProvider;
 import org.pangrova.connector.api.materialization.SourceRef;
 import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Paimon materialization source contract.
@@ -156,7 +156,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         long fromId = snapshotId(from, table);
         long toId = snapshotId(to, table);
         requireAppendOnly(table, fromId, toId, source);
-        String fingerprint = DigestUtils.sha256Hex("paimon-change-set-v1|" + source.canonicalName()
+        String fingerprint = Sha256Digests.sha256Hex("paimon-change-set-v1|" + source.canonicalName()
                 + '|' + fromId + '|' + toId + '|' + mode.name());
         return new ChangeSetPlan(source, from.snapshot(), to.snapshot(), mode,
                 fingerprint, Instant.now(), List.of());
@@ -171,7 +171,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         long toId = parseSnapshot(plan.toSnapshot(), source);
         boolean complete = appendOnly(table, fromId, toId, source);
         return new ChangeProof(source, Long.toString(fromId), Long.toString(toId),
-                plan.mode(), DigestUtils.sha256Hex(plan.planFingerprint() + "|verified|" + complete),
+                plan.mode(), Sha256Digests.sha256Hex(plan.planFingerprint() + "|verified|" + complete),
                 STRATEGY_VERSION, Instant.now(), complete);
     }
 
@@ -325,7 +325,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
     }
 
     private static String tagName(String pinOwner, long snapshotId) {
-        return TAG_PREFIX + DigestUtils.sha256Hex(pinOwner).substring(0, 32) + '_' + snapshotId;
+        return TAG_PREFIX + Sha256Digests.sha256Hex(pinOwner).substring(0, 32) + '_' + snapshotId;
     }
 
     private static void requireExact(Long actual, long snapshotId, String tag) {

@@ -7,7 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
-import static org.pangrova.common.util.Preconditions.requireNonNullField;
+import static org.pangrova.common.validation.Preconditions.requireNonNullField;
 
 /**
  * Durable scheduling record of one materialization.

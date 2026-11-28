@@ -23,7 +23,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.planner.analysis.AuthorizedRelation;
 import org.pangrova.types.enums.PangrovaType;
@@ -72,7 +72,7 @@ public final class FeatureViewDefinitionValidator {
             JsonNode canonicalRoot = canonicalize(root);
             String canonical = CanonicalJsonMapper.writeValueAsString(canonicalRoot);
             return new ValidatedFeatureViewDefinition(
-                    canonical, DigestUtils.sha256Hex(canonical), entityKeys, eventTime,
+                    canonical, Sha256Digests.sha256Hex(canonical), entityKeys, eventTime,
                     source, sourceQuery, transformVersion,
                     canonicalRoot.get("schema").toString(), freshness, canonicalRoot.get("lineage").toString());
         } catch (JsonProcessingException failure) {

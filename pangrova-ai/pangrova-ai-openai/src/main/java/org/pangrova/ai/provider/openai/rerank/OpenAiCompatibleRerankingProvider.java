@@ -20,7 +20,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.http.AiHttpTransport;
 import org.pangrova.ai.api.invocation.RerankingBatchResult;
@@ -41,7 +41,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** OpenAI-compatible {@code /v1/rerank} provider with ordered result validation. */
 public final class OpenAiCompatibleRerankingProvider implements RerankingProvider, Closeable {

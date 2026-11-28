@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /** Classifies stage failures and advances the retry budget of the actual query stage owner. */
 public final class RetryStageHandler implements StageLifecycleHandler {

@@ -1,7 +1,7 @@
 package org.pangrova.worker.cache;
 
-import static org.pangrova.common.util.Preconditions.checkArgument;
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkArgument;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Java-side configuration for the native async data cache and SSD cache.

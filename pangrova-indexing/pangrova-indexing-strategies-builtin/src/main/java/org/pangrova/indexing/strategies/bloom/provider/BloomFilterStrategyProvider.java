@@ -4,7 +4,7 @@ import org.pangrova.indexing.api.codec.TypeSerializer;
 import org.pangrova.indexing.strategies.bloom.serializer.BloomFilterSerializer;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.indexing.strategies.normalize.IndexValueNormalizer;
+import org.pangrova.indexing.strategies.normalization.IndexValueNormalizer;
 import org.pangrova.indexing.strategies.bloom.data.CachedBloomFilterIndexData;
 import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.indexing.api.strategy.IndexStrategyProvider;

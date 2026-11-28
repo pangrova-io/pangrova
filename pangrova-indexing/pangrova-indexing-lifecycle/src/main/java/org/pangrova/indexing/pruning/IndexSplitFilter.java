@@ -1,7 +1,7 @@
 package org.pangrova.indexing.pruning;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.indexing.api.evaluation.CatalogIndexEvaluation;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;

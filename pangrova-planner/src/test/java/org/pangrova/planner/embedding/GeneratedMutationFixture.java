@@ -12,7 +12,7 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.SqlKind;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.planner.type.ConnectorColumnTypeMapper;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;

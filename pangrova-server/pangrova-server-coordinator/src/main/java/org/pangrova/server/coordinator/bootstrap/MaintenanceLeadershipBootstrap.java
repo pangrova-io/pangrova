@@ -1,8 +1,8 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,7 +28,7 @@ final class MaintenanceLeadershipBootstrap implements AutoCloseable {
     private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(10);
 
     private final MaintenanceLeaderElection election;
-    private final MaintenanceLeaderAware listener;
+    private final MaintenanceLeadershipListener listener;
     private final Duration pollInterval;
     private final ScheduledExecutorService scheduler;
     private final AtomicBoolean started = new AtomicBoolean();
@@ -39,7 +39,7 @@ final class MaintenanceLeadershipBootstrap implements AutoCloseable {
 
     MaintenanceLeadershipBootstrap(
             MaintenanceLeaderElection election,
-            MaintenanceLeaderAware listener) {
+            MaintenanceLeadershipListener listener) {
         this(election, listener, DEFAULT_POLL_INTERVAL,
                 ManagedExecutorFactory.newSingleThreadScheduledExecutor(
                         "maintenance-leadership"));
@@ -47,7 +47,7 @@ final class MaintenanceLeadershipBootstrap implements AutoCloseable {
 
     MaintenanceLeadershipBootstrap(
             MaintenanceLeaderElection election,
-            MaintenanceLeaderAware listener,
+            MaintenanceLeadershipListener listener,
             Duration pollInterval,
             ScheduledExecutorService scheduler) {
         this.election = Objects.requireNonNull(election, "election must not be null");

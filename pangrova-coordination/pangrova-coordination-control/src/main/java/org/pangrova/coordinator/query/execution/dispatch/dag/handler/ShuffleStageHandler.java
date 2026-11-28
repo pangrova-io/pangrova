@@ -9,7 +9,7 @@ import org.pangrova.shuffle.api.ShuffleRegistration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Manages the control-plane lifecycle of blocking external shuffle outputs.

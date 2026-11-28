@@ -27,7 +27,7 @@ import java.util.UUID;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.enums.StorageType;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.filesystem.api.object.FileStat;
 import org.pangrova.filesystem.api.object.MultipartUpload;
@@ -252,7 +252,7 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
 
     private static void copyVerifiedPart(InputStream source, OutputStream output, UploadedPart part)
             throws IOException {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         long copied;
         try (InputStream input = new DigestInputStream(source, digest)) {
             copied = input.transferTo(output);
@@ -437,7 +437,7 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
     }
 
     private static String contentVersion(FileChannel channel) throws IOException {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         ByteBuffer buffer = ByteBuffer.allocate(COPY_BUFFER_BYTES);
         channel.position(0);
         while (channel.read(buffer) != -1) {

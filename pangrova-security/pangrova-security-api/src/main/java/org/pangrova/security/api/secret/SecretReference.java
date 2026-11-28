@@ -5,7 +5,7 @@ import org.pangrova.common.api.annotation.Experimental;
 import java.util.Locale;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * One secret lookup: a provider prefix, an opaque provider-specific key, and an

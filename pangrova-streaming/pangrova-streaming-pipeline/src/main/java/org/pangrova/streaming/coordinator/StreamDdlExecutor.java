@@ -1,6 +1,6 @@
 package org.pangrova.streaming.coordinator;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.StreamAlreadyExistsException;
 import org.pangrova.common.exception.StreamNotFoundException;

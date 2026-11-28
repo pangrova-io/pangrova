@@ -6,12 +6,12 @@ import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
+import org.pangrova.planner.adaptivequery.AdaptiveQueryConfig;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable dependency bundle for {@link DAGDispatchEngine}.

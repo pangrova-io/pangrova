@@ -1,8 +1,8 @@
 package org.pangrova.common.lifecycle;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -96,7 +96,8 @@ public final class ProcessIncarnationStore {
             ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
             readFully(data, header);
             byte[] encoded = header.array();
-            byte[] previous = DigestUtils.sha256().digest(java.util.Arrays.copyOf(encoded, Integer.BYTES + UUID_BYTES));
+            byte[] previous = Sha256Digests.sha256()
+                    .digest(java.util.Arrays.copyOf(encoded, Integer.BYTES + UUID_BYTES));
             header.flip();
             if (header.getInt() != MAGIC) throw new IOException("Unknown Process incarnation ledger format");
             UUID domain = readUuid(header);
@@ -137,7 +138,7 @@ public final class ProcessIncarnationStore {
         header.putInt(MAGIC);
         putUuid(header, UUID.randomUUID());
         byte[] identity = java.util.Arrays.copyOf(header.array(), Integer.BYTES + UUID_BYTES);
-        header.put(DigestUtils.sha256().digest(identity)).flip();
+        header.put(Sha256Digests.sha256().digest(identity)).flip();
         try (FileChannel data = FileChannel.open(pending, StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
             writeFully(data, header);
@@ -211,7 +212,7 @@ public final class ProcessIncarnationStore {
     private static byte[] recordHash(byte[] previous, UUID incarnation) {
         ByteBuffer value = ByteBuffer.allocate(HASH_BYTES + UUID_BYTES).put(previous);
         putUuid(value, incarnation);
-        return DigestUtils.sha256().digest(value.array());
+        return Sha256Digests.sha256().digest(value.array());
     }
 
     private static UUID readUuid(ByteBuffer value) {

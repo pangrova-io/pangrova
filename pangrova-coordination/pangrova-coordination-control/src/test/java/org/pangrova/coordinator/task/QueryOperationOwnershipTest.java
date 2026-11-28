@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.task;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.concurrent.ExecutorDrain;
+import org.pangrova.common.concurrency.ExecutorDrain;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 
 import java.util.ArrayList;

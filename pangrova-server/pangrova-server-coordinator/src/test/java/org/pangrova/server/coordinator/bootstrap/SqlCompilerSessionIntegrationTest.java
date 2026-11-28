@@ -147,7 +147,7 @@ class SqlCompilerSessionIntegrationTest {
             }
             statement.execute("ALTER TABLE managed_source_heads RENAME TO temporarily_unavailable_tables");
             try {
-                var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
+                var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindingResolver(
                         metadata.catalogRegistry(), session);
                 var collector = new org.pangrova.planner.statistics.StatisticsCollector(bindings::statistics);
                 assertThatThrownBy(() -> collector.getStatistics(new QualifiedTableName("scoped_lance", "alpha_only", "items")))

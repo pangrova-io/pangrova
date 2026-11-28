@@ -22,7 +22,7 @@ class DurableStageBindingsTest {
     @Test
     void equivalentClaimsReuseTheValidatedTemplateAndDifferentAuthorityIsRejected() {
         var original = stage(7);
-        var bindings = new GenerationPartitionBindings.StageBindings(original, List.of());
+        var bindings = new GenerationPartitionBinder.StageBindings(original, List.of());
         var first = bindings.requireStage(stage(7), List.of());
         assertThat(bindings.requireStage(stage(7), List.of())).isSameAs(first);
         assertThat(bindings.planBytes()).containsExactly(original.planBytes());

@@ -12,10 +12,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import javax.sql.DataSource;
 
 import org.pangrova.shuffle.server.authority.ExecutionAnchorFence;
+import org.pangrova.shuffle.server.ShuffleObjectStorage.ManifestWriteReceipt;
 
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.claimSealedCleanup;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.lockExpiredCleanupScope;
@@ -99,7 +101,18 @@ final class PostgresShuffleLifecycleTransitions {
     }
 
     void settleManifestWrite(String reservation, String shuffleId, String key) {
-        boolean live = transaction(dataSource, connection -> {
+        // Keep an exact late acknowledgement even when the writer may no longer publish.
+        if (!removeManifestReservation(reservation, shuffleId, key)) {
+            throw new SecurityException("shuffle manifest write reservation expired or was lost");
+        }
+    }
+
+    void settleRejectedManifestWrite(String reservation, String shuffleId, String key) {
+        removeManifestReservation(reservation, shuffleId, key);
+    }
+
+    private boolean removeManifestReservation(String reservation, String shuffleId, String key) {
+        return transaction(dataSource, connection -> {
             String sql = """
                     DELETE FROM shuffle_write_intent
                     WHERE reservation_id = ?::uuid AND shuffle_id = ? AND object_key = ?
@@ -114,27 +127,33 @@ final class PostgresShuffleLifecycleTransitions {
                 }
             }
         });
-        // Keep an exact late acknowledgement even when the writer may no longer publish.
-        if (!live) {
-            throw new SecurityException("shuffle manifest write reservation expired or was lost");
-        }
     }
 
-    void settleVisibleManifestWrites(String shuffleId, List<String> keys) {
+    void settleVisibleManifestWrites(String shuffleId, List<ManifestWriteReceipt> receipts) {
         transaction(dataSource, connection -> {
             // The tombstone proves admission is sealed. Commit the observation before destroying it.
             String sql = """
                     DELETE FROM shuffle_write_intent i
-                    WHERE i.shuffle_id = ? AND i.object_key = ANY (?)
+                    USING unnest(?::varchar[], ?::uuid[]) AS receipt(object_key, reservation_id)
+                    WHERE i.shuffle_id = ? AND i.object_key = receipt.object_key
+                      AND i.reservation_id = receipt.reservation_id AND i.recovery_after <= clock_timestamp()
                       AND EXISTS (
                           SELECT 1 FROM shuffle_uncertain_write_tombstone t WHERE t.shuffle_id = i.shuffle_id
                       )
                     """;
-            var objectKeys = connection.createArrayOf("varchar", keys.toArray(String[]::new));
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, shuffleId);
-                statement.setArray(2, objectKeys);
-                statement.executeUpdate();
+            var objectKeys = connection.createArrayOf("varchar", receipts.stream()
+                    .map(ManifestWriteReceipt::objectKey).toArray(String[]::new));
+            try {
+                var reservations = connection.createArrayOf("uuid", receipts.stream()
+                        .map(ManifestWriteReceipt::reservationId).toArray(UUID[]::new));
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setArray(1, objectKeys);
+                    statement.setArray(2, reservations);
+                    statement.setString(3, shuffleId);
+                    statement.executeUpdate();
+                } finally {
+                    reservations.free();
+                }
             } finally {
                 objectKeys.free();
             }

@@ -199,7 +199,7 @@ class AiInvocationServiceTest {
 
     @Test
     void rejectsNullProviderResultUsingProductionResultBoundary() {
-        assertThatThrownBy(() -> AiEmbeddingInvocationSupport.requireEmbeddingResult(null))
+        assertThatThrownBy(() -> AiEmbeddingInvoker.requireEmbeddingResult(null))
                 .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
                     assertThat(failure.category()).isEqualTo(AiFailureCategory.PROVIDER_RESPONSE_INVALID);
                     assertThat(failure.retryable()).isFalse();
@@ -226,7 +226,7 @@ class AiInvocationServiceTest {
         float[] second = new float[384];
         Arrays.fill(first, 0.25f);
         Arrays.fill(second, 0.75f);
-        var outputs = AiEmbeddingInvocationSupport.embeddingOutputs(request, models.embedding(), List.of(first, second));
+        var outputs = AiEmbeddingInvoker.embeddingOutputs(request, models.embedding(), List.of(first, second));
         first[0] = 99;
         second[0] = 99;
         assertThat(outputs).hasSize(2);
@@ -237,7 +237,7 @@ class AiInvocationServiceTest {
     private void assertInvalidEmbedding(AiInvocationRequest request, List<float[]> vectors) {
         assertThatThrownBy(() -> {
             try {
-                AiEmbeddingInvocationSupport.embeddingOutputs(request, models.embedding(), vectors);
+                AiEmbeddingInvoker.embeddingOutputs(request, models.embedding(), vectors);
             } catch (RuntimeException failure) {
                 throw AiInvocationFailures.classify(failure);
             }

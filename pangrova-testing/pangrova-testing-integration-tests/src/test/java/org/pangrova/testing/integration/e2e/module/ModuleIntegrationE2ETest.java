@@ -16,7 +16,7 @@ import org.pangrova.persistence.streaming.memory.InMemoryWatermarkStore;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
+import org.pangrova.testing.integration.e2e.fixture.schema.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

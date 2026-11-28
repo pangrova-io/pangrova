@@ -2,12 +2,16 @@ package org.pangrova.shuffle.server;
 
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
@@ -40,6 +44,8 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
     private static final int MAX_DELETE_OBJECTS = 1000;
     private static final int HTTP_CONFLICT = 409;
     private static final int HTTP_PRECONDITION_FAILED = 412;
+    private static final int HTTP_NOT_FOUND = 404;
+    private static final String MANIFEST_RESERVATION = "pangrova-manifest-reservation";
 
     private final S3Client client;
     private final String bucket;
@@ -94,28 +100,64 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
     @Override
     public void putImmutable(
             String key, Supplier<InputStream> data, long sizeBytes, byte[] sha256) {
-        String objectKey = objectKey(key);
-        PutObjectRequest request = PutObjectRequest.builder()
+        putImmutable(putRequest(key, sha256).build(), key, data, sizeBytes, sha256);
+    }
+
+    @Override
+    public void putManifestNode(String key, byte[] bytes, byte[] sha256, UUID reservationId) {
+        var request = putRequest(key, sha256).metadata(Map.of(MANIFEST_RESERVATION, reservationId.toString())).build();
+        putImmutable(request, key, () -> new ByteArrayInputStream(bytes), bytes.length, sha256);
+    }
+
+    private PutObjectRequest.Builder putRequest(String key, byte[] sha256) {
+        return PutObjectRequest.builder()
                 .bucket(bucket)
-                .key(objectKey)
+                .key(objectKey(key))
                 .checksumSHA256(Base64.getEncoder().encodeToString(sha256))
                 .overrideConfiguration(AwsRequestOverrideConfiguration.builder()
                         .putHeader("If-None-Match", "*")
-                        .build())
-                .build();
+                        .build());
+    }
+
+    private void putImmutable(PutObjectRequest request, String key, Supplier<InputStream> data,
+            long sizeBytes, byte[] sha256) {
         try {
             client.putObject(request, RequestBody.fromContentProvider(
                     data::get, sizeBytes, "application/octet-stream"));
-        } catch (S3Exception conflict) {
-            if (conflict.statusCode() != HTTP_CONFLICT
-                    && conflict.statusCode() != HTTP_PRECONDITION_FAILED) {
-                throw conflict;
+        } catch (S3Exception rejection) {
+            if (rejection.statusCode() == HTTP_NOT_FOUND && rejection.awsErrorDetails() != null
+                    && "NoSuchBucket".equals(rejection.awsErrorDetails().errorCode())) {
+                throw new RejectedPutException("Shuffle object bucket does not exist", rejection);
+            }
+            if (rejection.statusCode() != HTTP_CONFLICT
+                    && rejection.statusCode() != HTTP_PRECONDITION_FAILED) {
+                throw rejection;
             }
             byte[] existing = get(key, sizeBytes);
             if (!MessageDigest.isEqual(sha256, ShuffleChecksums.sha256(existing))) {
                 throw new IllegalStateException(
-                        "immutable shuffle object conflicts with existing content", conflict);
+                        "immutable shuffle object conflicts with existing content", rejection);
             }
+        }
+    }
+
+    @Override
+    public Optional<ManifestWriteReceipt> manifestWriteReceipt(String key) {
+        String reservation;
+        try {
+            var response = client.headObject(HeadObjectRequest.builder().bucket(bucket).key(objectKey(key)).build());
+            reservation = response.metadata().get(MANIFEST_RESERVATION);
+        } catch (S3Exception failure) {
+            if (failure.statusCode() == HTTP_NOT_FOUND) return Optional.empty();
+            throw failure;
+        }
+        if (reservation == null) return Optional.empty();
+        try {
+            UUID id = UUID.fromString(reservation);
+            return id.toString().equals(reservation)
+                    ? Optional.of(new ManifestWriteReceipt(key, id)) : Optional.empty();
+        } catch (IllegalArgumentException invalidReservation) {
+            return Optional.empty();
         }
     }
 

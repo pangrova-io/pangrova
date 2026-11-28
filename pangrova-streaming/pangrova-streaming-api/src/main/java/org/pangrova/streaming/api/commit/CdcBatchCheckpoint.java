@@ -1,6 +1,6 @@
 package org.pangrova.streaming.api.commit;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.streaming.api.source.SourceRecord;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 
@@ -59,6 +59,6 @@ public record CdcBatchCheckpoint(List<OffsetRange> ranges) {
                     .append(':').append(range.partition()).append(':').append(range.startOffset())
                     .append(':').append(range.endOffset()).append(';');
         }
-        return DigestUtils.sha256Hex(canonical.toString());
+        return Sha256Digests.sha256Hex(canonical.toString());
     }
 }

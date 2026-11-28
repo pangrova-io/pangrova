@@ -117,7 +117,7 @@ public interface GenerationStageExecutionStore {
             Objects.requireNonNull(executionOwner, "executionOwner");
             if (originalWireBytes.length == 0
                     || originalWireBytes.length > ProducerCompletion.MAX_ORIGINAL_REPORT_BYTES
-                    || !org.pangrova.common.util.DigestUtils.matchesSha256(originalWireBytes, wireSha256)) {
+                    || !org.pangrova.common.crypto.Sha256Digests.matchesSha256(originalWireBytes, wireSha256)) {
                 throw new IllegalStateException("Persisted Native winner has missing or corrupted original evidence");
             }
         }

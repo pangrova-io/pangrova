@@ -1,7 +1,7 @@
 package org.pangrova.testing.testkit;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;

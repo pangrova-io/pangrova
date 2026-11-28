@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.bootstrap.lifecycle;
 
 import java.util.function.Supplier;
 import java.util.function.Consumer;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 

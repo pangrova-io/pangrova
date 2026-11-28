@@ -9,7 +9,7 @@ import org.pangrova.protocol.v2.TaskReport;
 import java.util.Optional;
 
 /** Exact admission sealing and real drain-receipt retention for one task manager. */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 final class TaskAdmissionControl {
     private final TaskManager owner;
 

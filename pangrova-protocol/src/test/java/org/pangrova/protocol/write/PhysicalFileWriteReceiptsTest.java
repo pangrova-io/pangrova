@@ -20,7 +20,7 @@ class PhysicalFileWriteReceiptsTest {
     @Test
     void bindsEmptyFragmentToEveryTrustedAttemptField() {
         var expected = attempt();
-        var bound = NativeWriteBindings.bindPhysical(template(), expected);
+        var bound = NativeWriteBinder.bindPhysical(template(), expected);
         var fragment = emptyFragment(expected);
         assertThat(PhysicalFileWriteReceipts.validateTaskFragment(bound, expected, fragment.toByteArray()))
                 .isEqualTo(fragment);
@@ -48,10 +48,10 @@ class PhysicalFileWriteReceiptsTest {
         assertThatThrownBy(() -> PhysicalFileWriteReceipts.validateTaskFragment(template(), expected, fragment))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("dispatched task attempt");
         var foreign = expected.toBuilder().setAttemptId(9).build();
-        var bound = NativeWriteBindings.bindPhysical(template(), foreign);
+        var bound = NativeWriteBinder.bindPhysical(template(), foreign);
         assertThatThrownBy(() -> PhysicalFileWriteReceipts.validateTaskFragment(bound, expected, fragment))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("dispatched task attempt");
-        var expectedBound = NativeWriteBindings.bindPhysical(template(), expected);
+        var expectedBound = NativeWriteBinder.bindPhysical(template(), expected);
         var mismatchedFile = expectedBound.toBuilder().setFiles(0,
                 expectedBound.getFiles(0).toBuilder().setTaskAttempt(foreign)).build();
         assertThatThrownBy(() -> PhysicalFileWriteReceipts.validateTaskFragment(mismatchedFile, expected, fragment))
@@ -61,7 +61,7 @@ class PhysicalFileWriteReceiptsTest {
     @Test
     void rejectsMissingMalformedOversizedOrRowClaimingFragments() {
         var expected = attempt();
-        var bound = NativeWriteBindings.bindPhysical(template(), expected);
+        var bound = NativeWriteBinder.bindPhysical(template(), expected);
         for (byte[] bytes : new byte[][] {null, new byte[0], {0}, new byte[16 * 1024 * 1024 + 1]}) {
             assertThatThrownBy(() -> PhysicalFileWriteReceipts.validateTaskFragment(bound, expected, bytes))
                     .isInstanceOf(IllegalArgumentException.class);

@@ -38,7 +38,7 @@ public final class LazyMetadataSchema extends AbstractSchema {
 
     private final String catalog;
     private final String schema;
-    private final PlanningReadBindings readBindings;
+    private final PlanningReadBindingResolver readBindings;
     private Set<String> cachedTableNames;
     private long namesTimestamp;
     private long namesGeneration;
@@ -81,10 +81,11 @@ public final class LazyMetadataSchema extends AbstractSchema {
     public LazyMetadataSchema(CatalogReadAccess catalogRegistry, String catalog, String schema,
                        ConnectorSession authenticatedSession) {
         this(catalog, schema,
-                catalogRegistry == null ? null : new PlanningReadBindings(catalogRegistry, authenticatedSession));
+                catalogRegistry == null ? null
+                        : new PlanningReadBindingResolver(catalogRegistry, authenticatedSession));
     }
 
-    LazyMetadataSchema(String catalog, String schema, PlanningReadBindings readBindings) {
+    LazyMetadataSchema(String catalog, String schema, PlanningReadBindingResolver readBindings) {
         this.catalog = catalog;
         this.schema = schema;
         this.readBindings = readBindings;

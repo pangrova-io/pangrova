@@ -10,7 +10,7 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 import java.time.Instant;
 import java.util.Optional;
 
-import static org.pangrova.common.util.Preconditions.requireNonNullField;
+import static org.pangrova.common.validation.Preconditions.requireNonNullField;
 
 /**
  * Durable header of a Dynamic Table or Materialized View.

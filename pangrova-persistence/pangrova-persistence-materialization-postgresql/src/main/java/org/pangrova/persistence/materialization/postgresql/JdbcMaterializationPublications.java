@@ -24,9 +24,9 @@ import org.pangrova.materialization.api.port.PublicationResult;
 import org.pangrova.materialization.api.port.PublishCommand;
 import org.pangrova.connector.api.materialization.CommitEvidence;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /**
  * Commit-evidence and publication authority of the materialization kernel.

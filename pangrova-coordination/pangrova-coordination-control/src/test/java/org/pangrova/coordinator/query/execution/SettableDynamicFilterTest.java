@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.coordinator.enums.DynamicFilterState;
 import org.pangrova.connector.api.enums.DynamicFilterType;
-import org.pangrova.coordinator.query.execution.dispatch.adaptive.SettableDynamicFilter;
+import org.pangrova.coordinator.query.execution.dispatch.adaptivequery.SettableDynamicFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

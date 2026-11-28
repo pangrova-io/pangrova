@@ -47,8 +47,8 @@ public final class ListStageTask implements MetadataTask<ListStageStatement> {
             throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_NOT_CONFIGURED,
                     "LIST @stage requires an internal file-plane signing secret");
         }
-        QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), context.session());
-        UserIdentity user = FileSpaceTaskSupport.requireUser(context.session());
+        QualifiedTableName ref = FileSpaceTaskAuthority.resolve(statement.name(), context.session());
+        UserIdentity user = FileSpaceTaskAuthority.requireUser(context.session());
         Pattern pattern = pattern(statement.pattern());
         FileAccessGrant grant = access.grant(user, "stages", ref.catalog(), ref.schema(),
                 ref.table(), statement.path().orElse(""), "list");

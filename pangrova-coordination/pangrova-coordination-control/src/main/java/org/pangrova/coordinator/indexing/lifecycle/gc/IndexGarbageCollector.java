@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.indexing.lifecycle.gc;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.coordinator.indexing.lifecycle.IndexLifecycleMetrics;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;

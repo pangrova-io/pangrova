@@ -7,7 +7,7 @@ import java.util.OptionalInt;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.types.enums.PangrovaType;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable metadata describing a connector table, including its name,

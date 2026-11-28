@@ -64,7 +64,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
         this.deps = deps;
         this.indexCache = indexCache;
         this.accessControl = accessControl;
-        this.callbackExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+        this.callbackExecutor = org.pangrova.common.concurrency.ManagedExecutorFactory
                 .newFixedThreadPool("index-build-callback", 4);
     }
 

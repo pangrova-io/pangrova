@@ -1,6 +1,6 @@
 package org.pangrova.protocol.function.declaration;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.protobuf.ByteString;
@@ -27,12 +27,12 @@ public final class FunctionBindingDeclarations {
     private final Map<String, JsonNode> structural = new HashMap<>();
     private final Map<String, JsonNode> bindings = new HashMap<>();
     private final Map<String, GovernedArgumentLayout> governedLayouts = new HashMap<>();
-    private final DeclaredSqlBindings sqlBindings;
+    private final DeclaredSqlBindingIndex sqlBindings;
     private final ByteString declarationSha256;
 
     private FunctionBindingDeclarations() {
         JsonNode root = BindingDeclarationJson.load();
-        declarationSha256 = ByteString.copyFrom(DigestUtils.sha256().digest(BindingDeclarationJson.canonicalBytes(
+        declarationSha256 = ByteString.copyFrom(Sha256Digests.sha256().digest(BindingDeclarationJson.canonicalBytes(
                 root)));
         BindingDeclarationJson.keys(root, Set.of("schemaVersion", "bindings", "structuralContracts",
                 "physicalTypeBridge", "governedLayouts"), Set.of());
@@ -48,7 +48,7 @@ public final class FunctionBindingDeclarations {
         for (JsonNode binding : bindings.values()) {
             if (binding.has("rewrite")) DeclaredFunctionRewrite.parse(binding.get("rewrite"), bindings.values());
         }
-        sqlBindings = new DeclaredSqlBindings(bindings.values());
+        sqlBindings = new DeclaredSqlBindingIndex(bindings.values());
         loadStructuralContracts(root.get("structuralContracts"));
     }
 
@@ -104,7 +104,7 @@ public final class FunctionBindingDeclarations {
         }
         return CapabilityRef.newBuilder().setCapabilityId(id)
                 .setSemanticVersion(BindingDeclarationJson.text(entry, "version"))
-                .setSignatureSha256(ByteString.copyFrom(DigestUtils.sha256().digest(
+                .setSignatureSha256(ByteString.copyFrom(Sha256Digests.sha256().digest(
                         BindingDeclarationJson.canonicalBytes(entry))))
                 .build();
     }

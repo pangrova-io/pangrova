@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.client.http.authentication.ClientAuthentication;
-import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ExecutorDrain;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.session.RetryPolicy;
 

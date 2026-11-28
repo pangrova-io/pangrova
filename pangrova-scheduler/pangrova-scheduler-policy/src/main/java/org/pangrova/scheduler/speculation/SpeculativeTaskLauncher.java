@@ -10,7 +10,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.scheduler.api.placement.PlacementWorker;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;

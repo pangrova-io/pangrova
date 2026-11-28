@@ -3,7 +3,7 @@ package org.pangrova.indexing.api.descriptor;
 import org.pangrova.connector.api.metadata.table.ColumnSchemaEncoding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata.Column;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +25,7 @@ public final class IndexSchemaFingerprint {
         if (indexedColumns == null || indexedColumns.isEmpty() || availableColumns == null) {
             throw new IllegalArgumentException("Indexed columns and source schema are required");
         }
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         updateFrame(digest, DOMAIN);
         digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(indexedColumns.size()).array());
         Set<String> resolvedNames = new HashSet<>();
@@ -42,7 +42,7 @@ public final class IndexSchemaFingerprint {
     /** True only for the current version's canonical digest text. */
     public static boolean isCurrent(String fingerprint) {
         return fingerprint != null && fingerprint.startsWith(VERSION_PREFIX)
-                && DigestUtils.isSha256Hex(fingerprint.substring(VERSION_PREFIX.length()));
+                && Sha256Digests.isSha256Hex(fingerprint.substring(VERSION_PREFIX.length()));
     }
 
     /** Resolves only the exact stored spelling of a previously bound connector column. */

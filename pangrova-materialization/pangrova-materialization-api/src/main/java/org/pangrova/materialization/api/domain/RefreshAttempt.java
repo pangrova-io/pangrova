@@ -9,8 +9,8 @@ import java.time.Instant;
 import java.util.Optional;
 import org.pangrova.connector.api.materialization.CommitEvidence;
 
-import static org.pangrova.common.util.Preconditions.requireNonNullField;
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireNonNullField;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * One durable refresh attempt.

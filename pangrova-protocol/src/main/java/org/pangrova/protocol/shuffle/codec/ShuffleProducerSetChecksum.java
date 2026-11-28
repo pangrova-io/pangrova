@@ -1,12 +1,12 @@
 package org.pangrova.protocol.shuffle.codec;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /** Computes the canonical identity of a stage's logical shuffle producers. */
 public final class ShuffleProducerSetChecksum {
@@ -24,7 +24,7 @@ public final class ShuffleProducerSetChecksum {
             throw new IllegalArgumentException(
                     "producer-set identity requires query, stage, epoch, and producers");
         }
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         byte[] queryBytes = queryId.getBytes(StandardCharsets.UTF_8);
         updateInt(digest, producerCount);
         for (int partitionId = 0; partitionId < producerCount; partitionId++) {

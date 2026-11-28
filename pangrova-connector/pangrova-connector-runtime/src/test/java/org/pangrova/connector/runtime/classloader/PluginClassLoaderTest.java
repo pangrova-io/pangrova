@@ -17,6 +17,8 @@ class PluginClassLoaderTest {
     @Test
     void domainApiAndSpiPackagesKeepHostIdentityWhenBundledByPlugin() throws Exception {
         var contracts = java.util.List.of(
+                org.pangrova.common.concurrency.NotThreadSafe.class,
+                org.pangrova.common.concurrency.ThreadSafe.class,
                 org.pangrova.indexing.api.descriptor.IndexDescriptor.class,
                 org.pangrova.indexing.api.strategy.IndexStrategyProvider.class,
                 org.pangrova.security.api.identity.UserIdentity.class,
@@ -34,7 +36,7 @@ class PluginClassLoaderTest {
                 org.pangrova.function.api.registry.FunctionFactory.class,
                 org.pangrova.function.api.runtime.FunctionCallbackScope.class,
                 org.pangrova.coordination.api.membership.WorkerSnapshot.class,
-                org.pangrova.coordination.api.leadership.MaintenanceLeaderAware.class);
+                org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener.class);
         URL[] urls = contracts.stream().map(type -> type.getProtectionDomain().getCodeSource().getLocation())
                 .distinct().toArray(URL[]::new);
         try (var loader = new PluginClassLoader("bundled-domain-contracts", urls,
@@ -99,7 +101,7 @@ class PluginClassLoaderTest {
     void applicationPrivateDependenciesMustBePackagedByThePlugin() throws Exception {
         try (var loader = new PluginClassLoader("private-dependencies", EMPTY_URLS, getClass().getClassLoader())) {
             org.assertj.core.api.Assertions.assertThatThrownBy(
-                    () -> loader.loadClass("org.pangrova.common.util.Preconditions"))
+                    () -> loader.loadClass(org.pangrova.common.validation.Preconditions.class.getName()))
                     .isInstanceOf(ClassNotFoundException.class);
             assertThat(loader.loadClass("java.sql.Connection")).isSameAs(java.sql.Connection.class);
         }
@@ -126,6 +128,8 @@ class PluginClassLoaderTest {
     @Test
     void sharesThePublicSignatureClosureAndKeepsUnrelatedImplementationsPluginLocal() throws Exception {
         var contracts = java.util.List.of(
+                org.pangrova.common.concurrency.NotThreadSafe.class,
+                org.pangrova.common.concurrency.ThreadSafe.class,
                 org.pangrova.common.exception.PangrovaException.class,
                 org.pangrova.common.enums.PangrovaErrorCode.class,
                 org.pangrova.common.file.CopyFileCommitBinding.class,
@@ -138,7 +142,7 @@ class PluginClassLoaderTest {
                 org.pangrova.streaming.api.format.CdcFormatFactory.class,
                 org.pangrova.streaming.api.source.SourceRecord.class);
         var privateTypes = java.util.List.of(
-                org.pangrova.common.util.Preconditions.class,
+                org.pangrova.common.validation.Preconditions.class,
                 org.pangrova.protocol.rest.data.DataFile.class);
         URL[] bundle = java.util.stream.Stream.concat(contracts.stream(), privateTypes.stream())
                 .map(type -> type.getProtectionDomain().getCodeSource().getLocation()).distinct().toArray(URL[]::new);

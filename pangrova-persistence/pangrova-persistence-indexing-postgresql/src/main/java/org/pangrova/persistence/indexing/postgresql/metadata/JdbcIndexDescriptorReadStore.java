@@ -13,7 +13,7 @@ import java.util.Map;
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.mapDescriptor;
 
 /** Read-only descriptor queries shared by index scheduling and maintenance. */
-final class JdbcIndexDescriptorReadStore extends JdbcStoreSupport {
+final class JdbcIndexDescriptorReadStore extends JdbcIndexMetadataStoreBase {
 
     JdbcIndexDescriptorReadStore(DataSource dataSource) {
         super(dataSource);

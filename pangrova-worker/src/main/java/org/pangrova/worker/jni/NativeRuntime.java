@@ -29,6 +29,7 @@ public final class NativeRuntime {
     }
 
     private static volatile boolean initialized = false;
+    private static boolean processFinalized;
 
     private NativeRuntime() {}
 
@@ -40,6 +41,9 @@ public final class NativeRuntime {
      * singleton re-registration errors in shared-JVM test environments.
      */
     public static synchronized void initNativeRuntime(byte[] configProto, AllocationListener allocationListener) {
+        if (processFinalized) {
+            throw new IllegalStateException("Native process resources have been finalized");
+        }
         if (initialized) {
             return;
         }
@@ -63,6 +67,12 @@ public final class NativeRuntime {
         }
         nativeShutdownInternal();
         initialized = false;
+    }
+
+    /** Finalizes process-owned SDK resources after the runtime has shut down. */
+    public static synchronized void finalizeNativeProcess() {
+        nativeFinalizeProcess();
+        processFinalized = true;
     }
 
     /**
@@ -90,6 +100,7 @@ public final class NativeRuntime {
     //   Java_org_pangrova_worker_jni_NativeRuntime_nativeShutdownInternal
     public static native void nativeInitInternal(byte[] configProto, AllocationListener allocationListener);
     public static native void nativeShutdownInternal();
+    private static native void nativeFinalizeProcess();
 
     /**
      * P1-7: Triggers native memory pool reclaim (operator MemoryReclaimer spill).

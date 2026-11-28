@@ -10,7 +10,7 @@ import org.pangrova.materialization.api.domain.AttemptId;
 import org.pangrova.materialization.api.port.Clock;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
 import org.pangrova.materialization.api.port.ReclaimableSourcePin;
-import org.pangrova.materialization.api.port.SourcePinning;
+import org.pangrova.materialization.api.port.SourceSnapshotPinner;
 import org.pangrova.connector.api.materialization.PinnedSource;
 
 /**
@@ -19,13 +19,13 @@ import org.pangrova.connector.api.materialization.PinnedSource;
  * <p>Every physical hold is released before its durable pins leave
  * {@code ACQUIRED}, so a provider or database failure is retried on the next
  * maintenance tick instead of forgetting a live hold. Providers must make
- * {@link SourcePinning#unpin} idempotent for the attempt-scoped pin owner
+ * {@link SourceSnapshotPinner#unpin} idempotent for the attempt-scoped pin owner
  * because a crash can leave a durable row without a matching physical hold.
  */
 public final class SourcePinSweeper {
 
     private final MaterializationRepository repository;
-    private final SourcePinning sourcePinning;
+    private final SourceSnapshotPinner sourcePinning;
     private final Clock clock;
 
     /**
@@ -36,7 +36,7 @@ public final class SourcePinSweeper {
      * @param clock time source
      */
     public SourcePinSweeper(MaterializationRepository repository,
-            SourcePinning sourcePinning, Clock clock) {
+            SourceSnapshotPinner sourcePinning, Clock clock) {
         if (repository == null || sourcePinning == null || clock == null) {
             throw new IllegalArgumentException("repository, sourcePinning, and clock are required");
         }

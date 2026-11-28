@@ -18,7 +18,7 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.RelRoot;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.execution.template.FrozenStageBindings;
+import org.pangrova.generation.execution.template.GenerationStageTemplateCodec;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.enums.GenerationPageKind;
@@ -52,7 +52,7 @@ class DurableStageExchangeContractsTest {
         assertThat(persisted).isEqualTo(original);
         assertThat(persisted.requireStage(0).planBytes()).isEqualTo(original.requireStage(0).planBytes());
         assertThat(persisted.requireStage(0).bindingSetBytes()).isEqualTo(original.requireStage(0).bindingSetBytes());
-        assertThat(FrozenStageBindings.read(persisted.requireStage(0), List.of()).operatorBindings())
+        assertThat(GenerationStageTemplateCodec.read(persisted.requireStage(0), List.of()).operatorBindings())
                 .containsExactly(binding());
     }
 
@@ -112,7 +112,7 @@ class DurableStageExchangeContractsTest {
         Rel consumer = Rel.newBuilder().setExtensionLeaf(ExtensionLeafRel.newBuilder().setDetail(Any.pack(
                 RelationDetailEnvelope.newBuilder().setSchemaVersion(1).setExchangeInput(input).build()))).build();
         byte[] output = plan(consumer);
-        var template = FrozenStageBindings.freeze(new BoundExecutionPlan(output, List.of(binding())), List.of());
+        var template = GenerationStageTemplateCodec.freeze(new BoundExecutionPlan(output, List.of(binding())), List.of());
         return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(GenerationStageGraph.StagePlan.of(1, 1, GenerationPageKind.RELATIONAL_COMPUTE, plan(producer),
                                 GenerationStageTemplate.of(new byte[0], List.of(), List.of()), List.of(), List.of("display"), false),

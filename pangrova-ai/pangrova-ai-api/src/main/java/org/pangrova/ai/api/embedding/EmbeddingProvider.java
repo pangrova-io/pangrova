@@ -24,7 +24,7 @@ import java.util.Set;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * SPI contract for embedding model providers.

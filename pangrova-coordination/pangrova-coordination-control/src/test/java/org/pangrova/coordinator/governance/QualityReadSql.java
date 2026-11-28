@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.governance;
 
 import org.pangrova.governance.api.enums.QualityQueryType;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 
 import java.util.List;
 import java.util.Objects;
@@ -21,7 +21,7 @@ import org.pangrova.governance.api.quality.QualityQueryResult;
 import org.pangrova.governance.api.quality.QualityReadRequest;
 import org.pangrova.parser.api.ast.ExpressionItem;
 import org.pangrova.parser.api.ast.Query;
-import org.pangrova.planner.parse.AstToSqlNodeConverter;
+import org.pangrova.planner.sqlnode.AstToSqlNodeConverter;
 
 /** Constructs quality SELECTs from a parsed scalar expression and exact identifier components. */
 final class QualityReadSql {
@@ -35,7 +35,7 @@ final class QualityReadSql {
     };
     private static final SqlParser.Config PARSER = SqlParser.config()
             .withUnquotedCasing(Casing.UNCHANGED).withQuotedCasing(Casing.UNCHANGED);
-    private static final org.pangrova.parser.api.parse.SqlParser EXPRESSION_PARSER = new AntlrSqlParser();
+    private static final org.pangrova.parser.api.syntax.SqlParser EXPRESSION_PARSER = new AntlrSqlParser();
 
     private QualityReadSql() { }
 

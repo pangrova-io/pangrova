@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.schema;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -44,7 +44,7 @@ public final class PaimonPhysicalSchemas {
         var columns = rowType.getFields().stream().map(field -> new NativePhysicalWriteAllocation.Column(
                 field.id(), field.name(), PaimonDeclaredMetadata.declared(
                         field.type(), field.name(), options))).toList();
-        return new NativePhysicalWriteAllocation.Schema(schemaId, metadata, DigestUtils.sha256().digest(metadata),
+        return new NativePhysicalWriteAllocation.Schema(schemaId, metadata, Sha256Digests.sha256().digest(metadata),
                 columns);
     }
 

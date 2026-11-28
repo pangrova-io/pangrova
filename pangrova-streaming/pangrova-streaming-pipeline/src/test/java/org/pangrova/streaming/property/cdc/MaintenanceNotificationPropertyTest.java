@@ -7,7 +7,7 @@ import org.pangrova.streaming.api.enums.CdcOperation;
 import org.pangrova.streaming.api.commit.SourceId;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.common.concurrent.BackoffStrategy;
+import org.pangrova.common.concurrency.BackoffStrategy;
 import org.pangrova.connector.api.write.WriteResult;
 import org.pangrova.streaming.api.cdc.*;
 import org.pangrova.streaming.api.checkpoint.*;

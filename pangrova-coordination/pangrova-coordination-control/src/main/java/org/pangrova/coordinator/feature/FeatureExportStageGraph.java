@@ -4,7 +4,7 @@ import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
 
 import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.generation.api.enums.GenerationGraphPurpose;
-import org.pangrova.generation.execution.template.FrozenStageBindings;
+import org.pangrova.generation.execution.template.GenerationStageTemplateCodec;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.page.GenerationSplit;
@@ -53,7 +53,7 @@ final class FeatureExportStageGraph {
             var bound = new BoundExecutionPlan(plan, terminal ? List.of(sink) : List.of());
             var kind = terminal ? GenerationPageKind.RELATIONAL_PARTITION : GenerationPageKind.RELATIONAL_COMPUTE;
             stages.add(GenerationStageGraph.StagePlan.of(stage.stageId(), stage.parallelism(), kind, plan,
-                    FrozenStageBindings.freeze(bound, List.of()),
+                    GenerationStageTemplateCodec.freeze(bound, List.of()),
                     stage.sources().stream().map(source -> source.qualifiedName()).toList(),
                     stage.outputNames(), terminal, stage.coalescibleHashInputs(), stage.splittableHashInputs()));
             pages.addAll(pages(stage, jobId, consumers.contains(stage.stageId()) ? List.of() : splits,

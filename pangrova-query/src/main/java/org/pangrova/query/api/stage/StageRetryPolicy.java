@@ -2,7 +2,7 @@ package org.pangrova.query.api.stage;
 
 import org.pangrova.common.api.annotation.Internal;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Immutable retry policy for a Stage.

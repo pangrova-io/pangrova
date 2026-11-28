@@ -1,7 +1,7 @@
 package org.pangrova.indexing.strategies.bloom.data;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.BloomFilterIndexData;
 import org.pangrova.indexing.api.data.IndexData;

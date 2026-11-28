@@ -24,9 +24,9 @@ import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.planner.analysis.PlannedQuery;
 import org.pangrova.planner.analysis.PlanResult;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses.Analysis;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Phase 2: Captures compiler snapshot, extracts time-travel clauses,

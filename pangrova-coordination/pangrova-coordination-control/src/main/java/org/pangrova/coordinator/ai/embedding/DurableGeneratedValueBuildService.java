@@ -2,14 +2,14 @@ package org.pangrova.coordinator.ai.embedding;
 
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.planner.constants.GeneratedColumnSourceEncoding;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 import org.pangrova.generation.submission.GenerationStageGraphFactory;
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
-import org.pangrova.generation.execution.template.FrozenStageBindings;
+import org.pangrova.generation.execution.template.GenerationStageTemplateCodec;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.AiInvocationOperatorBinder;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
@@ -19,9 +19,9 @@ import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmissionStore;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmission;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildSubmissionStore;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildSubmission;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.planner.generation.GenerationPlan;
@@ -55,7 +55,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Compiles generated-column definitions into durable, Native Worker work.
@@ -212,7 +212,7 @@ public final class DurableGeneratedValueBuildService {
         String generation = generation(
                 definition, sourceSnapshot, model.getModel().getModel().toByteArray(),
                 principal(user), authorizationScope);
-        String tenantScope = DigestUtils.sha256Hex(tenantId).substring(0, 32);
+        String tenantScope = Sha256Digests.sha256Hex(tenantId).substring(0, 32);
         String jobId = "generated-values-build:tenant-" + tenantScope + ":" + artifactId
                 + ":generation:" + generation;
         String stagingUri = baseArtifactUri + "/v2/tenants/" + tenantScope + "/artifacts/"
@@ -239,7 +239,7 @@ public final class DurableGeneratedValueBuildService {
         var descriptor = new GeneratedValueBuildDescriptor(
                 tenantId, artifactId, sourceId, table.catalog(), table.schema(), table.table(),
                 definition.getTargetColumn(),
-                DigestUtils.sha256Hex(definition.toByteArray()), generation, sourceSnapshot, now);
+                Sha256Digests.sha256Hex(definition.toByteArray()), generation, sourceSnapshot, now);
         return new GeneratedValueBuildSubmission(job, dispatch, pages, descriptor);
     }
 
@@ -249,7 +249,7 @@ public final class DurableGeneratedValueBuildService {
         var models = authorizationScope.definitionSnapshot().map(DeferredAuthorizationScope.DefinitionSnapshot::models)
                 .orElseThrow(() -> new IllegalArgumentException(
                             "Generated durable stage requires observed model authority"));
-        var template = FrozenStageBindings.freeze(
+        var template = GenerationStageTemplateCodec.freeze(
                 new BoundExecutionPlan(plan.planBytes(), bindings.getBindingsList()), models);
         return GenerationDispatchSpecFactory.create(
                 identity.jobId(),
@@ -391,7 +391,7 @@ public final class DurableGeneratedValueBuildService {
 
     private static String artifactId(String sourceId, String targetColumn) {
         requireText(targetColumn, "targetColumn");
-        return "generated-values-" + DigestUtils.sha256Hex(
+        return "generated-values-" + Sha256Digests.sha256Hex(
                 (sourceId + "\u0000" + targetColumn.toLowerCase(Locale.ROOT))
                         .getBytes(StandardCharsets.UTF_8));
     }
@@ -400,7 +400,7 @@ public final class DurableGeneratedValueBuildService {
             GeneratedColumnDefinition definition,
             String sourceSnapshot,
             byte[] exactModelIdentity, String principal, DeferredAuthorizationScope authorizationScope) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         digest.update(definition.toByteArray());
         digest.update((byte) 0);
         digest.update(sourceSnapshot.getBytes(StandardCharsets.UTF_8));

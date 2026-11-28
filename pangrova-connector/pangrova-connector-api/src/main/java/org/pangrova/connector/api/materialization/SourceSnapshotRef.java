@@ -3,7 +3,7 @@ package org.pangrova.connector.api.materialization;
 import java.time.Instant;
 import org.pangrova.common.api.annotation.Stable;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Immutable identity of one observed source snapshot.

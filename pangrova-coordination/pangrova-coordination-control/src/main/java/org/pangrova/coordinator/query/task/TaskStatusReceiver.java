@@ -6,7 +6,7 @@ import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 
 import java.time.Instant;
 import java.util.Optional;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.query.api.stage.StageCompletionCallback;
 import org.pangrova.coordinator.query.task.report.GenerationWorkReportSink;
 import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
@@ -22,7 +22,7 @@ import org.pangrova.query.api.journal.TaskStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /** Validates exact issued reports before required journal, publication, sequencing and drain notifications. */
 @ThreadSafe

@@ -2,7 +2,7 @@ package org.pangrova.coordinator.integration.connector.paimon.write;
 
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.connector.paimon.PaimonMetadata;
-import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+import org.pangrova.testfixtures.tableformat.PaimonCommitFixture;
 import org.pangrova.connector.paimon.PaimonPageSourceProvider;
 import org.pangrova.connector.paimon.PaimonSplitManager;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
@@ -92,7 +92,7 @@ class PaimonOverwriteAbortTest {
         ConnectorPageSink sink = pageSinkProvider.createOverwritePageSink(TX, SESSION, overwriteHandle);
         sink.appendPage(new Page(List.of("id", "val"), buildRows(10, 12)));
         byte[] commitMetadata = sink.finishWithMetadata();
-        PaimonCommitTestSupport.finish(metadata, SESSION, overwriteHandle, List.of(commitMetadata));
+        PaimonCommitFixture.finish(metadata, SESSION, overwriteHandle, List.of(commitMetadata));
         sink.close();
 
         List<TypedRow> rows = readAll("overwrite_tbl");
@@ -153,7 +153,7 @@ class PaimonOverwriteAbortTest {
         ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, handle);
         sink.appendPage(new Page(List.of("id", "val"), rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        PaimonCommitTestSupport.finish(metadata, SESSION, handle, List.of(commitMetadata));
+        PaimonCommitFixture.finish(metadata, SESSION, handle, List.of(commitMetadata));
         sink.close();
     }
 

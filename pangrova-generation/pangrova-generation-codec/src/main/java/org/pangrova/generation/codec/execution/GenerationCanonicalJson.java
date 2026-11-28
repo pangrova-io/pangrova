@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 
 import java.io.ByteArrayOutputStream;
@@ -45,7 +45,7 @@ final class GenerationCanonicalJson {
 
     static <T> T decode(byte[] bytes, String sha256, Class<T> type, String description, String invalidBytes) {
         if (bytes == null || bytes.length == 0 || bytes.length > MAX_BYTES
-                || !DigestUtils.matchesSha256(bytes, sha256)) {
+                || !Sha256Digests.matchesSha256(bytes, sha256)) {
             throw new IllegalArgumentException(invalidBytes);
         }
         try {

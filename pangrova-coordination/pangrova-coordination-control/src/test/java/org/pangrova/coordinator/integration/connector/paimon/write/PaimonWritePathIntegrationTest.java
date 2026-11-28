@@ -2,7 +2,7 @@ package org.pangrova.coordinator.integration.connector.paimon.write;
 
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.connector.paimon.PaimonMetadata;
-import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+import org.pangrova.testfixtures.tableformat.PaimonCommitFixture;
 import org.pangrova.connector.paimon.PaimonPageSourceProvider;
 import org.pangrova.connector.paimon.PaimonSplitManager;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
@@ -204,7 +204,7 @@ class PaimonWritePathIntegrationTest {
         List<String> columns = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
         sink.appendPage(new Page(columns, rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        PaimonCommitTestSupport.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
+        PaimonCommitFixture.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
         sink.close();
     }
 

@@ -1,6 +1,6 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
@@ -15,11 +15,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.setJson;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** Maintains the durable per-table commit-event queue and its fenced head. */
-final class JdbcIndexCommitQueue extends JdbcStoreSupport {
+final class JdbcIndexCommitQueue extends JdbcIndexMetadataStoreBase {
     private static final int TABLE_SEQUENCE_PARAMETER = 11;
 
     private static final String TABLE_KEY =

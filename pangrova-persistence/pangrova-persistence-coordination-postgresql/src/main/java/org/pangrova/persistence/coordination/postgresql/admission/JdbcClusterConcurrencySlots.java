@@ -1,6 +1,6 @@
 package org.pangrova.persistence.coordination.postgresql.admission;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

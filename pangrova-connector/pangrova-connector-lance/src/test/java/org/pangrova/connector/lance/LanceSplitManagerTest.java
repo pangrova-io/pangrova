@@ -49,7 +49,7 @@ class LanceSplitManagerTest extends org.pangrova.testing.testkit.ContainerTestBa
         var catalog = fixture.catalog();
         var split = new LanceDataSplit(pinned, new NativeDatasetScanPage.Partition(actualPartition.getPartitionId(), actualPartition.getPhysicalRows()),
                 catalog.toByteArray(), accepted.getManifestSha256().getDigest().toByteArray(),
-                org.pangrova.protocol.source.SourceSnapshotBindings.decode(accepted, catalog));
+                org.pangrova.protocol.source.SourceSnapshotCodec.decode(accepted, catalog));
         var proto = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
         assertThat(proto.getSourceSnapshot()).isEqualTo("7");
         assertThat(proto.getOpaqueLocation()).isEqualTo(pinned.datasetUri());

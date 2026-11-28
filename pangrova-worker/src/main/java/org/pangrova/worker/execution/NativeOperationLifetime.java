@@ -1,7 +1,7 @@
 package org.pangrova.worker.execution;
 
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.HashMap;
 import java.util.HashSet;

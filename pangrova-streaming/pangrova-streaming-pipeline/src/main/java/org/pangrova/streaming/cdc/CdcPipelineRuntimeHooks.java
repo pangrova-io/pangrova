@@ -1,6 +1,6 @@
 package org.pangrova.streaming.cdc;
 
-import org.pangrova.common.concurrent.BackoffStrategy;
+import org.pangrova.common.concurrency.BackoffStrategy;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.streaming.commit.CdcCommitCoordinator;
 

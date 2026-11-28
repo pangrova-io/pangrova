@@ -4,7 +4,7 @@ import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.write.NativeWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBinder;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.LanceTransactionReference;
 import org.pangrova.protocol.v2.LanceWriteBinding;
@@ -99,7 +99,7 @@ class LanceCommitFragmentsTest {
                 .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId("owner")
                         .setOwnerIncarnation("incarnation").setFencingToken(5)).build();
         var digest = ProtocolChecksums.sha256(new byte[] {1, 2, 3});
-        String key = NativeWriteBindings.attemptPrefix(output.allocation().stagingPrefix(), attempt)
+        String key = NativeWriteBinder.attemptPrefix(output.allocation().stagingPrefix(), attempt)
                 + "/transaction-" + HexFormat.of().formatHex(digest.getDigest().toByteArray()) + ".pb";
         return LanceWriteFragment.newBuilder().setContractVersion(2).setDatasetUri(output.allocation().datasetUri())
                 .setWriteId(output.allocation().writeId()).setTaskAttempt(attempt).setRowsWritten(2).setInputBytes(8)

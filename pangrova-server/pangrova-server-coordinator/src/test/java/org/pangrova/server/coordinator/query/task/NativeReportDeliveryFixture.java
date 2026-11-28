@@ -131,7 +131,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
                 throw failure;
             }
         });
-        cleanupExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+        cleanupExecutor = org.pangrova.common.concurrency.ManagedExecutorFactory
                 .newSingleThreadScheduledExecutor("report-fixture-task-cleanup");
         ((java.util.concurrent.ScheduledThreadPoolExecutor) cleanupExecutor).setRemoveOnCancelPolicy(true);
         worker.taskManager().startPeriodicCleanup(cleanupExecutor, Duration.ofMinutes(15), Duration.ofSeconds(1));
@@ -141,9 +141,9 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
         if (journal == null) {
             queries = worker.connectAsync(execution, tracker, workers);
         } else {
-            queryExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+            queryExecutor = org.pangrova.common.concurrency.ManagedExecutorFactory
                     .newSingleThreadExecutor("report-fixture-query-admission");
-            submitDeadlines = org.pangrova.common.concurrent.ManagedExecutorFactory
+            submitDeadlines = org.pangrova.common.concurrency.ManagedExecutorFactory
                     .newSingleThreadScheduledExecutor("report-fixture-query-deadline");
             queries = new QueryManager(new QueryManagerContext(execution, TestObservability.TRACING,
                     null, null,

@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Pre-submit gate that resolves tenant membership and enforces quota limits.

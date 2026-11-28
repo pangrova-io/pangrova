@@ -1,6 +1,6 @@
 package org.pangrova.protocol.shuffle.codec;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.BatchChunk;
@@ -98,7 +98,7 @@ public final class CanonicalBatchChunks {
     }
 
     private static Checksum sha256(byte[] data, int offset, int length) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         digest.update(data, offset, length);
         return Checksum.newBuilder()
                 .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
@@ -107,7 +107,7 @@ public final class CanonicalBatchChunks {
     }
 
     private static Checksum sha256Remaining(ByteBuffer data) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         digest.update(data);
         return checksum(digest.digest());
     }

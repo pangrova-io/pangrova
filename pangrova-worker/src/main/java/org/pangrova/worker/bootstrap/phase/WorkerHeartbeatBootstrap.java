@@ -5,9 +5,9 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 
-import org.pangrova.common.concurrent.BackoffStrategy;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.BackoffStrategy;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
@@ -191,7 +191,7 @@ public final class WorkerHeartbeatBootstrap {
     }
 
     private static void sleepOrThrow(long backoffMs) {
-        ThreadUtils.sleepQuietly(backoffMs);
+        ThreadSleeper.sleepQuietly(backoffMs);
         if (Thread.currentThread().isInterrupted()) {
             throw new BootstrapFailedException("registration",
                     new RuntimeException("Interrupted during registration backoff"));

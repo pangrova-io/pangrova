@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.shuffle.api.ShuffleDataInventory;
 import org.pangrova.shuffle.api.DecommissionAssessment;
 import org.pangrova.shuffle.api.ShuffleDataRef;

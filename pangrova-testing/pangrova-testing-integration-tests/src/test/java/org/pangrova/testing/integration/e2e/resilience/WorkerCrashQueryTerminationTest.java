@@ -5,7 +5,7 @@ import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.fixture.WriteTestHelper;
+import org.pangrova.testing.integration.e2e.fixture.SqlTestRowWriter;
 import org.pangrova.testing.integration.e2e.runner.QueryError;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -186,7 +186,7 @@ class WorkerCrashQueryTerminationTest extends SqlE2ETestBase {
         List<TypedRow> rows = IntStream.rangeClosed(1, rowCount)
                 .mapToObj(i -> TypedRow.builder().putRaw("id", (long) i).putRaw("name", "item_" + i).putRaw("amount", i * 2.5).build())
                 .collect(Collectors.toList());
-        WriteTestHelper.insertRows(sqlRunner, fqn(table), rows);
+        SqlTestRowWriter.insertRows(sqlRunner, fqn(table), rows);
     }
 
     // -----------------------------------------------------------------------

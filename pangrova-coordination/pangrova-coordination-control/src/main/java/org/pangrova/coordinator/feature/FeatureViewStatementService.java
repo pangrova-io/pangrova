@@ -21,7 +21,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import org.pangrova.coordinator.feature.FeatureViewDefinitionValidator.ValidatedFeatureViewDefinition;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.common.json.CanonicalJsonMapper;
@@ -95,7 +95,7 @@ public final class FeatureViewStatementService {
                 id, statement.version(), actor.user().principal(),
                 definition.entityKeys(), definition.eventTimeColumn(),
                 definition.sourceTable().toString(), definition.sourceQuery(),
-                compiled.planBytes(), DigestUtils.sha256Hex(compiled.planBytes()),
+                compiled.planBytes(), Sha256Digests.sha256Hex(compiled.planBytes()),
                 definition.transformVersion(), definition.schemaJson(),
                 definition.freshnessTargetMillis(), definition.lineageJson(),
                 definition.canonicalJson(), definition.sha256(), clock.instant());

@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
 import org.pangrova.ai.api.embedding.EmbeddingProvider;
@@ -368,7 +368,7 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
     }
 
     private static void sleep(long millis) {
-        ThreadUtils.sleepQuietly(AiProviderCallContext.remainingWaitMillis(Math.max(1, millis)));
+        ThreadSleeper.sleepQuietly(AiProviderCallContext.remainingWaitMillis(Math.max(1, millis)));
         if (Thread.currentThread().isInterrupted()) {
             throw new AiInvocationException(
                     AiFailureCategory.TIMEOUT,

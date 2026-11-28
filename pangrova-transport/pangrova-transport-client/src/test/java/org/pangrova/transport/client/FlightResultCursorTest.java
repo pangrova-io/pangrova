@@ -25,7 +25,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.common.client.result.ResultEndpoint;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 
 import java.util.concurrent.CountDownLatch;

@@ -8,7 +8,7 @@ import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
@@ -46,7 +46,7 @@ class MetadataCollectionOwnershipTest {
         var table = new TableMetadata("catalog", "schema", "table", columns, partitions,
                 order, properties, Instant.EPOCH, Instant.EPOCH);
         byte[] canonical = CanonicalJsonMapper.writeValueAsBytes(table);
-        String digest = DigestUtils.sha256Hex(canonical);
+        String digest = Sha256Digests.sha256Hex(canonical);
 
         tags.clear();
         columns.clear();
@@ -67,7 +67,7 @@ class MetadataCollectionOwnershipTest {
         assertThatThrownBy(() -> table.columns().get(0).tags().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(CanonicalJsonMapper.writeValueAsBytes(table)).containsExactly(canonical);
-        assertThat(DigestUtils.sha256Hex(CanonicalJsonMapper.writeValueAsBytes(table))).isEqualTo(digest);
+        assertThat(Sha256Digests.sha256Hex(CanonicalJsonMapper.writeValueAsBytes(table))).isEqualTo(digest);
     }
 
     @Test
@@ -125,7 +125,7 @@ class MetadataCollectionOwnershipTest {
         var types = new ArrayList<>(List.of(resultType));
         var template = GenerationStageTemplate.of(bindings, types, reads);
         byte[] canonical = CanonicalJsonMapper.writeValueAsBytes(template);
-        String digest = DigestUtils.sha256Hex(canonical);
+        String digest = Sha256Digests.sha256Hex(canonical);
 
         bindings[0] ^= 1;
         resultType[0] ^= 1;
@@ -141,7 +141,7 @@ class MetadataCollectionOwnershipTest {
         assertThatThrownBy(() -> template.resultTypesBase64().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(CanonicalJsonMapper.writeValueAsBytes(template)).containsExactly(canonical);
-        assertThat(DigestUtils.sha256Hex(CanonicalJsonMapper.writeValueAsBytes(template))).isEqualTo(digest);
+        assertThat(Sha256Digests.sha256Hex(CanonicalJsonMapper.writeValueAsBytes(template))).isEqualTo(digest);
     }
 
     @Test
@@ -184,7 +184,7 @@ class MetadataCollectionOwnershipTest {
         assertThat(GenerationExchangeEvidenceCodec.sha256(registration)).isEqualTo(allocationDigest);
         assertThat(GenerationExchangeEvidenceCodec.encode(value)).containsExactly(receiptBytes);
         assertThat(GenerationExchangeEvidenceCodec.sha256(value)).isEqualTo(receiptDigest);
-        assertThat(value.responseSha256()).isEqualTo(DigestUtils.sha256Hex(allocationBytes));
+        assertThat(value.responseSha256()).isEqualTo(Sha256Digests.sha256Hex(allocationBytes));
     }
 
     @Test
@@ -238,7 +238,7 @@ class MetadataCollectionOwnershipTest {
         return new GenerationExchangeFinalization(registration.exchangeId(), GenerationExchangeEvidenceCodec.sha256(registration),
                 registration.shuffleId(), registration.planEpoch(), registration.registeredOwner(),
                 registration.producerCount(), registration.producerSetSha256(), partitions, 0, 0,
-                DigestUtils.sha256Hex(bytes));
+                Sha256Digests.sha256Hex(bytes));
     }
 
     private static byte[] bytes(String value) {
@@ -246,6 +246,6 @@ class MetadataCollectionOwnershipTest {
     }
 
     private static String digest(String value) {
-        return DigestUtils.sha256Hex(bytes(value));
+        return Sha256Digests.sha256Hex(bytes(value));
     }
 }

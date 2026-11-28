@@ -22,8 +22,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Function;
 
-import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreSupport.findJob;
-import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreSupport.terminal;
+import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreTransitions.findJob;
+import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreTransitions.terminal;
 
 /** Authoritative physical layout for a relational compute stage, frozen before output allocation. */
 final class PostgresGenerationInputRanges {

@@ -6,7 +6,7 @@ import org.pangrova.generation.api.enums.GenerationExecutionKind;
 
 import java.time.Instant;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Canonical immutable publication view shared by every artifact consumer. */
 public record GenerationManifest(

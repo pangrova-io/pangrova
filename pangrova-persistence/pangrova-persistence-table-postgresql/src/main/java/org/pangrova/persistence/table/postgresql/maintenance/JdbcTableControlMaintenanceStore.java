@@ -7,8 +7,8 @@ import org.pangrova.table.api.enums.MaintenanceRunState;
 import org.pangrova.table.api.maintenance.TableControlMaintenanceStore;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -25,7 +25,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setJson;
 
 /**
  * JDBC-backed maintenance policy and run history.
@@ -107,7 +107,7 @@ public final class JdbcTableControlMaintenanceStore implements TableControlMaint
             ps.setLong(5, policy.snapshotRetention().toSeconds());
             ps.setBoolean(6, policy.requireStableExternalVersion());
             ps.setString(7, policy.updatedBy());
-            JdbcSupport.setInstant(ps, 8, policy.updatedAt());
+            JdbcOperations.setInstant(ps, 8, policy.updatedAt());
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new TableControlException(
@@ -129,8 +129,8 @@ public final class JdbcTableControlMaintenanceStore implements TableControlMaint
             ps.setString(7, run.versionAfter());
             setJson(ps, 8, serializeDetails(run.details()));
             ps.setString(9, run.actor());
-            JdbcSupport.setInstant(ps, 10, run.startedAt());
-            JdbcSupport.setNullableInstant(ps, 11, run.finishedAt());
+            JdbcOperations.setInstant(ps, 10, run.startedAt());
+            JdbcOperations.setNullableInstant(ps, 11, run.finishedAt());
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new TableControlException(
@@ -183,7 +183,7 @@ public final class JdbcTableControlMaintenanceStore implements TableControlMaint
                 Duration.ofSeconds(rs.getLong("snapshot_retention_seconds")),
                 rs.getBoolean("require_stable_external_version"),
                 rs.getString("updated_by"),
-                JdbcSupport.getInstant(rs, "updated_at"));
+                JdbcOperations.getInstant(rs, "updated_at"));
     }
 
     private static TableMaintenanceRun mapRun(ResultSet rs) throws SQLException {
@@ -197,8 +197,8 @@ public final class JdbcTableControlMaintenanceStore implements TableControlMaint
                 rs.getString("version_after"),
                 parseDetails(rs.getString("details")),
                 rs.getString("actor"),
-                JdbcSupport.getInstant(rs, "started_at"),
-                JdbcSupport.getInstant(rs, "finished_at"));
+                JdbcOperations.getInstant(rs, "started_at"),
+                JdbcOperations.getInstant(rs, "finished_at"));
     }
 
     private static String serializeOperations(Set<MaintenanceOperation> operations) {

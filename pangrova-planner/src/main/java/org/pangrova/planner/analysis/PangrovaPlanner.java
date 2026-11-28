@@ -1,7 +1,7 @@
 package org.pangrova.planner.analysis;
 
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
-import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses.Analysis;
 import org.pangrova.planner.api.exception.PlannerException;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.planner.cost.CostModelConfig;
@@ -16,7 +16,7 @@ import org.apache.calcite.sql.SqlNode;
 import org.pangrova.planner.rewrite.DynamicTableAstRewriter;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.pangrova.planner.rewrite.RecursiveCteExpander;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.sql2rel.SqlToRelConverter;
@@ -58,7 +58,7 @@ public final class PangrovaPlanner {
     private final MaterializedViewRewritePass materializedViewRewritePass;
 
     // Pre-parse Dynamic Table planning support (SQL rewrite + merge-on-read hints)
-    private final DynamicTablePlanningSupport dynamicTablePlanningSupport;
+    private final DynamicTablePlanRewriter dynamicTablePlanningSupport;
 
     // Cross-catalog metadata version pinning (null when not wired)
     private final CrossCatalogVersionPinner versionPinner;
@@ -115,7 +115,7 @@ public final class PangrovaPlanner {
                 ? new DynamicTableAstRewriter(deps.dynamicTableRewriter())
                 : null;
         this.dynamicTablePlanningSupport =
-                new DynamicTablePlanningSupport(this.parserFactory, dynamicTableSqlRewriter,
+                new DynamicTablePlanRewriter(this.parserFactory, dynamicTableSqlRewriter,
                         dynamicTableAstRewriter);
         this.versionPinner = deps.metadataVersionProvider() != null
                 ? new CrossCatalogVersionPinner(deps.metadataVersionProvider()) : null;
@@ -447,7 +447,7 @@ public final class PangrovaPlanner {
             var root = converter.convertQuery(validated, false, true);
             // Calcite keeps ORDER BY expressions in the relational output until RelRoot projects visible fields.
             RelNode rel = SqlKind.QUERY.contains(root.kind) ? root.project() : root.rel;
-            rel = DecorrelationSupport.safeDecorrelate(rel);
+            rel = PlannerDecorrelator.safeDecorrelate(rel);
             rel = SubqueryRelationalExpansion.expand(rel);
             rel = DerivedQueryExpansion.expand(rel, parserFactory, catalogReader, operatorTable);
             rel = org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(

@@ -24,7 +24,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** PostgreSQL execution ownership with database-clock leases and monotonic per-execution fencing. */
 public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {

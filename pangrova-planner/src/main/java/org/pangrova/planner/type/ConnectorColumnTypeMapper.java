@@ -2,7 +2,7 @@ package org.pangrova.planner.type;
 
 import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.NullOnlyType;
@@ -56,10 +56,10 @@ public final class ConnectorColumnTypeMapper {
         }
         if (type == PangrovaType.MAP && parameterizedType instanceof MapType mapType) {
             RelDataType keyType = mapToSqlType(
-                    PangrovaTypeMapping.toPangrovaType(mapType.keyType()),
+                    PangrovaTypeConverter.toPangrovaType(mapType.keyType()),
                     mapType.keyType(), factory);
             RelDataType valueType = mapToSqlType(
-                    PangrovaTypeMapping.toPangrovaType(mapType.valueType()),
+                    PangrovaTypeConverter.toPangrovaType(mapType.valueType()),
                     mapType.valueType(), factory);
             return factory.createTypeWithNullability(
                     factory.createMapType(keyType, valueType), true);
@@ -91,7 +91,7 @@ public final class ConnectorColumnTypeMapper {
         List<RelDataType> types = new ArrayList<>(rowType.fields().size());
         for (RowField field : rowType.fields()) {
             names.add(field.name());
-            types.add(mapToSqlType(PangrovaTypeMapping.toPangrovaType(field.type()), field.type(), factory));
+            types.add(mapToSqlType(PangrovaTypeConverter.toPangrovaType(field.type()), field.type(), factory));
         }
         return factory.createTypeWithNullability(
                 factory.createStructType(StructKind.PEEK_FIELDS_NO_EXPAND, types, names), true);
@@ -130,7 +130,7 @@ public final class ConnectorColumnTypeMapper {
             RelDataTypeFactory factory) {
         if (parameterizedType instanceof ArrayType arrayType) {
             Type elemType = arrayType.elementType();
-            PangrovaType elemPangrovaType = PangrovaTypeMapping.toPangrovaType(elemType);
+            PangrovaType elemPangrovaType = PangrovaTypeConverter.toPangrovaType(elemType);
             return mapToSqlType(elemPangrovaType, elemType, factory);
         }
         throw new IllegalArgumentException("ARRAY or VECTOR requires its complete element declaration");

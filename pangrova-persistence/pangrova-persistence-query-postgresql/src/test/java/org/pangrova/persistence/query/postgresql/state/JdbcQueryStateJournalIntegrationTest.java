@@ -1038,6 +1038,7 @@ class JdbcQueryStateJournalIntegrationTest {
                 "q-old", null, null, "FINISHED"));
         assertThat(journal.acceptQuerySync(original).acceptance()).isEqualTo(original.acceptance());
         executeSql("UPDATE query_state_journal SET timestamp_ms = timestamp_ms - 120000 WHERE query_id = 'q-old'");
+        assertThat(journal.findAcceptance("alice", "a".repeat(64))).isEmpty();
         assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                 () -> journal.acceptQuerySync(acceptanceEvent("q-old", "alice", "a", "c", 60_000)));
         var replacement = acceptanceEvent("q-new", "alice", "a", "c", 60_000);

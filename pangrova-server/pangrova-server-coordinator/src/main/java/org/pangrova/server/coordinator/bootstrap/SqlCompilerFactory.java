@@ -67,7 +67,7 @@ final class SqlCompilerFactory {
 
     private PangrovaPlanner buildMetadataAwarePlanner(
             org.pangrova.connector.api.session.ConnectorSession session, java.util.OptionalLong publicationRevision) {
-        var readBindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
+        var readBindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindingResolver(
                 metadataBootstrap.catalogRegistry(), session, metadataBootstrap.catalogRegistry().tableStatistics());
         var rootSchema = new MetadataSchemaBuilder(
                 metadataBootstrap.metadataService(), metadataBootstrap.catalogRegistry())

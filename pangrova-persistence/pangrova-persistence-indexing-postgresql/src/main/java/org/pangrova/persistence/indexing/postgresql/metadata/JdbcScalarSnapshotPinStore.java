@@ -14,10 +14,10 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** Exact attempt identity and terminal-generation fence for scalar construction pin release. */
-final class JdbcScalarSnapshotPinStore extends JdbcStoreSupport {
+final class JdbcScalarSnapshotPinStore extends JdbcIndexMetadataStoreBase {
     private static final Duration RELEASE_RETRY_DELAY = Duration.ofMinutes(15);
     private static final String KEY = "index_id=? AND generation=? AND attempt_owner=?";
     private static final String RESERVE = """

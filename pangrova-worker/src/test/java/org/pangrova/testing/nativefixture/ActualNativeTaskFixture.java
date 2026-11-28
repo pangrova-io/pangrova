@@ -32,7 +32,7 @@ import org.pangrova.worker.function.NativeFunctionConfig;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.result.ResultReadTickets;
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TransportRefs;
 
@@ -91,7 +91,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
         results = endpoints.results();
         exchange = endpoints.exchange();
         tickets = endpoints.tickets();
-        transports = new TransportRefs(new NativeShuffleProducerRegistration(executor::executeCommand, "127.0.0.1", ""), results, exchange);
+        transports = new TransportRefs(new NativeShuffleProducerRegistrar(executor::executeCommand, "127.0.0.1", ""), results, exchange);
     }
 
     private Endpoints initializeRuntime(WorkerBootstrapConfig config, NativeFunctionConfig functionConfig) {

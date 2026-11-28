@@ -1,13 +1,13 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.observability.logging.MdcTaskWrapping;
+import org.pangrova.observability.logging.MdcTaskWrapper;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
 import javax.sql.DataSource;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.runtime.QueryManagerContext;
@@ -122,7 +122,7 @@ final class QueryRuntimeFactory {
     }
 
     static ExecutorService createAsyncSubmitExecutor() {
-        return new MdcTaskWrapping().wrapExecutorService(
+        return new MdcTaskWrapper().wrapExecutorService(
                 ManagedExecutorFactory.newBoundedThreadPool("async-query-submit", 4, 128));
     }
 

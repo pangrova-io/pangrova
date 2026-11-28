@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.ai.branch;
 
 import org.pangrova.connector.api.enums.SnapshotReferenceType;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.connector.api.session.ConnectorSession;

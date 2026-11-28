@@ -15,7 +15,7 @@ import org.pangrova.parser.api.ast.LiteralValue;
 import org.pangrova.parser.api.ast.Query;
 import org.pangrova.parser.api.ast.TableRef;
 import org.pangrova.parser.api.ast.statement.IncrementalReadStatement;
-import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses.Analysis;
 import org.pangrova.planner.api.exception.PlannerException;
 import org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;

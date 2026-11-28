@@ -5,7 +5,7 @@ import org.pangrova.protocol.rest.task.TaskReportEvidence;
 
 import org.pangrova.worker.enums.NativeTaskFailureCategory;
 import org.pangrova.worker.enums.TaskState;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.client.error.ErrorDetail;

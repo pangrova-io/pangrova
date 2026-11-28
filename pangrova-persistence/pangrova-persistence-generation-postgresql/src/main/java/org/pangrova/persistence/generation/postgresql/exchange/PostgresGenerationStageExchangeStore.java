@@ -116,7 +116,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                     """)) {
                 bindKey(statement, job, registration.exchangeId());
                 statement.setBytes(4, bytes);
-                statement.setString(5, org.pangrova.common.util.DigestUtils.sha256Hex(bytes));
+                statement.setString(5, org.pangrova.common.crypto.Sha256Digests.sha256Hex(bytes));
                 statement.executeUpdate();
             }
             return registration;
@@ -409,7 +409,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                 """)) {
             bindKey(statement, job, finalization.exchangeId());
             statement.setBytes(4, bytes);
-            statement.setString(5, org.pangrova.common.util.DigestUtils.sha256Hex(bytes));
+            statement.setString(5, org.pangrova.common.crypto.Sha256Digests.sha256Hex(bytes));
             statement.setBytes(6, providerResponse);
             return statement.executeUpdate() == 1;
         }

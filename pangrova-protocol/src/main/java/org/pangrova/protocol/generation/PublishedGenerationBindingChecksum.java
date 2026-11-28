@@ -1,6 +1,6 @@
 package org.pangrova.protocol.generation;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.ArtifactBinding;
@@ -20,7 +20,7 @@ public final class PublishedGenerationBindingChecksum {
         ArtifactBinding unsigned = binding.toBuilder().clearBindingChecksum().build();
         return unsigned.toBuilder().setBindingChecksum(Checksum.newBuilder()
                 .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
-                .setDigest(ByteString.copyFrom(DigestUtils.sha256().digest(unsigned.toByteArray()))))
+                .setDigest(ByteString.copyFrom(Sha256Digests.sha256().digest(unsigned.toByteArray()))))
                 .build();
     }
 
@@ -34,7 +34,7 @@ public final class PublishedGenerationBindingChecksum {
                     "artifact binding requires a SHA-256 binding checksum");
         }
         byte[] expected = binding.getBindingChecksum().getDigest().toByteArray();
-        byte[] actual = DigestUtils.sha256().digest(binding.toBuilder()
+        byte[] actual = Sha256Digests.sha256().digest(binding.toBuilder()
                 .clearBindingChecksum().build().toByteArray());
         if (!MessageDigest.isEqual(expected, actual)) {
             throw new IllegalArgumentException("artifact binding checksum mismatch");

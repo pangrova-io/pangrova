@@ -6,7 +6,7 @@ import org.apache.iceberg.data.parquet.GenericParquetReaders;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.parquet.Parquet;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.maintenance.ReclusterStageRequest;
 import org.pangrova.protocol.rest.maintenance.ReclusterStageResult;

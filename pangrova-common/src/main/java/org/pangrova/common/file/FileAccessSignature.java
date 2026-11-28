@@ -1,6 +1,6 @@
 package org.pangrova.common.file;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -27,7 +27,7 @@ public final class FileAccessSignature {
     /** Returns a URL-safe, unpadded HMAC over the encoded descriptor. */
     public static String sign(String secret, String encodedDescriptor) {
         requireSecret(secret);
-        byte[] digest = DigestUtils.hmacSha256(secret.getBytes(StandardCharsets.UTF_8))
+        byte[] digest = Sha256Digests.hmacSha256(secret.getBytes(StandardCharsets.UTF_8))
                 .doFinal(encodedDescriptor.getBytes(StandardCharsets.US_ASCII));
         return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
     }

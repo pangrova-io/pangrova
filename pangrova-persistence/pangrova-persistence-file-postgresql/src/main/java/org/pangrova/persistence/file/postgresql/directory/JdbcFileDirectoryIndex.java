@@ -11,7 +11,7 @@ import java.util.UUID;
 import javax.sql.DataSource;
 
 import org.pangrova.file.api.exception.FileStorageException;
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.persistence.file.api.directory.FileDirectoryIndex;
 import org.pangrova.file.api.directory.DirectoryRefresh;
@@ -51,13 +51,13 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
             query.setString(1, space.catalog());
             query.setString(2, space.schema());
             query.setString(3, space.name());
-            JdbcSupport.setInstant(query, 4, space.createdAt());
-            JdbcSupport.setInstant(query, 5, space.updatedAt());
+            JdbcOperations.setInstant(query, 4, space.createdAt());
+            JdbcOperations.setInstant(query, 5, space.updatedAt());
             query.setObject(6, space.id());
             try (var row = query.executeQuery()) {
                 if (!row.next()) throw invalid("Stage definition changed before directory binding");
                 return new FileDirectoryReference(row.getObject(1, UUID.class),
-                        JdbcSupport.getInstant(row, "updated_at"));
+                        JdbcOperations.getInstant(row, "updated_at"));
             }
         }
     }
@@ -79,8 +79,8 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
                         throw invalid("Stage directory is not enabled");
                     }
                     if (!row.getObject("file_space_id", UUID.class).equals(space.id())
-                            || !JdbcSupport.getInstant(row, "updated_at").equals(space.updatedAt())
-                            || !JdbcSupport.getInstant(row, "created_at").equals(space.createdAt())) {
+                            || !JdbcOperations.getInstant(row, "updated_at").equals(space.updatedAt())
+                            || !JdbcOperations.getInstant(row, "created_at").equals(space.createdAt())) {
                         throw invalid("Stage definition changed before refresh");
                     }
                     id = row.getObject("file_space_id", UUID.class);
@@ -92,7 +92,7 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
                     + "(file_space_id, refresh_id, space_updated_at, subpath) VALUES (?,?,?,?)")) {
                 insert.setObject(1, id);
                 insert.setObject(2, refresh);
-                JdbcSupport.setInstant(insert, 3, space.updatedAt());
+                JdbcOperations.setInstant(insert, 3, space.updatedAt());
                 insert.setString(4, prefix);
                 insert.executeUpdate();
             }
@@ -202,7 +202,7 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
                 try (var row = query.executeQuery()) {
                     while (row.next()) {
                         files.add(new FileStat(row.getString("relative_path"), row.getLong("size_bytes"),
-                                JdbcSupport.getInstant(row, "last_modified"), row.getString("etag"),
+                                JdbcOperations.getInstant(row, "last_modified"), row.getString("etag"),
                                 row.getString("content_type"), row.getString("provider_version"),
                                 row.getString("md5")));
                     }
@@ -222,7 +222,7 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
                 if (!row.next() || !row.getBoolean("directory_enabled")) {
                     throw invalid("Stage was dropped or its directory disabled");
                 }
-                revision = JdbcSupport.getInstant(row, "updated_at");
+                revision = JdbcOperations.getInstant(row, "updated_at");
             }
         }
         try (var query = connection.prepareStatement("SELECT * FROM file_directory_refresh "
@@ -233,7 +233,7 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
                 if (!row.next()) {
                     throw invalid("Directory refresh was superseded or finished");
                 }
-                if (!revision.equals(JdbcSupport.getInstant(row, "space_updated_at"))) {
+                if (!revision.equals(JdbcOperations.getInstant(row, "space_updated_at"))) {
                     throw invalid("Stage definition changed during directory refresh");
                 }
                 return new Progress(row.getString("subpath"), row.getString("next_page_token"),
@@ -246,7 +246,7 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
         statement.setObject(1, id);
         statement.setString(2, file.path());
         statement.setLong(3, file.size());
-        JdbcSupport.setInstant(statement, 4, file.lastModified());
+        JdbcOperations.setInstant(statement, 4, file.lastModified());
         statement.setString(5, file.etag());
         statement.setString(6, file.contentType());
         statement.setString(7, file.providerVersion());
@@ -260,7 +260,7 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
         }
     }
 
-    private <T> T transaction(JdbcSupport.SqlFunction<Connection, T> action) {
+    private <T> T transaction(JdbcOperations.SqlFunction<Connection, T> action) {
         try (var connection = source.getConnection()) {
             connection.setAutoCommit(false);
             try {

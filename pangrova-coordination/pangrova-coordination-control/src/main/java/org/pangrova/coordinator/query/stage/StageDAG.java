@@ -14,7 +14,7 @@ import org.pangrova.planner.analysis.PlanStage;
 import org.pangrova.planner.analysis.StageTransfer;
 import org.pangrova.planner.analysis.StageRuntimeFilter;
 import org.pangrova.shuffle.exchange.enums.ExchangeReadMode;
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Directed acyclic graph of execution stages.

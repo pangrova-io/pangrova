@@ -24,7 +24,7 @@ final class IcebergTableStatisticsReader {
         String tableId = handle.schemaName() + "." + handle.tableName();
         try {
             Table icebergTable = catalogTables.resolveTable(handle);
-            Snapshot snapshot = IcebergReadBindings.selectedSnapshot(icebergTable, handle);
+            Snapshot snapshot = IcebergReadBinder.selectedSnapshot(icebergTable, handle);
             if (snapshot == null) {
                 return new TableStatistics(0, 0, 0, java.util.Map.of());
             }

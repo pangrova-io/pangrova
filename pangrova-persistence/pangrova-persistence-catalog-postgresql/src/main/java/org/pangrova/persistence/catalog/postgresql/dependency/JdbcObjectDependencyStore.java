@@ -1,6 +1,6 @@
 package org.pangrova.persistence.catalog.postgresql.dependency;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyKey;
 import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyOrder;

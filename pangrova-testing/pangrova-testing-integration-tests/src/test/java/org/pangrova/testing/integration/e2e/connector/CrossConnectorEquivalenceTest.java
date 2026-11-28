@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.connector;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.fixture.WriteTestHelper;
+import org.pangrova.testing.integration.e2e.fixture.SqlTestRowWriter;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -370,11 +370,11 @@ class CrossConnectorEquivalenceTest extends SqlE2ETestBase {
     // -----------------------------------------------------------------------
 
     private void insertRows(String fqn, List<TypedRow> rows) {
-        WriteTestHelper.insertRows(sqlRunner, fqn, rows);
+        SqlTestRowWriter.insertRows(sqlRunner, fqn, rows);
     }
 
     private List<TypedRow> buildRows(int startId, int endId) {
-        return WriteTestHelper.buildRows(startId, endId);
+        return SqlTestRowWriter.buildRows(startId, endId);
     }
 
     private List<TypedRow> buildRowsWithCategory(int startId, int endId) {

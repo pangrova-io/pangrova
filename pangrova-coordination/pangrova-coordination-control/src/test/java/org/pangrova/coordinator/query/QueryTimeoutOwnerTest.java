@@ -103,7 +103,7 @@ class QueryTimeoutOwnerTest {
                 assertThat(state.getError()).isEmpty();
             } finally {
                 release.countDown();
-                org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, 3000);
+                org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(executor, 3000);
             }
         }
     }

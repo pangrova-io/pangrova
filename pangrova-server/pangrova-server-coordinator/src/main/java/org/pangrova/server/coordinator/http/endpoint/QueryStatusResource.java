@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.http.endpoint;
 
 import org.pangrova.query.api.enums.StageState;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;

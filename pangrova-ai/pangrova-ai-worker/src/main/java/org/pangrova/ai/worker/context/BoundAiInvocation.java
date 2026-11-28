@@ -6,7 +6,7 @@ import org.pangrova.ai.api.capability.AiRequestConstraints;
 
 import java.util.Arrays;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Exact control-plane binding for one AI expression invocation. */
 public record BoundAiInvocation(

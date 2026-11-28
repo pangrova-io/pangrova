@@ -10,12 +10,21 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.NativeResultDeliveryStats;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskReport;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
 public final class SqlProcessComparison {
     private static final Pattern VALUE = Pattern.compile("(?m)^\\|\\s*42\\s*\\|\\s*$");
+    private static final String JOURNAL_SELECT = "SELECT%FROM query_state_journal%";
+    private static final String JOURNAL_INSERT = "%INSERT INTO query_state_journal%";
+    private static final String CATALOG_SELECT = "SELECT%FROM catalog_definitions%";
+    private static final String ATOMIC_QUERY_RETIREMENT =
+            "WITH owner(execution_id,%FROM removed%DELETE FROM task_state_journal j USING removed r%"
+                    + "DELETE FROM query_state_journal q USING removed r%";
+
     public static void main(String[] arguments) throws Exception {
         int warmup = Integer.parseInt(arguments[0]);
         int iterations = Integer.parseInt(arguments[1]);
@@ -26,28 +35,37 @@ public final class SqlProcessComparison {
             processes.startCoordinatorAndFirstWorker();
             String table = "spec_catalog.default.perf_" + UUID.randomUUID().toString().replace("-", "");
             processes.createSourceCatalog();
-            processes.query("CREATE TABLE " + table + " (id BIGINT)", ResultProtocol.GRPC_TLS);
+            processes.command("CREATE TABLE " + table + " (id BIGINT)", ResultProtocol.GRPC_TLS);
             for (int part = 0; part < 3; part++) {
-                processes.query("INSERT INTO " + table + " VALUES (4), (5), (5)", ResultProtocol.GRPC_TLS);
+                processes.command("INSERT INTO " + table + " VALUES (4), (5), (5)", ResultProtocol.GRPC_TLS);
             }
             processes.startSecondWorker();
+            processes.enableMetadataStatementCounters();
             String[] queries = {"SELECT 21 + 21 AS answer", "SELECT SUM(id) AS answer FROM " + table};
             csv.println("iteration,workload,client_elapsed_ns,query_id,physical_drain_observation_delay_ns,"
                     + "drained_tasks,tasks_with_stats,max_operator_peak_bytes,consumer_wait_ms,spill_bytes,"
-                    + "status_http_responses,status_request_body_bytes,status_response_body_bytes,tenant_slots");
+                    + "status_http_responses,status_request_body_bytes,status_response_body_bytes,tenant_slots,"
+                    + "read_stats_tasks,native_requested_bytes,native_returned_bytes,native_payload_calls,"
+                    + "native_metadata_calls,native_failed_read_calls,s3_sdk_attempts,s3_sdk_retries,"
+                    + "s3_response_body_bytes,flight_payload_batches,flight_first_payload_ns,flight_producer_eof_ns,"
+                    + "flight_transport_complete_ns,journal_select_calls,journal_insert_calls,catalog_select_calls,"
+                    + "atomic_query_retirements");
             for (int i = -warmup; i < iterations; i++) {
                 for (int offset = 0; offset < 2; offset++) {
                     int index = Math.floorMod(i + offset, 2);
+                    DatabaseCounts before = i >= 0 ? DatabaseCounts.read(processes) : null;
                     long start = System.nanoTime();
                     IndependentLocalProcesses.QueryResult result = processes.query(queries[index], ResultProtocol.GRPC_TLS);
                     long elapsed = System.nanoTime() - start;
                     if (!VALUE.matcher(result.output()).find() || !result.output().contains("1 row")) {
                         throw new AssertionError("Unexpected SQL result " + result.queryId() + ": " + result.output());
                     }
+                    var resources = resources(processes, result.queryId());
                     if (i >= 0) {
-                        var resources = resources(processes, result.queryId());
-                        csv.printf(Locale.ROOT, "%d,%s,%d,%s,%d,%s%n", i, index == 0 ? "constant" : "iceberg-sum",
-                                elapsed, result.queryId(), System.nanoTime() - start - elapsed, resources);
+                        long drainDelay = System.nanoTime() - start - elapsed;
+                        var database = DatabaseCounts.read(processes);
+                        csv.printf(Locale.ROOT, "%d,%s,%d,%s,%d,%s,%s%n", i, index == 0 ? "constant" : "iceberg-sum",
+                                elapsed, result.queryId(), drainDelay, resources, database.deltaFrom(before));
                         csv.flush();
                         if (csv.checkError()) throw new IllegalStateException("Could not save accepted sample");
                     }
@@ -63,6 +81,7 @@ public final class SqlProcessComparison {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (true) {
             var drained = new HashMap<String, TaskReport>();
+            var flight = new HashMap<TaskAttemptId, NativeResultDeliveryStats>();
             var seen = new java.util.HashSet<String>();
             long requests = 0;
             long responses = 0;
@@ -77,12 +96,16 @@ public final class SqlProcessComparison {
                 count++;
                 if (response.statusCode() != 200 || delivery.report().canonicalTaskReport() == null) continue;
                 var task = TaskReport.parseFrom(delivery.report().canonicalTaskReport());
+                if (task.hasNativeResultDelivery()) {
+                    flight.put(task.getAttempt(), task.getNativeResultDelivery());
+                }
                 if (task.getExecutionDrainState() == ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
                     drained.put(delivery.report().taskId(), task);
                 }
             }
             int active = processes.activeTenantReservations();
-            if (!seen.isEmpty() && drained.keySet().equals(seen) && active == 0) {
+            if (!seen.isEmpty() && drained.keySet().equals(seen) && active == 0
+                    && processes.status(queryId).drained()) {
                 long maxOperatorPeak = 0;
                 long consumerWait = 0;
                 long spill = 0;
@@ -95,10 +118,14 @@ public final class SqlProcessComparison {
                     spill += stats.getSpillBytes();
                     statsCount++;
                 }
-                return String.format(Locale.ROOT, "%d,%d,%s,%s,%s,%d,%d,%d,%d",
+                if (flight.size() > 1) {
+                    throw new AssertionError("Expected one OUTPUT attempt for SQL comparison " + queryId);
+                }
+                return String.format(Locale.ROOT, "%d,%d,%s,%s,%s,%d,%d,%d,%d,%s,%s",
                         drained.size(), statsCount, statsCount == 0 ? "" : maxOperatorPeak,
                         statsCount == 0 ? "" : consumerWait, statsCount == 0 ? "" : spill,
-                        count, requests, responses, active);
+                        count, requests, responses, active, readCounters(drained.values()),
+                        flightCounters(flight.values().stream().findFirst().orElse(null)));
             }
             if (System.nanoTime() >= deadline) {
                 throw new AssertionError("Incomplete release query=" + queryId + " seen=" + seen
@@ -107,4 +134,60 @@ public final class SqlProcessComparison {
             Thread.sleep(50);
         }
     }
+
+    private static String readCounters(java.util.Collection<TaskReport> reports) {
+        long requested = 0;
+        long returned = 0;
+        long payloadCalls = 0;
+        long metadataCalls = 0;
+        long failedCalls = 0;
+        long s3Attempts = 0;
+        long s3Retries = 0;
+        long s3Bytes = 0;
+        int observed = 0;
+        for (var report : reports) {
+            if (!report.hasNativeObjectReads()) continue;
+            var reads = report.getNativeObjectReads();
+            observed++;
+            requested += reads.getRequestedBytes();
+            returned += reads.getReturnedBytes();
+            payloadCalls += reads.getPayloadCalls();
+            metadataCalls += reads.getMetadataCalls();
+            failedCalls += reads.getFailedCalls();
+            s3Attempts += reads.getS3SdkAttempts();
+            s3Retries += reads.getS3SdkRetries();
+            s3Bytes += reads.getS3ResponseBodyBytes();
+        }
+        return observed == 0 ? "0,,,,,,,," : String.format(Locale.ROOT, "%d,%d,%d,%d,%d,%d,%d,%d,%d",
+                observed, requested, returned, payloadCalls, metadataCalls, failedCalls, s3Attempts, s3Retries,
+                s3Bytes);
+    }
+
+    private static String flightCounters(NativeResultDeliveryStats delivery) {
+        if (delivery == null) return ",,,";
+        return String.format(Locale.ROOT, "%d,%s,%d,%d", delivery.getPayloadBatches(),
+                delivery.hasFirstPayloadNanos() ? delivery.getFirstPayloadNanos() : "",
+                delivery.getProducerEofNanos(), delivery.getTransportCompleteNanos());
+    }
+
+    private record DatabaseCounts(long journalSelects, long journalInserts, long catalogSelects,
+            long atomicQueryRetirements) {
+        static DatabaseCounts read(IndependentLocalProcesses processes) throws java.sql.SQLException {
+            return new DatabaseCounts(processes.metadataStatementCalls(JOURNAL_SELECT),
+                    processes.metadataStatementCalls(JOURNAL_INSERT), processes.metadataStatementCalls(CATALOG_SELECT),
+                    processes.metadataStatementCalls(ATOMIC_QUERY_RETIREMENT));
+        }
+
+        String deltaFrom(DatabaseCounts before) {
+            long reads = journalSelects - before.journalSelects;
+            long retirements = atomicQueryRetirements - before.atomicQueryRetirements;
+            if (reads != 0 || retirements != 1) {
+                throw new AssertionError("Expected zero journal reads and one atomic retirement, observed reads="
+                        + reads + " retirements=" + retirements);
+            }
+            return String.format(Locale.ROOT, "%d,%d,%d,%d", reads,
+                    journalInserts - before.journalInserts, catalogSelects - before.catalogSelects, retirements);
+        }
+    }
+
 }

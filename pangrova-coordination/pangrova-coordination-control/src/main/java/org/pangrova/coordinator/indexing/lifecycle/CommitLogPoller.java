@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.persistence.indexing.api.metadata.CommitLogEntry;
 import org.pangrova.persistence.indexing.api.metadata.IndexCommitLog;
 import org.pangrova.connector.api.enums.CommitEventType;

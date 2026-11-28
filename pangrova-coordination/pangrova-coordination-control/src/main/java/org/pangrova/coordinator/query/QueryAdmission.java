@@ -6,7 +6,7 @@ import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.session.QuerySession;
 
 import java.util.concurrent.ConcurrentHashMap;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.planner.throttle.QueryThrottlingService;
 import org.pangrova.planner.throttle.ThrottlePermit;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;

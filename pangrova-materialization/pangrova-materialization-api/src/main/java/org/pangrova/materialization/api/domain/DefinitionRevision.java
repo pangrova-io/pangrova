@@ -3,7 +3,7 @@ package org.pangrova.materialization.api.domain;
 import org.pangrova.materialization.api.enums.SecurityMode;
 import org.pangrova.materialization.api.exception.MaterializationException;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -13,7 +13,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import org.pangrova.connector.api.materialization.SourceRef;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Immutable definition revision of a materialization.
@@ -176,7 +176,7 @@ public record DefinitionRevision(
                         .append(dependency.upstream().canonicalName())
                         .append(':')
                         .append(dependency.kind()));
-        return DigestUtils.sha256Hex(canonical.toString());
+        return Sha256Digests.sha256Hex(canonical.toString());
     }
 
     /**

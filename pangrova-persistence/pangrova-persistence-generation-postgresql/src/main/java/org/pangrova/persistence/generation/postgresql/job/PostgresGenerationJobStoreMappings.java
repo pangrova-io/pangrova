@@ -1,6 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries;
 
@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
 
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
 abstract class PostgresGenerationJobStoreMappings {
@@ -184,7 +184,7 @@ abstract class PostgresGenerationJobStoreMappings {
     }
 
     protected static byte[] sha256(byte[] bytes) {
-        return DigestUtils.sha256().digest(bytes);
+        return Sha256Digests.sha256().digest(bytes);
     }
 
     protected static void bindLeaseIdentity(

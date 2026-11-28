@@ -1,7 +1,7 @@
 package org.pangrova.materialization.api.domain;
 
-import org.pangrova.common.util.DigestUtils;
-import org.pangrova.common.util.Utf8Order;
+import org.pangrova.common.crypto.Sha256Digests;
+import org.pangrova.common.text.Utf8Order;
 
 import java.util.Comparator;
 import java.util.Map;
@@ -83,7 +83,7 @@ public record SourceVector(Map<SourceRef, SourceSnapshotRef> snapshots, long can
                             .append(':')
                             .append(snapshot.policyFingerprint());
                 });
-        return DigestUtils.sha256Hex(canonical.toString());
+        return Sha256Digests.sha256Hex(canonical.toString());
     }
 
     /**

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.statement.StatementTableTargets;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.observability.api.tracing.ExecutionTraceContext;
 import org.pangrova.observability.api.tracing.Scope;
 

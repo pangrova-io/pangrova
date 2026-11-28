@@ -4,7 +4,7 @@ import com.aliyun.sdk.service.oss2.hash.CRC64;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
 
 import javax.net.ssl.KeyManagerFactory;

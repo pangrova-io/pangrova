@@ -3,14 +3,14 @@ package org.pangrova.persistence.indexing.postgresql.metadata;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.persistence.indexing.api.metadata.IndexDescriptors.MaintenancePage;
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 
 import javax.sql.DataSource;
 import java.time.Instant;
 import java.util.List;
 
 /** Durable keyset progress; descriptor mutations remain owned by lifecycle fences. */
-final class JdbcIndexMaintenanceScanStore extends JdbcStoreSupport {
+final class JdbcIndexMaintenanceScanStore extends JdbcIndexMetadataStoreBase {
     private static final String PAGE_PREFIX = "SELECT * FROM index_descriptors WHERE state=? AND index_id<=? ";
     private static final String PAGE_SUFFIX = "ORDER BY index_id LIMIT ?";
     private static final String FIRST_PAGE = PAGE_PREFIX + PAGE_SUFFIX;
@@ -50,7 +50,7 @@ final class JdbcIndexMaintenanceScanStore extends JdbcStoreSupport {
             ps.setString(2, upperIndexId);
             int parameter = 3;
             if (lastIndexId != null) ps.setString(parameter++, lastIndexId);
-            if (cutoff != null) JdbcSupport.setInstant(ps, parameter++, exclusiveCutoff(cutoff));
+            if (cutoff != null) JdbcOperations.setInstant(ps, parameter++, exclusiveCutoff(cutoff));
             ps.setInt(parameter, limit);
         };
         if (lastIndexId == null) {
@@ -79,7 +79,7 @@ final class JdbcIndexMaintenanceScanStore extends JdbcStoreSupport {
     private static Instant exclusiveCutoff(Instant cutoff) {
         // Stored timestamps lie on the microsecond grid. A sub-microsecond cutoff
         // includes the preceding grid point, so ceil before binding a strict <.
-        Instant canonical = JdbcSupport.canonicalInstant(cutoff);
+        Instant canonical = JdbcOperations.canonicalInstant(cutoff);
         return canonical.equals(cutoff) ? canonical : canonical.plusNanos(1_000);
     }
 

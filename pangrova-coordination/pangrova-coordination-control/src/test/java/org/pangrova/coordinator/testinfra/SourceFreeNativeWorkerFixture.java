@@ -37,7 +37,7 @@ import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.memory.NativeMemoryCoordinator;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.result.ResultReadTickets;
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TaskManagerContext;
 import org.pangrova.worker.task.TransportRefs;
@@ -141,7 +141,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
         }
         var exchange = new NativeExchangeTransport(executor);
         var context = new TaskManagerContext(this::report, executor, memory,
-                new TransportRefs(new NativeShuffleProducerRegistration(executor::executeCommand, LOOPBACK_HOST, ""), results, exchange), monitors);
+                new TransportRefs(new NativeShuffleProducerRegistrar(executor::executeCommand, LOOPBACK_HOST, ""), results, exchange), monitors);
         var admissionIncarnation = org.pangrova.common.lifecycle.ProcessIncarnationStore.open(
                 admissionDirectory.resolve(java.net.URLEncoder.encode(id, java.nio.charset.StandardCharsets.UTF_8)));
         admissionIncarnations.add(admissionIncarnation);

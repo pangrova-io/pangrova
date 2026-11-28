@@ -8,7 +8,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.RowField;
 import org.pangrova.types.RowType;
 import org.pangrova.types.Type;
@@ -33,7 +33,7 @@ final class LanceFixtureSchema {
         var schema = Schema.deserializeMessage(ByteBuffer.wrap(ipc));
         var columns = schema.getFields().stream().map(field -> {
             var type = type(field);
-            return new ConnectorTableMetadata.Column(field.getName(), PangrovaTypeMapping.toPangrovaType(type),
+            return new ConnectorTableMetadata.Column(field.getName(), PangrovaTypeConverter.toPangrovaType(type),
                     OptionalInt.empty(), type);
         }).toList();
         return new ConnectorTableMetadata(table, columns.stream().map(ConnectorTableMetadata.Column::name).toList(),
@@ -80,7 +80,7 @@ final class LanceFixtureSchema {
         }
         if (arrow instanceof ArrowType.FixedSizeList vector) {
             if (field.getChildren().size() != 1) throw new IllegalArgumentException("Malformed vector schema");
-            var element = PangrovaTypeMapping.toPangrovaType(type(field.getChildren().get(0)));
+            var element = PangrovaTypeConverter.toPangrovaType(type(field.getChildren().get(0)));
             return new VectorType(vector.getListSize(), switch (element) {
                 case FLOAT -> VectorElementType.FLOAT;
                 case DOUBLE -> VectorElementType.DOUBLE;
@@ -95,5 +95,5 @@ final class LanceFixtureSchema {
         throw new IllegalArgumentException("Unsupported actual fixture Arrow type: " + arrow);
     }
 
-    private static Type scalar(PangrovaType type) { return PangrovaTypeMapping.toType(type); }
+    private static Type scalar(PangrovaType type) { return PangrovaTypeConverter.toType(type); }
 }

@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.result;
 
 import org.apache.arrow.flight.FlightProducer.ServerStreamListener;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 

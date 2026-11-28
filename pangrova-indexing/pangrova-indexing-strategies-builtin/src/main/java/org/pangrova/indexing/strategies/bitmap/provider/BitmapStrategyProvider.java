@@ -3,7 +3,7 @@ package org.pangrova.indexing.strategies.bitmap.provider;
 import org.pangrova.indexing.api.codec.TypeSerializer;
 import org.pangrova.indexing.strategies.bitmap.serializer.BitmapSerializer;
 
-import org.pangrova.indexing.strategies.normalize.IndexValueNormalizer;
+import org.pangrova.indexing.strategies.normalization.IndexValueNormalizer;
 import org.pangrova.indexing.strategies.bitmap.serializer.ContainerAccumulator;
 import org.pangrova.indexing.strategies.bitmap.serializer.RoaringBitmapCodec;
 import org.pangrova.connector.api.enums.IndexEvalResult;

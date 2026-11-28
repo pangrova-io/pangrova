@@ -1,6 +1,6 @@
 package org.pangrova.persistence.security.postgresql.rowfilter;
 
-import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
+import org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -19,7 +19,7 @@ import org.pangrova.persistence.security.api.rowfilter.IdentityRowPolicyStore;
  * {@code EmptyRowPolicyStore} in production once RLS is enabled, so authored policies actually load
  * and enforce. Selected by {@code SecurityBootstrap} per config; until then RLS remains inert.
  */
-public final class JdbcRowPolicyStore extends JdbcPolicyStoreSupport implements IdentityRowPolicyStore {
+public final class JdbcRowPolicyStore extends JdbcPolicyStoreBase implements IdentityRowPolicyStore {
 
     public JdbcRowPolicyStore(DataSource dataSource) {
         super(dataSource);

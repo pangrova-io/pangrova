@@ -4,7 +4,7 @@ import javax.sql.DataSource;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
@@ -89,7 +89,7 @@ final class GeneratedSqlPublicationAssertions {
     private static void requireFencedReport(ResultSet row) throws SQLException {
         byte[] bytes = row.getBytes("report_bytes");
         assertThat(bytes).isNotEmpty();
-        assertThat(DigestUtils.sha256Hex(bytes)).isEqualTo(row.getString("report_sha256"));
+        assertThat(Sha256Digests.sha256Hex(bytes)).isEqualTo(row.getString("report_sha256"));
         TaskReport report;
         try {
             report = TaskReport.parseFrom(bytes);

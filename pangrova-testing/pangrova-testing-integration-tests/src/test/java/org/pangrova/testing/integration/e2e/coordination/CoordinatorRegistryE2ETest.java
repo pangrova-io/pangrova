@@ -4,13 +4,13 @@ import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
-import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
+import org.pangrova.persistence.jdbc.datasource.DriverManagerDataSource;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.testing.integration.e2e.fixture.RegistryTestSchemaHelper;
+import org.pangrova.testing.integration.e2e.fixture.RegistryPostgresFixture;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;
-import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
+import org.pangrova.testing.integration.e2e.fixture.schema.MetadataSchemaInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -48,11 +48,11 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        var pg = RegistryTestSchemaHelper.requirePostgres();
+        var pg = RegistryPostgresFixture.requirePostgres();
         dataSource = new DriverManagerDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
         MetadataSchemaInitializer.createSchema(dataSource);
-        RegistryTestSchemaHelper.truncateAll(dataSource, "coordinator_registry");
+        RegistryPostgresFixture.truncateAll(dataSource, "coordinator_registry");
         registry = new JdbcCoordinatorRegistry(dataSource);
         lease = new TestLeaseNamespace().jdbc(dataSource);
     }

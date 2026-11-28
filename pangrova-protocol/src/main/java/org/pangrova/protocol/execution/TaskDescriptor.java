@@ -2,7 +2,7 @@ package org.pangrova.protocol.execution;
 
 import org.pangrova.execution.api.identity.QueryId;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import java.util.List;
 import java.util.Map;

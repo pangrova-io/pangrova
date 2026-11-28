@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.Set;
 
 import io.grpc.ManagedChannel;
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /** Worker-wide credits for owned ManagedChannels, including creation and failed joins. */
 @ThreadSafe

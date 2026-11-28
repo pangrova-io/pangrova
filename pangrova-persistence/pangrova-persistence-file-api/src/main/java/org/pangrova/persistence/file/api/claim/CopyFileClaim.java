@@ -1,6 +1,6 @@
 package org.pangrova.persistence.file.api.claim;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -12,7 +12,7 @@ import java.util.HexFormat;
 import java.util.UUID;
 import org.pangrova.common.file.CopyFileCommitBinding;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable identity and admission evidence for one versioned S3 file load. */
 @Experimental
@@ -44,7 +44,7 @@ public record CopyFileClaim(
         if (sourceVersionId.getBytes(StandardCharsets.UTF_8).length > MAX_S3_VERSION_BYTES) {
             throw new IllegalArgumentException("sourceVersionId exceeds the S3 version byte limit");
         }
-        if (!DigestUtils.isSha256Hex(sourceSha256)) {
+        if (!Sha256Digests.isSha256Hex(sourceSha256)) {
             throw new IllegalArgumentException("sourceSha256 must be lowercase SHA-256 hex");
         }
         if (sourceSize < 0) {
@@ -131,7 +131,7 @@ public record CopyFileClaim(
     }
 
     private static String digest(String domain, String... components) {
-        MessageDigest hash = DigestUtils.sha256();
+        MessageDigest hash = Sha256Digests.sha256();
         byte[] domainBytes = domain.getBytes(StandardCharsets.UTF_8);
         hash.update(ByteBuffer.allocate(Integer.BYTES).putInt(domainBytes.length).array());
         hash.update(domainBytes);

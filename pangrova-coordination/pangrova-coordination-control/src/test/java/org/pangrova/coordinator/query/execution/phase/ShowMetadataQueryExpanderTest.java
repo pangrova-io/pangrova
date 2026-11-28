@@ -6,7 +6,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.planner.analysis.MetadataTableQuery;
 import org.pangrova.connector.api.enums.MetadataTableKind;
 import org.pangrova.connector.api.metadata.MetadataTableListing;

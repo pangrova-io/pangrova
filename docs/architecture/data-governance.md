@@ -521,7 +521,7 @@ captured control owner and cannot retarget to a replacement UUID. These admissio
 checks do not close concurrent external schema evolution after admission: durable
 field-bound policies and query-bound consumers remain required.
 
-`governance.core.classification.ColumnTagBindings` persists one `COLUMN_TAG` governance binding with stable table
+`governance.core.classification.ColumnTagAuthority` persists one `COLUMN_TAG` governance binding with stable table
 identity and framed `(column, tag key)` reference. `TableControlColumnMaskStore` combines
 identity-bound authored masks with mandatory PII masks derived from these bindings.
 `ColumnMaskingProcessor` renders their SQL through the same typed operator contracts

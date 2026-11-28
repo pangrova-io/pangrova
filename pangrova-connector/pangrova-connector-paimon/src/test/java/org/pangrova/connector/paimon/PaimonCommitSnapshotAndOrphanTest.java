@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+import org.pangrova.testfixtures.tableformat.PaimonCommitFixture;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
@@ -186,7 +186,7 @@ class PaimonCommitSnapshotAndOrphanTest {
         } finally {
             sink.close();
         }
-        var context = PaimonCommitTestSupport.context(
+        var context = PaimonCommitFixture.context(
                 metadata, SESSION, handle, List.of(fragment));
         AtomicInteger deliveries = new AtomicInteger();
         AtomicReference<CommitEvent> replayed = new AtomicReference<>();
@@ -237,7 +237,7 @@ class PaimonCommitSnapshotAndOrphanTest {
         ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, outputHandle);
         sink.appendPage(new Page(List.of("id", "val"), rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        PaimonCommitTestSupport.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
+        PaimonCommitFixture.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
         sink.close();
     }
 

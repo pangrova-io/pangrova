@@ -10,9 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.parser.api.ast.Query;
 import org.pangrova.parser.api.ast.SetQuery;
-import org.pangrova.parser.parse.TimeTravelSqlClauses;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.pangrova.planner.rewrite.DynamicTableAstRewriter;
 

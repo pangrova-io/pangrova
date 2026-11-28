@@ -22,10 +22,10 @@ import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
-import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generatedvalue.GeneratedValueBuildDescriptor;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
-import org.pangrova.generation.execution.template.FrozenStageBindings;
+import org.pangrova.generation.execution.template.GenerationStageTemplateCodec;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.persistence.generation.postgresql.publication.JdbcGeneratedValuePublicationStore;
 import org.pangrova.protocol.generation.PublishedGenerationBindingChecksum;
@@ -229,7 +229,7 @@ class GeneratedValuePublicationIntegrationTest {
         var output = sink.getOutputArtifact().toBuilder().setArtifactId("consumer-artifact")
                 .setGeneration("consumer-generation").setStagingUri("s3://warehouse/consumer-generation").build();
         byte[] plan = original.stageGraph().requireStage(0).planBytes();
-        var template = FrozenStageBindings.freeze(new BoundExecutionPlan(plan,
+        var template = GenerationStageTemplateCodec.freeze(new BoundExecutionPlan(plan,
                 List.of(read, sink.toBuilder().setOutputArtifact(output).build())), List.of());
         var stage = GenerationStageGraph.StagePlan.of(0, partitions.size(), GenerationPageKind.SOURCE_MAP,
                 plan, template, List.of(SOURCE_ID), List.of("embedding"), true);

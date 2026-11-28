@@ -11,7 +11,7 @@ import org.pangrova.connector.api.materialization.SourceSnapshotRef;
  * <p>Durable pin rows are written before the physical holds are acquired, so a
  * crash can leave a row without a matching provider hold. Recovery therefore
  * reconstructs the hold from durable state and relies on the documented
- * idempotency of {@link SourcePinning#unpin}.
+ * idempotency of {@link SourceSnapshotPinner#unpin}.
  *
  * @param tenant tenant on whose behalf the source was read
  * @param attempt attempt that acquired the pin

@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.RowField;
 import org.pangrova.types.RowType;
 import org.pangrova.types.Type;
@@ -35,7 +35,7 @@ class LanceOutputHandleCodecTest {
                 new RowType(List.of(new RowField("text", new CharType(17)), new RowField("id", IntegerType.INSTANCE))));
         List<LanceColumn> columns = java.util.stream.IntStream.range(0, types.size()).mapToObj(index ->
                 LanceColumn.from(new ConnectorTableMetadata.Column("col" + index,
-                        PangrovaTypeMapping.toPangrovaType(types.get(index)), OptionalInt.empty(), types.get(index)))).toList();
+                        PangrovaTypeConverter.toPangrovaType(types.get(index)), OptionalInt.empty(), types.get(index)))).toList();
         LanceTableHandle table = new LanceTableHandle("lance_catalog", "tenant-1", new SchemaTableName("db", "vectors"),
                 "table-1", "s3://warehouse/table-1.lance", columns, Map.of("b", "2", "a", "1"), new byte[32], 0, 1, 0);
         var allocation = new NativeWriteAllocation(table.datasetUri(), NativeWriteOperation.CREATE,

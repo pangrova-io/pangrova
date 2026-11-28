@@ -1,6 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -26,7 +26,7 @@ public record SourcePrepareInvocation(String executionId, String fingerprint, St
 
     private static void requireExecutionIdentity(String executionId, String fingerprint, String invocationId) {
         if (executionId == null || executionId.isBlank() || fingerprint == null
-                || !DigestUtils.isSha256Hex(fingerprint) || invocationId == null
+                || !Sha256Digests.isSha256Hex(fingerprint) || invocationId == null
                 || !invocationId.matches("[0-9a-f]{32}")) {
             throw new IllegalArgumentException("Incomplete preparation issuance identity");
         }

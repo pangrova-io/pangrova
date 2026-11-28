@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.http.endpoint;
 
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;

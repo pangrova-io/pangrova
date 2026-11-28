@@ -21,8 +21,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.api.lifecycle.QueryOperation;
@@ -225,11 +225,11 @@ public class QueryStateMachine {
     private final CompletableFuture<Boolean> ownershipReady;
     private final boolean locallySubmitted;
     /** A reserved terminal transition; waiters join only after leaving this monitor. */
-    @org.pangrova.common.concurrent.GuardedBy("this")
+    @org.pangrova.common.concurrency.GuardedBy("this")
     private CompletableFuture<Void> terminalTransitionPending;
-    @org.pangrova.common.concurrent.GuardedBy("this")
+    @org.pangrova.common.concurrency.GuardedBy("this")
     private QueryState pendingTransitionTarget;
-    @org.pangrova.common.concurrent.GuardedBy("this")
+    @org.pangrova.common.concurrency.GuardedBy("this")
     private QueryConnectorAuthority connectorAuthority;
 
     /** Binds exactly once to this query's real issued scope, never to a later query-ID lookup. */

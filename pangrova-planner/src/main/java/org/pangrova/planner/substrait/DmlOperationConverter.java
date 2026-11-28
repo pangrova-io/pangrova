@@ -4,7 +4,7 @@ import org.pangrova.planner.exception.SubstraitConversionException;
 
 import org.pangrova.planner.metadata.PlanTable;
 
-import static org.pangrova.planner.substrait.DmlMergeJoinSupport.swapToTargetFirstLeftJoin;
+import static org.pangrova.planner.substrait.DmlMergeJoinRewriter.swapToTargetFirstLeftJoin;
 
 import io.substrait.relation.Rel;
 import org.apache.calcite.rel.RelNode;

@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle.generation;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
@@ -121,7 +121,7 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
                         .reduce(0, Math::addExact),
                 partitions.stream().mapToLong(GenerationExchangeFinalization.Partition::totalRows).reduce(0,
                         Math::addExact),
-                DigestUtils.sha256Hex(response));
+                Sha256Digests.sha256Hex(response));
         GenerationExchangeEvidenceCodec.requireRegistration(proof, allocation);
         store.finalizeExchange(job, owner, proof, response);
     }

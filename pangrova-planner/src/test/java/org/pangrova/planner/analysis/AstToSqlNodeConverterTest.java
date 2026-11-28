@@ -18,8 +18,8 @@ import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
 import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
 import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
-import org.pangrova.planner.parse.AstToSqlNodeConverter;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.AstToSqlNodeConverter;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 import org.apache.calcite.sql.*;
 import org.junit.jupiter.api.Test;
 

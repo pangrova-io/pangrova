@@ -7,7 +7,7 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
-import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+import org.pangrova.testfixtures.tableformat.PaimonCommitFixture;
 import org.pangrova.types.value.TypedRow;
 
 import java.util.List;
@@ -15,7 +15,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Proves Paimon preserves CDC row kinds in one merge commit. */
-class PaimonCdcMergeCommitTest extends PaimonDeleteTestSupport {
+class PaimonCdcMergeCommitTest extends PaimonDeleteFixture {
 
     @Test
     void updateBeforeAndAfterCommitAsOneMergeSnapshot() throws Exception {
@@ -47,7 +47,7 @@ class PaimonCdcMergeCommitTest extends PaimonDeleteTestSupport {
         }
 
         assertThat(readRows()).containsExactlyInAnyOrder(original, survivor);
-        PaimonCommitTestSupport.finish(metadata, SESSION, output, List.of(fragment));
+        PaimonCommitFixture.finish(metadata, SESSION, output, List.of(fragment));
 
         assertThat(readRows()).containsExactlyInAnyOrder(updated, survivor);
     }

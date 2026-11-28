@@ -48,7 +48,7 @@ public final class MetadataResolvedTable extends AbstractTable {
         return new MetadataResolvedTable(binding, binding, () -> binding.get().statistics());
     }
 
-    static MetadataResolvedTable fromReadBinding(PlanningReadBindings bindings, QualifiedTableName table,
+    static MetadataResolvedTable fromReadBinding(PlanningReadBindingResolver bindings, QualifiedTableName table,
             ConnectorReadDiscovery discovery) {
         return new MetadataResolvedTable(() -> bindings.selectedRead(table, discovery),
                 () -> bindings.resolve(table, discovery)

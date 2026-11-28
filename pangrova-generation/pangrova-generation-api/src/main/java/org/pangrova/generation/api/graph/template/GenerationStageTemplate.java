@@ -1,6 +1,6 @@
 package org.pangrova.generation.api.graph.template;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.Base64;
@@ -21,7 +21,7 @@ public record GenerationStageTemplate(int version, String bindingsBase64, String
             throw new IllegalArgumentException("Durable stage template requires format 2; explicitly rebuild old jobs");
         }
         byte[] bindings = decode(bindingsBase64, true);
-        if (!DigestUtils.matchesSha256(bindings, bindingsSha256)) {
+        if (!Sha256Digests.matchesSha256(bindings, bindingsSha256)) {
             throw new IllegalArgumentException("Stage binding template checksum differs");
         }
         resultTypesBase64 = List.copyOf(resultTypesBase64);
@@ -45,7 +45,7 @@ public record GenerationStageTemplate(int version, String bindingsBase64, String
     public static GenerationStageTemplate of(byte[] bindings, List<byte[]> resultTypes, List<PublicationRead> reads) {
         Objects.requireNonNull(bindings, "bindings");
         return new GenerationStageTemplate(FORMAT_VERSION, Base64.getEncoder().encodeToString(bindings),
-                DigestUtils.sha256Hex(bindings), resultTypes.stream()
+                Sha256Digests.sha256Hex(bindings), resultTypes.stream()
                         .map(bytes -> Base64.getEncoder().encodeToString(bytes)).toList(), reads);
     }
 
@@ -61,7 +61,7 @@ public record GenerationStageTemplate(int version, String bindingsBase64, String
             for (String value : List.of(artifactId, generation, sourceId, sourceSnapshot)) {
                 if (value.isBlank()) throw new IllegalArgumentException("Published stage input identity must be exact");
             }
-            if (!DigestUtils.isSha256Hex(manifestSha256)) {
+            if (!Sha256Digests.isSha256Hex(manifestSha256)) {
                 throw new IllegalArgumentException("Published stage input requires one exact manifest SHA-256");
             }
         }

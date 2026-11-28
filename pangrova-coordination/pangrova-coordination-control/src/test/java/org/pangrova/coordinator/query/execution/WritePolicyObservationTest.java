@@ -17,7 +17,7 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;

@@ -4,10 +4,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 import org.pangrova.client.cli.PangrovaCli;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.setup.TestConnectorFactory;
+import org.pangrova.testing.integration.e2e.fixture.catalog.TestConnectorFactory;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -59,7 +59,7 @@ class CliBatchExecutionE2ETest extends PangrovaE2ETestBase {
         assertThat(result.path("queryId").asText()).isNotBlank();
         assertThat(result.path("state").asText()).isEqualTo("FINISHED");
         assertThat(result.path("resultConsumed").asBoolean()).isTrue();
-        assertThat(result.path("sqlSha256").asText()).isEqualTo(DigestUtils.sha256Hex(statement));
+        assertThat(result.path("sqlSha256").asText()).isEqualTo(Sha256Digests.sha256Hex(statement));
         assertThat(pollUntilTerminal(result.path("queryId").asText())).contains("\"FINISHED\"");
     }
 
@@ -95,7 +95,7 @@ class CliBatchExecutionE2ETest extends PangrovaE2ETestBase {
         assertThat(results.path("environment").path("authentication").asText()).isEqualTo("bearer-environment");
         var record = results.path("queries").path("q01");
         assertThat(record.path("status").asText()).isEqualTo("passed");
-        assertThat(record.path("sqlSha256").asText()).isEqualTo(DigestUtils.sha256Hex(
+        assertThat(record.path("sqlSha256").asText()).isEqualTo(Sha256Digests.sha256Hex(
                 Files.readString(root.resolve("pangrova-testing/pangrova-testing-benchmark/queries/tpch/q01.sql"),
                         StandardCharsets.UTF_8)));
         assertThat(record.path("warmupCompleted").asInt()).isEqualTo(1);

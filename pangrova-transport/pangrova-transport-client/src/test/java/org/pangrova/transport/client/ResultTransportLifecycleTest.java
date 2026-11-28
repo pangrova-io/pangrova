@@ -3,7 +3,7 @@ package org.pangrova.transport.client;
 import org.pangrova.transport.client.exception.TransportConnectionException;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;

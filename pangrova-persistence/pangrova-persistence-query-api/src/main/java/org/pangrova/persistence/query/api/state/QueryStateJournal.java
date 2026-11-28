@@ -57,7 +57,7 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
 
     /** Commits or replays an initial keyed admission under the exact execution grant. */
     QueryAcceptanceAdmission acceptFencedQuerySync(QueryStateEvent event, ExecutionAnchor anchor);
-    /** Reads one principal-scoped acceptance only for conflict or uncertain-outcome reconciliation. */
+    /** Reads one retained principal-scoped receipt for explicit replay or uncertain-outcome reconciliation. */
     Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest);
     /** Bounded sweep of terminal acceptances whose retention has elapsed. */
     void purgeExpiredAcceptances();

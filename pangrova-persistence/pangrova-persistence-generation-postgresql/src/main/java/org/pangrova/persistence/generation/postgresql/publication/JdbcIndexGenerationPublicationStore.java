@@ -1,6 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
@@ -31,10 +31,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.common.validation.Preconditions.requireText;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** PostgreSQL/H2 implementation of atomic generic-artifact index publication. */
 public final class JdbcIndexGenerationPublicationStore

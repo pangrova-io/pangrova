@@ -7,7 +7,7 @@ import org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.phase.CompilationPhase;
-import org.pangrova.parser.parse.TimeTravelSqlClauses;
+import org.pangrova.parser.syntax.TimeTravelSqlClauses;
 import org.pangrova.parser.api.ast.Literal;
 import org.pangrova.parser.api.ast.LiteralValue;
 import org.pangrova.parser.api.ast.TableRef;

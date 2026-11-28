@@ -27,8 +27,8 @@ import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.io.entity.InputStreamEntity;
 import org.apache.hc.core5.io.CloseMode;
 import org.apache.hc.core5.util.Timeout;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 
 /** Synchronous SDK transport: verified TLS, no redirects/retries and cancellation before remote-body close. */
 @ThreadSafe

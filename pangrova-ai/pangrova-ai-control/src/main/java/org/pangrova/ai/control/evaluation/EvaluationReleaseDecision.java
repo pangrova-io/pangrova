@@ -20,7 +20,7 @@ package org.pangrova.ai.control.evaluation;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable release-gate decision tied to a completed, version-pinned run. */
 public record EvaluationReleaseDecision(

@@ -21,13 +21,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setJson;
 
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
-import org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceSupport;
+import org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceBase;
 
 /** PostgreSQL implementation of {@link CatalogDeploymentRepository}; borrows the DataSource. */
-public final class PostgresCatalogDeploymentRepository extends PostgresCatalogPersistenceSupport
+public final class PostgresCatalogDeploymentRepository extends PostgresCatalogPersistenceBase
         implements CatalogDeploymentRepository {
     private static final String INSERT_CATALOG_SQL =
             "INSERT INTO catalog_definitions (name, type, provider, state, properties, comment, "

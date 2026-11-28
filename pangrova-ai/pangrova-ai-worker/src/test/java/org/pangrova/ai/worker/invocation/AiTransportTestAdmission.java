@@ -27,7 +27,7 @@ import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.api.invocation.AiProviderCallContext;
 import org.pangrova.ai.worker.context.AiTestTaskAuthority;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
-import org.pangrova.ai.worker.context.GovernedAiBindings;
+import org.pangrova.ai.worker.context.GovernedAiBindingProjector;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -58,7 +58,7 @@ public final class AiTransportTestAdmission implements AutoCloseable {
                         .setProviderRequestBytes(limits.requestBytes()).setProviderResponseBytes(limits.responseBytes())
                         .setMediaBytes(limits.mediaBytes()).build()).toBuilder().addOperatorBindings(operator).build();
         context = AiTestTaskAuthority.context(task);
-        binding = GovernedAiBindings.fromAdmitted(operator);
+        binding = GovernedAiBindingProjector.fromAdmitted(operator);
         manager.registerTask(context, task.getOperatorBindingsList());
         var capability = capability(operation, limits);
         try {

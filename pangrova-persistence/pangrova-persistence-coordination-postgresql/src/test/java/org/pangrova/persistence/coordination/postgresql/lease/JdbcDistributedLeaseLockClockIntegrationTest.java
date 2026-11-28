@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
 
 /** Uses actual PostgreSQL locks and delayed mutations to check the live grant and commit fence. */
 class JdbcDistributedLeaseLockClockIntegrationTest extends ContainerTestBase {

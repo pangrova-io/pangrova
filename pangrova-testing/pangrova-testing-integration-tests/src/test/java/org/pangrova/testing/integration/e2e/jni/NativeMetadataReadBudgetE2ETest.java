@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
@@ -94,7 +94,7 @@ class NativeMetadataReadBudgetE2ETest extends SqlE2ETestBase {
         var detail = FileSplitDetail.newBuilder().setFileFormat(FileFormat.FILE_FORMAT_METADATA_JSON)
                 .setSystemTable(SystemTableSplitDetail.newBuilder()
                         .setKind(SystemTableSplitDetail.Kind.PAIMON_SNAPSHOTS).setSnapshotId(7)
-                        .setObjectSha256(ByteString.copyFrom(HexFormat.of().parseHex(DigestUtils.sha256Hex(SNAPSHOT)))))
+                        .setObjectSha256(ByteString.copyFrom(HexFormat.of().parseHex(Sha256Digests.sha256Hex(SNAPSHOT)))))
                 .build();
         var task = TaskRequest.parseFrom(CanonicalNativeTask.valuesRequest()).toBuilder()
                 .setSubstraitPlan(ByteString.copyFrom(bytes)).setSubstraitPlanChecksum(ProtocolChecksums.sha256(bytes))

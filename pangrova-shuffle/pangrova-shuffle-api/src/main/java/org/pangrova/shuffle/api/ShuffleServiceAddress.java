@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.api;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /** Control-plane address of an external shuffle service. */
 public record ShuffleServiceAddress(String host, int port, String tlsIdentity) {

@@ -3,7 +3,7 @@ package org.pangrova.worker.http.endpoint;
 import org.pangrova.worker.exception.TaskBodyTooLargeException;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;

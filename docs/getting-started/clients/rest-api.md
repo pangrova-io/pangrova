@@ -185,6 +185,9 @@ readback. A request without `Idempotency-Key` creates a fresh query identity.
 During the acceptance window, a matching retry with an explicit key returns the same query ID
 and acceptance receipt without executing the SQL again; changing SQL or session
 properties returns HTTP 409. Each principal has an independent key space.
+When tenant capacity is full, an explicit key can still retrieve a matching
+retained acceptance. The Coordinator looks up that receipt without reserving
+another execution slot.
 Once the acceptance receipt is returned, the query continues under its
 execution deadline. Poll its status for the transition to a readable result or
 terminal outcome. If dispatch rejects already accepted work, status reports a

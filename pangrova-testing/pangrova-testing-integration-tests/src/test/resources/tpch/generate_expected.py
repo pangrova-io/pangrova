@@ -4,7 +4,7 @@ Generate TPC-H expected results at SF=0.01 using DuckDB as reference engine.
 
 DuckDB has built-in TPC-H data generation via the tpch extension.
 Results are stored as JSON files matching the existing format used by
-TpcHTestSupport.java ({"query": "...", "rows": [...]}).
+TpcHResultAssertions.java ({"query": "...", "rows": [...]}).
 
 Usage: python3 generate_expected.py
 """

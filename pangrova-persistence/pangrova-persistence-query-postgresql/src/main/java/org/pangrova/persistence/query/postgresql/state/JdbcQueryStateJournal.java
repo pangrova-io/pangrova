@@ -12,7 +12,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.sql.DataSource;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.journal.QueryAcceptance;
@@ -281,10 +281,28 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
         try {
             return pending.enterSql().perform(dataSource, connection -> {
                 try (PreparedStatement statement = connection.prepareStatement("SELECT " + JournalEventSql.QUERY_COLUMNS
-                        + " FROM query_state_journal WHERE principal = ? AND idempotency_key_digest = ? "
-                        + "AND state = 'QUEUED' ORDER BY id LIMIT 1")) {
+                        + """
+                         FROM query_state_journal accepted
+                         WHERE principal = ? AND idempotency_key_digest = ? AND state = 'QUEUED'
+                           AND NOT EXISTS (
+                               SELECT 1 FROM (
+                                   SELECT MAX(terminal.timestamp_ms) AS finished_at
+                                   FROM query_state_journal terminal
+                                   WHERE terminal.query_id = accepted.query_id
+                                     AND terminal.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                               ) timestamps
+                               WHERE timestamps.finished_at IS NOT NULL
+                                 AND accepted.retention_ms <= ?
+                                     - GREATEST(accepted.timestamp_ms, timestamps.finished_at)
+                                 AND NOT EXISTS (
+                                     SELECT 1 FROM execution_anchor a WHERE a.execution_id = accepted.query_id
+                                 )
+                           )
+                         ORDER BY id LIMIT 1
+                        """)) {
                     statement.setString(1, principal);
                     statement.setString(2, idempotencyKeyDigest);
+                    statement.setLong(3, System.currentTimeMillis());
                     try (ResultSet rows = statement.executeQuery()) {
                         return rows.next()
                                 ? Optional.of(JournalEventSql.readQuery(rows).acceptance())

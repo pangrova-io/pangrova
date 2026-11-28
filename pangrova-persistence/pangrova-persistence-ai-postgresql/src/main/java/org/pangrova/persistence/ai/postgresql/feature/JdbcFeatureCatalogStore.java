@@ -17,7 +17,7 @@
  */
 package org.pangrova.persistence.ai.postgresql.feature;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.ai.control.enums.FeatureSplitKind;
 import org.pangrova.ai.control.enums.CatalogExportKind;
@@ -45,11 +45,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-import static org.pangrova.common.util.Preconditions.requireText;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
+import static org.pangrova.common.validation.Preconditions.requireText;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setJson;
 
 /** PostgreSQL implementation of the governed feature and training catalog. */
 public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {

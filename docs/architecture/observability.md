@@ -22,7 +22,7 @@ its configured `Meter` and `Tracer` into `OtelMetricsProvider` and
 Registering them in `META-INF/services` fails the
 [JDK provider-constructor contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/ServiceLoader.html#developing-service-providers).
 Provider selection remains explicit in process assembly. Task wrapping is an
-explicitly constructed `TaskWrapping` implementation; no contract-level global
+explicitly constructed `TaskWrapper` implementation; no contract-level global
 ServiceLoader or first-provider selection remains.
 
 Execution identity is separate from exporting spans. `ExecutionTraceContext` and

@@ -62,7 +62,7 @@ import org.slf4j.LoggerFactory;
  * <p>Thread safety: all fields are final or volatile. DAGDispatchEngine and
  * WorkerManager are internally thread-safe.</p>
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 final class QuerySchedulingEngine {
 
     private static final Logger LOG = LoggerFactory.getLogger(

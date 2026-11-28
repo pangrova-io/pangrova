@@ -1,8 +1,6 @@
 package org.pangrova.persistence.security.postgresql.policy;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
-
-import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.security.api.authorization.ReadAuthorizationSubjectSource;
 import org.pangrova.security.api.policy.GroupRoleMapping;
@@ -40,7 +38,7 @@ import java.util.Set;
  * <p>Per naming rule C13 this is {@code Persistent*} because {@code pangrova-security} is a policy
  * module rather than the owning persistence module.
  */
-public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleStore, ReadAuthorizationSubjectSource {
+public final class JdbcRoleStore extends JdbcPolicyStoreBase implements RoleStore, ReadAuthorizationSubjectSource {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcRoleStore.class);
     private static final String EFFECTIVE_ROLES = """

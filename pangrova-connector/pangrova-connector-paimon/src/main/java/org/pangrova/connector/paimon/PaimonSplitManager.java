@@ -148,8 +148,8 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             Constraint constraint,
             ConnectorQueryAuthority sdkReaderAuthority, String bindingIdentity, PaimonScanBudget planning) {
         planning.check(0);
-        FileStoreTable table = PaimonReadBindings.requireSelectedTable(loadFreshTable(handle), handle);
-        Snapshot snapshot = PaimonReadBindings.validateSelected(table, handle, bindingIdentity);
+        FileStoreTable table = PaimonReadBinder.requireSelectedTable(loadFreshTable(handle), handle);
+        Snapshot snapshot = PaimonReadBinder.validateSelected(table, handle, bindingIdentity);
         if (handle.incrementalRange().isPresent()) {
             var range = handle.incrementalRange().orElseThrow();
             return getActiveIncrementalSplits(session, table, handle, snapshot, range,
@@ -179,7 +179,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         TableSplitContext ctx = buildTableContext(scanTable, changelogProducer);
         List<ConnectorSplit> splits = planSplits(scanTable, paimonTable.tableName(), ctx, constraint,
                 sdkReaderAuthority, planning, pinned ? snapshot : null);
-        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
+        PaimonReadBinder.validateSelected(selectedTable, paimonTable);
         LOG.debug("event=splits_planned count={} table={}.{} changelog_producer={} partitioned={} snapshotId={}",
                 splits.size(), paimonTable.schemaName(), paimonTable.tableName(),
                 changelogProducer, !scanTable.partitionKeys().isEmpty(),
@@ -219,7 +219,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
         List<ConnectorSplit> splits = planIncrementalSplits(selectedTable, tableName, target, range,
                 constraint, sdkReaderAuthority, planning, verified);
-        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
+        PaimonReadBinder.validateSelected(selectedTable, paimonTable);
         planning.check(splits.size());
         LOG.debug("event=incremental_splits_complete table={}.{} split_count={}",
                 paimonTable.schemaName(), tableName, splits.size());

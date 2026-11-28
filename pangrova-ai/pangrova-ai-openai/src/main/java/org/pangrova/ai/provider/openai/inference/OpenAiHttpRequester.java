@@ -2,7 +2,7 @@ package org.pangrova.ai.provider.openai.inference;
 
 import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiProviderCallContext;
 import org.pangrova.ai.http.AiHttpTransport;

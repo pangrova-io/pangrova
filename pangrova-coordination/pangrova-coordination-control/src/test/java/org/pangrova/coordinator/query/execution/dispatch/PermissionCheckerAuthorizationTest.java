@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch;
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.statement.StatementTestSessions;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.InMemoryRoleStore;

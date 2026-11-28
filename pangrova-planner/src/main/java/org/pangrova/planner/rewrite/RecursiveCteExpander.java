@@ -7,7 +7,7 @@ import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.enums.SetOperatorType;
 import org.pangrova.parser.format.AstPrinter;
 import org.pangrova.planner.api.exception.PlannerException;
-import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.sqlnode.PangrovaParserFactory;
 
 import java.util.ArrayList;
 import java.util.List;

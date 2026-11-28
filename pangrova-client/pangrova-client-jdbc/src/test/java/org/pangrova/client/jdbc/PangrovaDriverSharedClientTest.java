@@ -2,8 +2,8 @@ package org.pangrova.client.jdbc;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ExecutorDrain;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 
 import java.net.http.HttpClient;
 import java.util.concurrent.CountDownLatch;

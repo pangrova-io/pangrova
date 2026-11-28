@@ -16,8 +16,8 @@ import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
+import org.pangrova.common.concurrency.ExecutorDrain;
+import org.pangrova.persistence.jdbc.datasource.PooledDataSourceFactory;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.postgresql.ds.PGSimpleDataSource;
 

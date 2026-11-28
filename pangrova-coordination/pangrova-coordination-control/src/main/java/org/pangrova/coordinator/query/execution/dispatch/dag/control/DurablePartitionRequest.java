@@ -6,7 +6,7 @@ import org.pangrova.execution.api.stage.TaskStage;
 import org.pangrova.execution.api.enums.TaskPurpose;
 import org.pangrova.execution.deadline.TaskLeaseDeadlines;
 
-import org.pangrova.generation.execution.binding.GenerationPartitionBindings;
+import org.pangrova.generation.execution.binding.GenerationPartitionBinder;
 import org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan;
 import org.pangrova.execution.binding.TaskRequestFactory;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
@@ -39,12 +39,12 @@ public final class DurablePartitionRequest {
 
     /** Shares the validated template, plan bytes and checksum for one durable stage. */
     public static final class StageRequestPlan {
-        private final GenerationPartitionBindings.StageBindings bindings;
+        private final GenerationPartitionBinder.StageBindings bindings;
         private final TaskRequestFactory.FrozenStagePlan plan;
 
         /** Freezes the canonical request plan before taking any partition claim. */
         public StageRequestPlan(StagePlan stage, List<ModelSnapshot> models) {
-            bindings = new GenerationPartitionBindings.StageBindings(stage, models);
+            bindings = new GenerationPartitionBinder.StageBindings(stage, models);
             plan = new TaskRequestFactory.FrozenStagePlan(bindings.planBytes());
         }
     }
@@ -65,7 +65,7 @@ public final class DurablePartitionRequest {
         var lease = partition.lease();
         var spec = partition.authority().dispatchSpec();
         var stage = spec.stageGraph().requireStage(lease.stageId());
-        var prepared = GenerationPartitionBindings.bind(partition, requestPlan.bindings, now);
+        var prepared = GenerationPartitionBinder.bind(partition, requestPlan.bindings, now);
         TaskPurpose taskType = switch (stage.pageKind()) {
             case RELATIONAL_COMPUTE -> TaskPurpose.COMPUTE;
             case RELATIONAL_PARTITION -> TaskPurpose.OUTPUT;

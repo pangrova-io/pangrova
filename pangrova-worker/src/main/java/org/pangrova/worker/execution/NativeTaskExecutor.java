@@ -10,7 +10,7 @@ import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.exception.NativeRuntimeException;

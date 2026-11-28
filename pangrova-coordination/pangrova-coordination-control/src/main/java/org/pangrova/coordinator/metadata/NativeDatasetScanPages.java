@@ -17,7 +17,7 @@ final class NativeDatasetScanPages {
             org.pangrova.connector.api.metadata.AcceptedSourceSnapshot snapshot, OptionalLong after, int pageSize) {
         long version = snapshot.version();
         byte[] schema = snapshot.schemaSha256();
-        var expected = org.pangrova.protocol.source.SourceSnapshotBindings.encode(snapshot, catalog);
+        var expected = org.pangrova.protocol.source.SourceSnapshotCodec.encode(snapshot, catalog);
         try {
             var result = response.getPayload().unpack(DatasetScanPartitionsResult.class);
             requireSha256(result.getManifestSha256());

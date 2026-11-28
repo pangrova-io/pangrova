@@ -1,6 +1,6 @@
 package org.pangrova.filesystem.local.blob;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
 import java.io.IOException;
@@ -109,7 +109,7 @@ public final class FileSystemBlobStorage implements BlobStorage {
         FileChannel channel = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
         try {
             if (channel.size() != object.size()) throw new IOException("Blob length differs from its identity");
-            MessageDigest digest = DigestUtils.sha256();
+            MessageDigest digest = Sha256Digests.sha256();
             ByteBuffer buffer = ByteBuffer.allocate(BUFFER_BYTES);
             while (channel.read(buffer) != -1) {
                 buffer.flip();
@@ -130,7 +130,7 @@ public final class FileSystemBlobStorage implements BlobStorage {
     }
 
     private static void copyAndVerify(Path source, Path draft, BlobObjectId object) throws IOException {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
              FileChannel output = FileChannel.open(draft, StandardOpenOption.WRITE)) {
             if (input.size() != object.size()) throw new IOException("Staged blob length differs from its identity");

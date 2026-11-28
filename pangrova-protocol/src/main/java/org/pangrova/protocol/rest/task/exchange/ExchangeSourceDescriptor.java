@@ -2,7 +2,7 @@ package org.pangrova.protocol.rest.task.exchange;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Complete wire binding for one producer of a typed ExchangeInput node. */
 public record ExchangeSourceDescriptor(

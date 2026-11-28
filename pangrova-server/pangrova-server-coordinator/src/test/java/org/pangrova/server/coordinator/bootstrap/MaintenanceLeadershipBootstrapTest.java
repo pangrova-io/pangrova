@@ -3,7 +3,7 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordination.api.leadership.MaintenanceLeadershipListener;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.lease.LeaseEntry;
 
@@ -67,7 +67,7 @@ class MaintenanceLeadershipBootstrapTest {
     @Test
     void closeReleasesLeaseEvenWhenDemotionCallbackFails() {
         var lease = new InMemoryDistributedLease();
-        MaintenanceLeaderAware failingListener = new MaintenanceLeaderAware() {
+        MaintenanceLeadershipListener failingListener = new MaintenanceLeadershipListener() {
             @Override
             public void onLeaderElected() {
             }
@@ -118,7 +118,7 @@ class MaintenanceLeadershipBootstrapTest {
     @Test
     void failedActivationStopsPartiallyStartedSubsystems() {
         var stopped = new AtomicInteger();
-        var listener = new MaintenanceLeaderAware() {
+        var listener = new MaintenanceLeadershipListener() {
             @Override public void onLeaderElected() {
                 throw new IllegalStateException("activation failed after starting a subsystem");
             }
@@ -150,7 +150,7 @@ class MaintenanceLeadershipBootstrapTest {
     @Test
     void closePreservesDemotionFailureAndUnknownReleaseAsSuppressed() {
         var lease = new FailingRenewalLease();
-        var lifecycle = bootstrap(lease, "owner", new MaintenanceLeaderAware() {
+        var lifecycle = bootstrap(lease, "owner", new MaintenanceLeadershipListener() {
             @Override public void onLeaderElected() {}
             @Override public void onLeadershipLost() { throw new IllegalStateException("demotion failed"); }
         });
@@ -166,13 +166,13 @@ class MaintenanceLeadershipBootstrapTest {
 
     private static MaintenanceLeadershipBootstrap bootstrap(
             DistributedLease lease, String owner,
-            MaintenanceLeaderAware listener) {
+            MaintenanceLeadershipListener listener) {
         return new MaintenanceLeadershipBootstrap(
                 new MaintenanceLeaderElection(lease, owner), listener,
                 Duration.ofSeconds(1), Executors.newSingleThreadScheduledExecutor());
     }
 
-    private static final class RecordingListener implements MaintenanceLeaderAware {
+    private static final class RecordingListener implements MaintenanceLeadershipListener {
         private final AtomicInteger elected = new AtomicInteger();
         private final AtomicInteger lost = new AtomicInteger();
 

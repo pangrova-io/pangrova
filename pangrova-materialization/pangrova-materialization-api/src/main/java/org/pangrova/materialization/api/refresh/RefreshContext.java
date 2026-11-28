@@ -14,7 +14,7 @@ import org.pangrova.connector.api.materialization.ChangeProof;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
 import org.pangrova.connector.api.materialization.SourceRef;
 
-import static org.pangrova.common.util.Preconditions.requireNonNullField;
+import static org.pangrova.common.validation.Preconditions.requireNonNullField;
 
 /**
  * Input for refresh strategy validation and planning.

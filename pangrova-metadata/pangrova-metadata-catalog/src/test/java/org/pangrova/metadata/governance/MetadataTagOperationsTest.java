@@ -1,6 +1,6 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.runtime.classification.ColumnTagBindings;
+import org.pangrova.governance.runtime.classification.ColumnTagAuthority;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 
 import org.pangrova.metadata.testinfra.TestCatalogRegistry;
@@ -32,7 +32,7 @@ class MetadataTagOperationsTest {
     private TestCatalogRegistry catalogs;
     private javax.sql.DataSource source;
     private TableControlService control;
-    private ColumnTagBindings tags;
+    private ColumnTagAuthority tags;
     private final QualifiedTableRef orders = new QualifiedTableRef("cat", "db", "orders");
 
     @BeforeEach
@@ -49,7 +49,7 @@ class MetadataTagOperationsTest {
                 new TableControlSettings(true, true, Set.of()));
         catalogs.setTableControlService(control);
         catalogs.setGovernanceBindingStore(new PostgresTablePolicyRepository(source));
-        tags = new ColumnTagBindings(catalogs.tableGovernance());
+        tags = new ColumnTagAuthority(catalogs.tableGovernance());
         create("orders");
         create("customers");
     }
@@ -67,7 +67,7 @@ class MetadataTagOperationsTest {
     @Test
     void reconstructedServiceReadsTheSameDurableAuthority() {
         tags.setTag(current(orders), "id", "classification", "sensitive", "alice");
-        var reopened = new ColumnTagBindings(catalogs.tableGovernance());
+        var reopened = new ColumnTagAuthority(catalogs.tableGovernance());
         assertThat(reopened.listTags(current(orders), "id")).containsEntry("classification", "sensitive");
     }
 

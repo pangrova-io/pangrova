@@ -2,7 +2,7 @@ package org.pangrova.security.api.secret;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Prefix-scoped secret backend contract.

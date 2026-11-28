@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 
 import java.io.IOException;
 import java.net.InetAddress;

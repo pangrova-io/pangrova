@@ -16,12 +16,12 @@ import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAncho
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.protocol.catalog.CatalogDeploymentFingerprint;
-import org.pangrova.protocol.write.NativeWriteBindings;
-import org.pangrova.protocol.source.SourceSnapshotBindings;
+import org.pangrova.protocol.write.NativeWriteBinder;
+import org.pangrova.protocol.source.SourceSnapshotCodec;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 import org.pangrova.protocol.v2.AcceptedSourceSnapshotRef;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
@@ -264,7 +264,7 @@ public final class LanceManagedSourceFixture {
     public Optional<AcceptedSourceSnapshotRef> accepted(String execution) {
         var entry = journal.getEntry(execution).orElseThrow();
         return store.accepted(allocation(execution).output(), entry.fragments(), entry.commitContext())
-                .map(value -> SourceSnapshotBindings.encode(value.reference(), catalog));
+                .map(value -> SourceSnapshotCodec.encode(value.reference(), catalog));
     }
 
     public PrepareDistributedWriteRequest reserve(String execution, List<byte[]> fragments) throws Exception {
@@ -288,7 +288,7 @@ public final class LanceManagedSourceFixture {
                         .setManifestRelativePath(reservation.manifestRelativePath()))
                 .setObjectPageSize(SourceObjectPage.MAX_PAGE_OBJECTS);
         if (output.acceptedBase() != null) request.getReservationBuilder()
-                .setBaseSnapshot(SourceSnapshotBindings.encode(output.acceptedBase(), catalog));
+                .setBaseSnapshot(SourceSnapshotCodec.encode(output.acceptedBase(), catalog));
         for (byte[] bytes : fragments) {
             var fragment = LanceWriteFragment.parseFrom(bytes);
             request.addFragments(DistributedWriteFragment.newBuilder().setTaskAttempt(fragment.getTaskAttempt())
@@ -335,7 +335,7 @@ public final class LanceManagedSourceFixture {
                 ProtocolChecksums.sha256(result.toByteArray()).getDigest().toByteArray());
         var header = result.getPublication();
         var publication = new org.pangrova.connector.api.metadata.PreparedSourcePublication(
-                SourceSnapshotBindings.decode(header.getCandidate(), catalog), header.getRowCount(), header.getObjectsCount(),
+                SourceSnapshotCodec.decode(header.getCandidate(), catalog), header.getRowCount(), header.getObjectsCount(),
                 sha(header.getObjectsSha256()), header.getInheritedMembership());
         authority.registerObjects(reservation, publication, new SourceObjectPage(page.getPageIndex(), page.getAfterPath(),
                 page.getObjectsList().stream().map(object -> new SourceObjectPage.ObjectReference(
@@ -357,7 +357,7 @@ public final class LanceManagedSourceFixture {
                 || !Arrays.equals(committed.publication().manifestSha256(), accepted.manifestDigest())) {
             throw new IllegalStateException("PG acceptance and durable journal are not the same publication");
         }
-        return SourceSnapshotBindings.encode(accepted.reference(), catalog);
+        return SourceSnapshotCodec.encode(accepted.reference(), catalog);
     }
 
     /** Returns only formal references loaded from accepted current/historical PostgreSQL rows. */
@@ -365,7 +365,7 @@ public final class LanceManagedSourceFixture {
         var current = store.load(catalog.getCatalogName(), TENANT, new SchemaTableName("sdk", "t_" + digest(uri)));
         if (current == null || current.version() == 0) throw new IllegalStateException("No accepted source");
         var selector = version == 0 ? current : (LanceTableHandle) current.withTimeTravelSnapshot(Long.toString(version));
-        return SourceSnapshotBindings.encode(store.loadSnapshot(selector).reference(), catalog);
+        return SourceSnapshotCodec.encode(store.loadSnapshot(selector).reference(), catalog);
     }
 
     public org.pangrova.connector.api.metadata.DistributedWriteAbortReceipt abort(String execution) {
@@ -428,7 +428,7 @@ public final class LanceManagedSourceFixture {
                 var fragment = LanceWriteFragment.parseFrom(bytes);
                 var attempt = fragment.getTaskAttempt();
                 var reference = fragment.getTransaction();
-                String prefix = NativeWriteBindings.attemptPrefix(nativeOutput.stagingPrefix(), attempt);
+                String prefix = NativeWriteBinder.attemptPrefix(nativeOutput.stagingPrefix(), attempt);
                 if (fragment.getContractVersion() != 2 || !fragment.getDatasetUri().equals(nativeOutput.datasetUri())
                         || !fragment.getWriteId().equals(nativeOutput.writeId())
                         || fragment.getOperation() != operation(nativeOutput.operation())
@@ -479,7 +479,7 @@ public final class LanceManagedSourceFixture {
                 .setPartitionId(partitionId).setPlanEpoch(1).setAttemptId(0).setFencingToken(allocation.anchor().fencingToken())
                 .setTaskId("task-" + partitionId).setControlEpoch(1).setExecutionOwner(owner(allocation.anchor())).build();
         return new Allocation(allocation.executionId(), allocation.output(), allocation.binding(), allocation.anchor(),
-                identity, NativeWriteBindings.attemptPrefix(allocation.output().allocation().stagingPrefix(), identity));
+                identity, NativeWriteBinder.attemptPrefix(allocation.output().allocation().stagingPrefix(), identity));
     }
 
     private WriteOutputBinding binding(LanceOutputHandle output) {
@@ -496,7 +496,7 @@ public final class LanceManagedSourceFixture {
                 .setWriteId(nativeOutput.writeId()).setGeneration(nativeOutput.generation())
                 .setTransactionStagingPrefix(nativeOutput.stagingPrefix()).setAllocationStagingPrefix(nativeOutput.stagingPrefix())
                 .addAllWriteColumnNames(nativeOutput.writeColumnNames());
-        if (output.acceptedBase() != null) lance.setBaseSnapshot(SourceSnapshotBindings.encode(output.acceptedBase(), catalog));
+        if (output.acceptedBase() != null) lance.setBaseSnapshot(SourceSnapshotCodec.encode(output.acceptedBase(), catalog));
         return WriteOutputBinding.newBuilder().setLance(lance).build();
     }
 

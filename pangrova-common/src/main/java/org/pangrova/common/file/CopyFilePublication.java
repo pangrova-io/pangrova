@@ -1,6 +1,6 @@
 package org.pangrova.common.file;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -20,7 +20,7 @@ public record CopyFilePublication(
         if (executionId == null || executionId.isBlank()) {
             throw new IllegalArgumentException("executionId must not be blank");
         }
-        if (!DigestUtils.isSha256Hex(commitFingerprint)) {
+        if (!Sha256Digests.isSha256Hex(commitFingerprint)) {
             throw new IllegalArgumentException("commitFingerprint must be lowercase SHA-256 hex");
         }
         if (snapshotId <= 0) {

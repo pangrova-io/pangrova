@@ -2,10 +2,10 @@ package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.pangrova.coordinator.query.stage.ShuffleInputLayout;
 import org.pangrova.coordinator.query.stage.ShuffleInputLayout.Consumer;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
+import org.pangrova.planner.adaptivequery.AdaptiveQueryConfig;
 import org.pangrova.planner.analysis.PlanFragment.AlignedHashJoin;
-import org.pangrova.planner.api.adaptive.CoalesceResult;
-import org.pangrova.planner.api.adaptive.PartitionGroup;
+import org.pangrova.planner.api.adaptivequery.CoalesceResult;
+import org.pangrova.planner.api.adaptivequery.PartitionGroup;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;

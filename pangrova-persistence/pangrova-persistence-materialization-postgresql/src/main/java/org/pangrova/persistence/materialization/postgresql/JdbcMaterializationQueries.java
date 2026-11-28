@@ -28,8 +28,8 @@ import org.pangrova.materialization.api.port.CommandRecord;
 import org.pangrova.materialization.api.port.GcHistoryEntry;
 import org.pangrova.materialization.api.port.ReclaimableSourcePin;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /**
  * Read-side JDBC queries of the materialization repository.

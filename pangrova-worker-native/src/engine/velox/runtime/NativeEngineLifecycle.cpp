@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <stdexcept>
 
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
@@ -150,6 +151,9 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
                                        JNIEnv* env, jobject allocationListener, ExecutorDrain drain) {
   FunctionRetirement retirement;
   std::unique_lock<std::mutex> lock(mutex_);
+  if (process_finalized_) {
+    throw std::logic_error("Native process resources have been finalized");
+  }
   if (initialized_.load(std::memory_order_relaxed)) {
     shutdownInternal(retirement, drain);
   }
@@ -179,6 +183,9 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
 void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config, ExecutorDrain drain) {
   FunctionRetirement retirement;
   std::unique_lock<std::mutex> lock(mutex_);
+  if (process_finalized_) {
+    throw std::logic_error("Native process resources have been finalized");
+  }
   if (initialized_.load(std::memory_order_relaxed)) {
     shutdownInternal(retirement, drain);
   }
@@ -209,6 +216,22 @@ void NativeEngineLifecycle::shutdown(ExecutorDrain drain) {
   shutdownInternal(retirement, drain);
   lock.unlock();
   retirement.retire();
+}
+
+void NativeEngineLifecycle::finalizeProcess() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (initialized_.load(std::memory_order_relaxed)) {
+    throw std::logic_error("Native runtime must shut down before process finalization");
+  }
+  if (process_finalized_) {
+    return;
+  }
+#if PANGROVA_HAS_VELOX_S3FS
+  // Velox finalization destroys cached clients and permanently closes the AWS
+  // SDK. Run it before static destruction, once all task owners have exited.
+  facebook::velox::filesystems::finalizeS3FileSystem();
+#endif
+  process_finalized_ = true;
 }
 
 std::shared_ptr<capability::FunctionCatalogStartup>

@@ -6,7 +6,7 @@ import org.pangrova.materialization.api.enums.ReaderKind;
 import java.util.Objects;
 import java.util.UUID;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Durable identity for a generation reader. An attempt and a query may have identical textual IDs. */
 public record ReaderId(ReaderKind kind, String id) {

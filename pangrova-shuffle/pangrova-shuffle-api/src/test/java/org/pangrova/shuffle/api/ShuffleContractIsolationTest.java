@@ -3,7 +3,7 @@ package org.pangrova.shuffle.api;
 import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.Preconditions;
+import org.pangrova.common.validation.Preconditions;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -33,7 +33,7 @@ class ShuffleContractIsolationTest {
                     "org.pangrova.shuffle.spool.SpoolStore",
                     "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
                     "org.pangrova.shuffle.api.ShuffleByteEgress",
-                    "org.pangrova.worker.shuffle.NativeShuffleProducerRegistration",
+                    "org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar",
                     "org.pangrova.protocol.v2.TaskRequest", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.arrow.vector.VectorSchemaRoot")) {
                 assertThatThrownBy(() -> loader.loadClass(unavailable)).isInstanceOf(ClassNotFoundException.class);

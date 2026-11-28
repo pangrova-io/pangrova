@@ -90,7 +90,7 @@ class IndexGcIcebergPinIntegrationTest {
             var pin = new IcebergMetadata(catalog, "cat").getIndexSupport().orElseThrow()
                     .getSnapshotPinProvider().orElseThrow();
             var old = Instant.now().minusSeconds(3600);
-            var buildTime = org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant(Instant.now());
+            var buildTime = org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant(Instant.now());
             var descriptor = new IndexDescriptor("index-gc", "idx", "cat", "db", "items",
                     List.of("id"), IndexType.BLOOM_FILTER, Map.of(), IndexState.BUILDING,
                     null, 0, Long.toString(firstSnapshot), Long.toString(firstSnapshot),
@@ -121,7 +121,7 @@ class IndexGcIcebergPinIntegrationTest {
                     descriptor.indexId(), 0, OWNER, Instant.now())).isTrue();
             indexes.registerIndexFile(OWNER, new IndexFileMapping(descriptor.indexId(),
                     file.path().toString(), firstIndexFile.toString(), 1, firstBytes.length,
-                    org.pangrova.common.util.DigestUtils.sha256Hex(firstBytes),
+                    org.pangrova.common.crypto.Sha256Digests.sha256Hex(firstBytes),
                     0, Long.toString(firstSnapshot), 0, old, 0));
             publishGeneration(indexes, descriptor.indexId(), 0, firstSnapshot, buildTime);
             var ready = indexes.findIndex(descriptor.indexId()).orElseThrow();
@@ -132,7 +132,7 @@ class IndexGcIcebergPinIntegrationTest {
                     descriptor.indexId(), 1, OWNER, Instant.now())).isTrue();
             indexes.registerIndexFile(OWNER, new IndexFileMapping(descriptor.indexId(),
                     nextFile.path().toString(), rebuiltIndexFile.toString(), 1, rebuiltBytes.length,
-                    org.pangrova.common.util.DigestUtils.sha256Hex(rebuiltBytes),
+                    org.pangrova.common.crypto.Sha256Digests.sha256Hex(rebuiltBytes),
                     1, Long.toString(rebuiltSnapshot), 0, old, 0));
             publishGeneration(indexes, descriptor.indexId(), 1, rebuiltSnapshot, nextBuildTime);
             indexes.updateIndexState(descriptor.indexId(), "DROPPED", nextBuildTime.plusMillis(2));

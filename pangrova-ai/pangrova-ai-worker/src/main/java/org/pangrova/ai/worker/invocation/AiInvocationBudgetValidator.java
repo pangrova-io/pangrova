@@ -13,7 +13,7 @@
  */
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
@@ -94,7 +94,7 @@ final class AiInvocationBudgetValidator {
         String prefix = binding.idempotencyBase() + ":";
         String value = request.idempotencyKey();
         return value.startsWith(prefix)
-                && DigestUtils.isSha256Hex(value.substring(prefix.length()));
+                && Sha256Digests.isSha256Hex(value.substring(prefix.length()));
     }
 
     private static AiInvocationException authorization(

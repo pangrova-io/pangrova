@@ -1,6 +1,6 @@
 package org.pangrova.worker.write;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.connector.api.data.ConnectorPageSink;
 
 import java.util.List;

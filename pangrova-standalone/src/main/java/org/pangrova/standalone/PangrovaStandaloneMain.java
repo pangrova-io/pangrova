@@ -71,7 +71,7 @@ public final class PangrovaStandaloneMain {
      */
     static void shutdownBoth(EmbeddedWorker worker, EmbeddedCoordinator coordinator) {
         LOG.info("event=standalone_shutdown_start");
-        ResourceCloser.closeAll(null, worker::close, coordinator::close);
+        ResourceCloser.closeAll(null, worker::closeForProcessExit, coordinator::close);
         LOG.info("event=standalone_shutdown_completed");
     }
 }

@@ -1,6 +1,6 @@
 package org.pangrova.persistence.catalog.postgresql.source;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
 import org.pangrova.connector.api.exception.SourcePublicationRetryableException;
@@ -269,7 +269,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
                 throw new IllegalStateException("Source object pages require an unpublished candidate");
             }
             JdbcSourcePreparationInvocations.requireJoinedPage(connection, reservation, page);
-            JdbcSourceObjectRegistration.register(connection, deployment, reservation, publication, page);
+            JdbcSourceObjectRegistrar.register(connection, deployment, reservation, publication, page);
             requireExecutionOwner(connection, expected);
             return null;
         });
@@ -303,7 +303,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             if (intent.state() != WriteCommitState.PENDING || intent.publication() != null) {
                 throw new IllegalStateException("Unaccepted source requires its exact pending intent");
             }
-            JdbcSourceObjectRegistration.requireHeader(connection, reservation, publication, true);
+            JdbcSourceObjectRegistrar.requireHeader(connection, reservation, publication, true);
             acceptCandidate(connection, reservation, publication, next);
             updateHead(connection, next);
             SourceSnapshot accepted = new SourceSnapshot(next, publication.candidate());

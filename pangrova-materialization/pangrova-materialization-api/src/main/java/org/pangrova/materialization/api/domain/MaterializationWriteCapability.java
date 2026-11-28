@@ -1,6 +1,6 @@
 package org.pangrova.materialization.api.domain;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.materialization.api.exception.MaterializationException;
 
@@ -48,7 +48,7 @@ public record MaterializationWriteCapability(
         if (definitionRevision < 1) {
             throw new IllegalArgumentException("definitionRevision must be positive");
         }
-        if (!DigestUtils.isSha256Hex(sourceVectorHash)) {
+        if (!Sha256Digests.isSha256Hex(sourceVectorHash)) {
             throw new IllegalArgumentException("sourceVectorHash must be a lowercase SHA-256 hex digest");
         }
         if (controlEpoch < 0) {

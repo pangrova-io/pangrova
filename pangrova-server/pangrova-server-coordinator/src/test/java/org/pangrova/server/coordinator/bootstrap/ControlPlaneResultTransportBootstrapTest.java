@@ -4,7 +4,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;

@@ -6,7 +6,7 @@ import io.grpc.ManagedChannel;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightGrpcUtils;
 import org.apache.arrow.memory.BufferAllocator;
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;

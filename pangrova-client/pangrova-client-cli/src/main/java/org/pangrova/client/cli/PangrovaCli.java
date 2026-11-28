@@ -98,7 +98,7 @@ public final class PangrovaCli {
                 String receipt = org.pangrova.common.json.JsonMapperFactory
                         .writer().writeValueAsString(
                         java.util.Map.of("queryId", queryId, "state", "FINISHED", "sqlSha256",
-                                org.pangrova.common.util.DigestUtils.sha256Hex(sql), "resultConsumed", true));
+                                org.pangrova.common.crypto.Sha256Digests.sha256Hex(sql), "resultConsumed", true));
                 Files.writeString(parsed.batch.receipt(), receipt, StandardCharsets.UTF_8,
                         StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             }

@@ -6,7 +6,7 @@ import java.util.List;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.security.api.authorization.AccessControl;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 import org.pangrova.query.dispatch.StatementExecutionFactory;
 
 /**

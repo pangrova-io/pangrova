@@ -7,7 +7,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.parser.format.AstPrinter;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement;

@@ -521,6 +521,28 @@ the production source of truth.
 
 ## 22. Build and Verification
 
+On macOS, the dependency bootstrap builds Folly in Release mode to match the
+inline F14 templates used by Velox and the Worker. A cached Folly archive must
+record Release mode and the current alignment patch digest. Arrow and Arrow
+Flight keep the empty-message storage in `arrow::Status::message` local to each
+dynamic library. Mach-O fixup checks enforce that separation and preserve the
+public Arrow exports.
+
+Thrift libraries and headers come from the same package. The dependency search
+checks the Velox Arrow ExternalProject, the AWS dependency prefix and the Velox
+SDK. Excluding other Thrift archives and FBThrift's `libtransport.a` from archive
+globs keeps one C++ transport implementation for Parquet. Linux Release and
+sanitizer bootstraps omit DuckDB because the corresponding Velox test utilities
+are disabled. On macOS the Native test runner prepares the PostgreSQL fixture
+image with its own timeout before timing fresh Lance broker startup.
+
+Linux production images reuse repository-owned dependency layers whose build
+inputs BuildKit validates. macOS SDK reuse requires the same inputs, runner
+image, architecture, SDK, compiler and linked system libraries as the trusted
+default-branch build that produced it. The Native test job verifies the SDK and
+runs the full test list. Cold macOS builds use separate prerequisite, SDK and
+test jobs with verified SDK handoff.
+
 Generated embedding artifacts use the same canonical logical type contract as
 model output: FLOAT32 is declared as `VECTOR(dimension)`, with dimension in
 1..65535 and no legacy metric suffix. Build and overlay conversion share the
@@ -614,6 +636,9 @@ Worker shutdown retains registration and periodic heartbeats until tasks have
 released their Native owners and terminal receipts have been acknowledged.
 It then joins heartbeat callbacks, requires a typed deregistration ACK and
 releases registration and dependent runtime resources; interruption is not an ACK.
+The Worker and standalone entry points finalize the process-owned Velox S3
+filesystem after the runtime shuts down. Cached clients close before their AWS
+SDK, and ordinary embedded runtime shutdown still supports reinitialization.
 Physical resource release must not wait for history-retention eviction. The
 Worker performs a bounded, incremental registry walk to probe actual consumed
 result ownership, retaining failed releases for retry; it does not add a timer

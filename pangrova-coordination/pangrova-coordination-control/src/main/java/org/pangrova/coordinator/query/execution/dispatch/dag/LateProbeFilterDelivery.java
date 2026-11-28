@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.BuildFilterGate;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGExecutionState;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;

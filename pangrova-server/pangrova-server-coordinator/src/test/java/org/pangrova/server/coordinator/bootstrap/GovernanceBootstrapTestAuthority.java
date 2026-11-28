@@ -5,7 +5,7 @@ import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploy
 
 import org.pangrova.table.ownership.TableControlService;
 
-import org.pangrova.governance.runtime.classification.ColumnTagBindings;
+import org.pangrova.governance.runtime.classification.ColumnTagAuthority;
 import org.pangrova.governance.runtime.classification.ColumnTagService;
 
 import javax.sql.DataSource;
@@ -20,7 +20,7 @@ final class GovernanceBootstrapTestAuthority {
 
     static ColumnTagService bind(ModuleIntegrationBootstrap modules, CatalogRegistry registry) {
         modules.setCatalogRegistry(registry);
-        return new ColumnTagBindings(registry.tableGovernance()).events();
+        return new ColumnTagAuthority(registry.tableGovernance()).events();
     }
 
     private static CatalogRegistry registry(DataSource source) {

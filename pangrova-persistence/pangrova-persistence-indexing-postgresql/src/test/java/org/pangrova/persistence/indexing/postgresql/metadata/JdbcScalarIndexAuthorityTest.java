@@ -5,7 +5,7 @@ import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 import org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.indexing.api.exception.IndexAlreadyExistsException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;

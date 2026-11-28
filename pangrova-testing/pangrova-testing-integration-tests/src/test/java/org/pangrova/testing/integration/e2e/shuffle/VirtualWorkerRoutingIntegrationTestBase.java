@@ -30,7 +30,7 @@ import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
-import org.pangrova.testing.integration.e2e.setup.TestDataSetup;
+import org.pangrova.testing.integration.e2e.fixture.dataset.TestDatasetLoader;
 import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -72,7 +72,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         return java.util.Objects.requireNonNull(sqlRunner, "Shared SQL setup runner is absent");
     }
 
-    protected static TestDataSetup setupData() {
+    protected static TestDatasetLoader setupData() {
         return java.util.Objects.requireNonNull(dataSetup, "Shared table setup is absent");
     }
 
@@ -127,7 +127,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
             routingDispatcher = null;
         }
         if (routingAsyncExecutor != null) {
-            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(routingAsyncExecutor, 5000L);
+            org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(routingAsyncExecutor, 5000L);
             routingAsyncExecutor = null;
         }
         if (routingStatusReporter != null) {
@@ -368,7 +368,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
 
     private static QueryManagerContext routingQueryManagerContext(QueryDispatcher dispatcher) {
         if (routingAsyncExecutor == null || routingAsyncExecutor.isShutdown()) {
-            routingAsyncExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+            routingAsyncExecutor = org.pangrova.common.concurrency.ManagedExecutorFactory
                     .newBoundedThreadPool("e2e-routing-async-submit", 4, 128);
         }
         return QueryManagerTestContexts.minimalAsync(

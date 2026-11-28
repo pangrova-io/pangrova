@@ -3,7 +3,7 @@ package org.pangrova.generation.api.graph;
 import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
 
 import org.pangrova.generation.api.enums.GenerationGraphPurpose;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
@@ -103,7 +103,7 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
                 byte[] plan, GenerationStageTemplate template, List<String> sourceKeys, List<String> outputNames,
                 boolean publicationOutput, boolean coalescibleHashInputs, List<String> splittableHashInputs) {
             return new StagePlan(stageId, parallelism, kind, Base64.getEncoder().encodeToString(plan),
-                    DigestUtils.sha256Hex(plan), template,
+                    Sha256Digests.sha256Hex(plan), template,
                     sourceKeys, outputNames, publicationOutput, coalescibleHashInputs, splittableHashInputs);
         }
 
@@ -142,7 +142,7 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
     }
 
     private static byte[] decode(String encoded, String sha, boolean allowEmpty, String name) {
-        if (encoded == null || !DigestUtils.isSha256Hex(sha)) {
+        if (encoded == null || !Sha256Digests.isSha256Hex(sha)) {
             throw new IllegalArgumentException(name + " identity is required");
         }
         byte[] bytes;
@@ -151,7 +151,7 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
         } catch (IllegalArgumentException failure) {
             throw new IllegalArgumentException(name + " is not Base64", failure);
         }
-        if ((!allowEmpty && bytes.length == 0) || !DigestUtils.matchesSha256(bytes, sha)
+        if ((!allowEmpty && bytes.length == 0) || !Sha256Digests.matchesSha256(bytes, sha)
                 || !Base64.getEncoder().encodeToString(bytes).equals(encoded)) {
             throw new IllegalArgumentException(name + " is empty, noncanonical or has a different checksum");
         }

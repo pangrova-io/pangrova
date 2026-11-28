@@ -2,7 +2,7 @@ package org.pangrova.planner.property;
 
 import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 import org.pangrova.parser.api.enums.SetOperatorType;
-import org.pangrova.planner.parse.AstToSqlNodeConverter;
+import org.pangrova.planner.sqlnode.AstToSqlNodeConverter;
 import net.jqwik.api.*;
 import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;

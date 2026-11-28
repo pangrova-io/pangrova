@@ -16,7 +16,7 @@ import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.api.catalog.ConnectorHandleFactory;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.parser.api.ast.Identifier;
-import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.syntax.AntlrSqlParser;
 import org.pangrova.parser.api.ast.statement.AlterTableStatement;
 import org.pangrova.parser.api.ast.statement.DropTableStatement;
 import org.pangrova.connector.api.plugin.Connector;

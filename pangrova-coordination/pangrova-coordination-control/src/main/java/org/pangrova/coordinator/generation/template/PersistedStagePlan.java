@@ -3,7 +3,7 @@ package org.pangrova.coordinator.generation.template;
 import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.planner.api.fragment.StageCoordinates;
 
-import org.pangrova.generation.execution.template.FrozenStageBindings;
+import org.pangrova.generation.execution.template.GenerationStageTemplateCodec;
 
 import org.pangrova.planner.api.result.ResultColumnModel;
 
@@ -60,7 +60,7 @@ public final class PersistedStagePlan implements StagePlanAccess {
 
     @Override
     public List<org.pangrova.protocol.v2.ResultColumnLogicalType> resultColumnTypes() {
-        return FrozenStageBindings.resultColumnTypes(stage);
+        return GenerationStageTemplateCodec.resultColumnTypes(stage);
     }
 
     @Override

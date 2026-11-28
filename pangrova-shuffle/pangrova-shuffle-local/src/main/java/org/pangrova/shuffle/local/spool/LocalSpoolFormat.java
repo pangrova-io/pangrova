@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.local.spool;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.ByteBuffer;
 
@@ -15,7 +15,7 @@ final class LocalSpoolFormat {
     private LocalSpoolFormat() {}
 
     static byte[] digest(ByteBuffer data) {
-        var digest = DigestUtils.sha256();
+        var digest = Sha256Digests.sha256();
         digest.update(data.duplicate());
         return digest.digest();
     }

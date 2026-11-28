@@ -6,7 +6,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.governance.api.quality.QualityCheckResult;
 import org.pangrova.governance.api.quality.DataQualityRule;
 import org.pangrova.governance.api.quality.QualityRuleStore;

@@ -1,7 +1,7 @@
 package org.pangrova.transport.flight;
 
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.protocol.transport.DataProducer;
 import org.pangrova.protocol.transport.TransportServerConfig;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
@@ -269,7 +269,7 @@ public class TransportServer implements TransportServerLifecycle {
     private void waitForAllocatorDrain() {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
         while (allocator.getAllocatedMemory() > 0 && System.nanoTime() < deadline) {
-            ThreadUtils.sleepQuietly(ALLOCATOR_DRAIN_POLL_INTERVAL_MS);
+            ThreadSleeper.sleepQuietly(ALLOCATOR_DRAIN_POLL_INTERVAL_MS);
             if (Thread.currentThread().isInterrupted()) {
                 break;
             }

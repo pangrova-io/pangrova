@@ -3,7 +3,7 @@ package org.pangrova.connector.lance;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.protocol.v2.PrepareDistributedWriteResult;
 
@@ -151,7 +151,7 @@ public final class LanceManagedSourceFixtureBroker {
                 .put("attempt", encode(allocation.attempt().toByteArray())).put("prefix", allocation.attemptPrefix())
                 .put("binding", encode(allocation.binding().toByteArray()));
         allocation.output().acceptedWriteBaseSnapshot().ifPresent(reference -> result.put("base", encode(
-                org.pangrova.protocol.source.SourceSnapshotBindings.encode(reference, fixture.catalog()).toByteArray())));
+                org.pangrova.protocol.source.SourceSnapshotCodec.encode(reference, fixture.catalog()).toByteArray())));
         return result;
     }
 

@@ -3,7 +3,7 @@ package org.pangrova.worker.bootstrap.ownership;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 
 /** Owns discovered function resources until each actual close succeeds. */
 @NotThreadSafe

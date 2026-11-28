@@ -1,6 +1,6 @@
 package org.pangrova.worker.resource.memory;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.worker.resource.tenant.TenantResourceTracker;
 import org.slf4j.Logger;

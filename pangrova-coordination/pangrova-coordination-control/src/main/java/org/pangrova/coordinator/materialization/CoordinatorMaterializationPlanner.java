@@ -3,7 +3,7 @@ package org.pangrova.coordinator.materialization;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.governance.api.enums.ColumnDerivationKind;
 import org.pangrova.materialization.api.enums.PartitionAlignmentShape;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -328,7 +328,7 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
                 state.append(":mask:").append(column).append('=').append(masks.mask(column).orElse(""));
             }
         }
-        return DigestUtils.sha256Hex(state.toString());
+        return Sha256Digests.sha256Hex(state.toString());
     }
 
     private static List<String> referencedColumns(PlannedQuery planned, SourceRef source) {

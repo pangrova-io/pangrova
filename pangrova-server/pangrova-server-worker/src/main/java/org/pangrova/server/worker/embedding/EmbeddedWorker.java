@@ -92,4 +92,9 @@ public final class EmbeddedWorker implements AutoCloseable {
     public void close() {
         bootstrap.shutdown();
     }
+
+    /** Closes the Worker and finalizes Native resources when its host process exits. */
+    public void closeForProcessExit() {
+        bootstrap.shutdownForProcessExit();
+    }
 }

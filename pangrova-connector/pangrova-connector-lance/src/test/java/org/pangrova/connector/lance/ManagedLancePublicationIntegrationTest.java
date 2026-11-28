@@ -11,7 +11,7 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.protocol.v2.AcceptedSourceSnapshotRef;
@@ -432,7 +432,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         byte[] bytes = codec.serialize(append.output());
         var decoded = (LanceOutputHandle) codec.deserialize(1, bytes);
         assertThat(codec.serialize(decoded)).containsExactly(bytes);
-        var actual = org.pangrova.protocol.source.SourceSnapshotBindings.encode(decoded.acceptedBase(), fixture.catalog());
+        var actual = org.pangrova.protocol.source.SourceSnapshotCodec.encode(decoded.acceptedBase(), fixture.catalog());
         assertThat(actual).isEqualTo(base);
         assertThat(actual.getAcceptedOriginCatalogRevision()).isEqualTo(1);
         assertThat(actual.getCatalog()).isEqualTo(fixture.catalog());

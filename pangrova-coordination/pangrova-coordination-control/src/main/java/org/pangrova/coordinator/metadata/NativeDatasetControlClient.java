@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.metadata;
 
 import org.pangrova.coordinator.exception.NativeDatasetControlRpcException;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandResponse;
 

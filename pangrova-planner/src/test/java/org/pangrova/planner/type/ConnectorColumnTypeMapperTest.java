@@ -12,7 +12,7 @@ import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.NullOnlyType;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.mapping.PangrovaTypeConverter;
 import org.pangrova.types.TypeSignature;
 import org.pangrova.types.RowField;
 import org.pangrova.types.RowType;
@@ -33,9 +33,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ConnectorColumnTypeMapperTest {
     @Test
     void uuidDeclarationRetainsIdentityThroughScalarAndNestedStorageSchemas() {
-        Type uuid = PangrovaTypeMapping.toType(PangrovaType.UUID);
+        Type uuid = PangrovaTypeConverter.toType(PangrovaType.UUID);
         assertThat(uuid.getTypeSignature()).isEqualTo(new TypeSignature("UUID"));
-        assertThat(PangrovaTypeMapping.toPangrovaType(uuid)).isEqualTo(PangrovaType.UUID);
+        assertThat(PangrovaTypeConverter.toPangrovaType(uuid)).isEqualTo(PangrovaType.UUID);
         assertThat(new StandardTypeRegistry().getType(uuid.getTypeSignature())).isEqualTo(uuid);
         var columns = List.of(column(PangrovaType.UUID, uuid),
                 new ConnectorTableMetadata.Column("nested", PangrovaType.STRUCT, OptionalInt.empty(),

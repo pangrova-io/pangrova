@@ -5,7 +5,7 @@ import org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPuller;
 import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher;
 import org.pangrova.observability.sdk.metrics.WorkerMetrics;
@@ -96,7 +96,7 @@ public final class WorkerResourceBootstrap {
     /**
      * Starts periodic native metrics collection if native engine is available.
      */
-    public static void startNativeMetrics(WorkerComponentRefs refs, WorkerObservabilitySetup observability) {
+    public static void startNativeMetrics(WorkerComponentRefs refs, WorkerTelemetryInitializer observability) {
         if (!refs.nativeAvailable()) {
             LOG.info("event=phase_skipped phase=native_metrics reason=native_unavailable");
             return;
@@ -120,7 +120,7 @@ public final class WorkerResourceBootstrap {
     /**
      * Creates WorkerMetrics and wires memory gauges from NodeMemoryPool.
      */
-    public static WorkerMetrics startWorkerMetrics(WorkerComponentRefs refs, WorkerObservabilitySetup observability) {
+    public static WorkerMetrics startWorkerMetrics(WorkerComponentRefs refs, WorkerTelemetryInitializer observability) {
         var pool = refs.nodeMemoryPool();
         WorkerMetrics metrics = new WorkerMetrics(
                 observability.metricsProvider(),
@@ -133,7 +133,7 @@ public final class WorkerResourceBootstrap {
     /**
      * Releases all resource infrastructure (delegated to WorkerShutdownSequence).
      */
-    public static void releaseResources(WorkerComponentRefs refs, WorkerObservabilitySetup observability) {
+    public static void releaseResources(WorkerComponentRefs refs, WorkerTelemetryInitializer observability) {
         WorkerResourceShutdown resources = new WorkerResourceShutdown(
                 refs.metricsExecutor(), refs.resourceManager(), refs.nativeMetricsPublisher(),
                 observability.metricsScope(), observability.otelInitializer(), refs.nativeAvailable(),

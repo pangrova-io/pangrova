@@ -6,7 +6,7 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.clustering.ClusteringMaintenance;
 import org.pangrova.connector.api.exception.ClusteringPublicationException;
 import org.pangrova.connector.api.enums.ClusteringMode;
@@ -97,7 +97,7 @@ final class IcebergClusteringMaintenance implements ClusteringMaintenance {
 
     private static String revision(Table table) {
         var metadata = ((HasTableOperations) table).operations().current();
-        return DigestUtils.sha256Hex(metadata.uuid() + "\n" + metadata.metadataFileLocation());
+        return Sha256Digests.sha256Hex(metadata.uuid() + "\n" + metadata.metadataFileLocation());
     }
 
     @Override
@@ -184,7 +184,7 @@ final class IcebergClusteringMaintenance implements ClusteringMaintenance {
                 .map(file -> file.path().toString()).sorted().toList();
         notifier.notifyCommit(tenantId, handle.schemaName(), handle.tableName(), added, removed,
                 Long.toString(snapshot.snapshotId()), CommitEventType.COMPACT,
-                DigestUtils.sha256Hex("recluster:"
+                Sha256Digests.sha256Hex("recluster:"
                         + snapshot.summary().get(IcebergCompactionExecutor.RECLUSTER_RUN)));
     }
 

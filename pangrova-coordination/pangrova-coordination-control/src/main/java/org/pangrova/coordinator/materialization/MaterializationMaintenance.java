@@ -16,7 +16,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.pangrova.common.concurrent.ExecutorDrain;
+import org.pangrova.common.concurrency.ExecutorDrain;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
@@ -33,7 +33,7 @@ import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.CommitRecovery;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
 import org.pangrova.materialization.api.port.PhysicalGenerationStore;
-import org.pangrova.materialization.api.port.SourcePinning;
+import org.pangrova.materialization.api.port.SourceSnapshotPinner;
 import org.pangrova.materialization.usecase.GcPolicy;
 import org.pangrova.materialization.usecase.GenerationGarbageCollector;
 import org.pangrova.materialization.usecase.MaterializationReconciler;
@@ -114,7 +114,7 @@ public final class MaterializationMaintenance implements AutoCloseable {
     }
 
     /** Construction-time collaborators of the maintenance loops. */
-    public record Dependencies(PhysicalGenerationStore store, SourcePinning sourcePinning,
+    public record Dependencies(PhysicalGenerationStore store, SourceSnapshotPinner sourcePinning,
             ScheduledExecutorService ticker, ExecutorService controlExecutor,
             ExecutorService refreshExecutor, Settings settings) {
 

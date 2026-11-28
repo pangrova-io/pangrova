@@ -54,6 +54,11 @@ class CanonicalFunctionProvenanceTest(unittest.TestCase):
             subprocess.run(["git", "-C", str(source), "apply", "--unidiff-zero", "--reverse", "-"],
                            input=upgrade.group(1) + "\n", capture_output=True,
                            text=True, check=True, timeout=60)
+            subprocess.run(
+                ["git", "-C", str(source), "apply", "--unidiff-zero", "--reverse",
+                 "--include=velox/connectors/hive/storage_adapters/s3fs/*",
+                 str(ROOT / "patches/velox-function-metadata-snapshot.patch")],
+                capture_output=True, text=True, check=True, timeout=60)
             upgraded = self.source_action(source, "apply")
             self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
             verified = self.source_action(source, "verify")

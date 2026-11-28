@@ -1,7 +1,7 @@
 package org.pangrova.planner.throttle;
 
 import com.google.common.util.concurrent.RateLimiter;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 
 import java.time.Instant;

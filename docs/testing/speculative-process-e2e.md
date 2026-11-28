@@ -10,6 +10,10 @@ through `IndependentLocalProcesses`: one production Coordinator JVM, two product
 Worker JVMs with distinct PIDs and endpoints, and separate public CLI JVMs. PostgreSQL
 and LDAP use the existing container fixtures. A Pangrova application image is not a
 prerequisite for this local validation path.
+Coordinator processes sharing a test PostgreSQL and LDAP authority also share
+the query peer signing key and TLS root. Each process has its own certificates.
+Clients can resume the original signed route at a peer and then consume the
+owner's Worker stream over authenticated Flight.
 
 Provide `pangrova.e2e.local.lib-dir`, `pangrova.e2e.local.jar-manifest` and
 `pangrova.e2e.local.native-lib` as for `IndependentLocalProcessesE2ETest`. The runtime
@@ -17,6 +21,12 @@ inventory contains `lib/` with ordinary dependencies and the platform Native bun
 plus `cli/` with exactly one `pangrova-client-cli-*-exec.jar`. `runtime.sha256` is
 stored beside those directories. It lists the CLI executable, flat dependency JARs,
 then each Coordinator and Worker list followed by the corresponding JARs in name order.
+For independent remote Shuffle validation, also include one
+`pangrova-shuffle-service-*-exec.jar` under `shuffle/` as the final manifest entry.
+The fixture starts that executable with its own PID, TLS configuration and
+PostgreSQL/MinIO connections.
+The remote SQL coalescing fixture allows 16 concurrent producer streams
+across its two stage cohorts, with a 48 MiB in-flight byte budget and four I/O threads.
 Each child JVM loads the order in its role's verified `classpath.list`. The manifest
 must match the frozen runtime files. All embedded Native copies must match the qualified
 Release library. Freeze the installed production dependencies before running so concurrent
@@ -31,14 +41,15 @@ the checkout root, stage those packaged roles and their attached CLI executable:
 runtime_dir=$(mktemp -d)
 release_library="$PWD/pangrova-worker-native/build/libpangrova_native.dylib"
 python3 deploy/docker/stage-role-classpaths.py . "$runtime_dir/lib"
-mkdir "$runtime_dir/cli"
+mkdir "$runtime_dir/cli" "$runtime_dir/shuffle"
 cp pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-exec.jar "$runtime_dir/cli/"
+cp pangrova-shuffle/pangrova-shuffle-service/target/pangrova-shuffle-service-*-exec.jar "$runtime_dir/shuffle/"
 (
   cd "$runtime_dir" || exit 1
   export LC_ALL=C
   shasum -a 256 cli/*.jar lib/*.jar \
     lib/coordinator/classpath.list lib/coordinator/*.jar \
-    lib/worker/classpath.list lib/worker/*.jar > runtime.sha256
+    lib/worker/classpath.list lib/worker/*.jar shuffle/*.jar > runtime.sha256
 )
 ```
 
@@ -157,6 +168,12 @@ EOF, physical drain and the shared slot count. Twelve status reads after reconne
 to each live owner produce zero query-journal SELECTs. Shared Worker routing and
 cross-host latency have separate acceptance conditions in the execution plan.
 
+The concurrent replay case sends four authenticated submissions with the same
+idempotency key to both Coordinator endpoints. It checks the exact receipt,
+one durable acceptance row and one occupied tenant slot. The client opens the
+owner's Native Flight stream from the peer endpoint and requires EOF and physical
+drain. Reports for the query must reach its owner, and the slot must return to zero.
+
 ## Measuring public SQL latency across two builds
 
 Use the same macOS arm64 machine, JDK 17, UTF-8 locale, Docker, Iceberg SDK
@@ -212,9 +229,21 @@ the real Worker status reports and the corresponding responses received by the
 relay. This covers control traffic at the application layer. A slow or failing
 release fails the fork rather than silently omitting it.
 
+The samples also include the accepted OUTPUT attempt's first payload, producer EOF
+and transport completion offsets from opening the Native Flight reader. Native
+file-adapter calls and byte totals come from drained attempts. S3 counters cover
+SDK attempts, retries and response body bytes. Blank fields indicate missing
+Native receipts. PostgreSQL journal SELECT, journal INSERT and catalog definition
+SELECT deltas cover submission through drain observation. These fixture-wide
+counters also include matching background statements. Measure pool and lock
+waits separately. Client first-row latency requires a client-side clock.
+
 For per-role observations on macOS, redirect each fork's combined output to
 `<fork>.log` next to its `<fork>.csv`. Start the following sampler before the
 forks and create the completion marker after the last fork exits.
+Each role sample includes cumulative user and system CPU time in nanoseconds
+alongside RSS, JVM heap, threads and file descriptors. Compare the CPU counter
+between samples for the same process.
 
 ```bash
 python3 "$BENCHMARK_SCRIPTS/sample_sql_role_resources.py" "$sql_results" &

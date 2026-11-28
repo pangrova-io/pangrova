@@ -13,7 +13,7 @@ import org.pangrova.types.value.TypedRow;
 import org.pangrova.batch.api.page.Page;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
-import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+import org.pangrova.testfixtures.tableformat.PaimonCommitFixture;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Fences Paimon writes and replay against a same-name table that was dropped and recreated. */
-class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
+class PaimonTableIdentityFenceTest extends PaimonDeleteFixture {
 
     private static final StoredRow ROW = new StoredRow(1, "east", "one", "value");
     private static final List<String> COLUMNS = List.of("id", "region", "day", "payload");
@@ -96,7 +96,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         ConnectorOutputTableHandle output = metadata.beginInsert(SESSION, handle(metadata));
         byte[] fragment = prepare(provider().createPageSink(
                 ConnectorTransactionHandle.empty(), SESSION, output), ROW);
-        var context = PaimonCommitTestSupport.context(metadata, SESSION, output, List.of(fragment));
+        var context = PaimonCommitFixture.context(metadata, SESSION, output, List.of(fragment));
 
         recreateTable();
 
@@ -130,7 +130,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         assertThat(staged).isNotEmpty().allMatch(Files::exists);
 
         var fragments = List.of(fragment);
-        var context = PaimonCommitTestSupport.context(
+        var context = PaimonCommitFixture.context(
                 metadata, SESSION, output, fragments);
         assertThatThrownBy(() -> metadata.abortDistributedWrite(SESSION, output, fragments, context))
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -150,7 +150,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         writeRows(new StoredRow(2, "west", "two", "committed"));
 
         var fragments = List.of(fragment);
-        var context = PaimonCommitTestSupport.context(
+        var context = PaimonCommitFixture.context(
                 metadata, SESSION, output, fragments);
         assertThatThrownBy(() -> metadata.abortDistributedWrite(SESSION, output, fragments, context))
                 .isInstanceOf(UnsupportedOperationException.class);
