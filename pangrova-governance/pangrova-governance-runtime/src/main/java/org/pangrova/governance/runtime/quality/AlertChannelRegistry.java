@@ -3,7 +3,7 @@ package org.pangrova.governance.runtime.quality;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.governance.api.quality.AlertChannel;
 import org.pangrova.governance.api.enums.Severity;
 

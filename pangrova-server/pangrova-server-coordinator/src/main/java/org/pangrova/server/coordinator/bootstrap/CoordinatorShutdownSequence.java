@@ -151,7 +151,7 @@ final class CoordinatorShutdownSequence {
         if (executor == null) {
             return;
         }
-        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, DRAIN_TIMEOUT_MS);
+        org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(executor, DRAIN_TIMEOUT_MS);
         LOG.info("event=scheduler_executor_actually_terminated");
     }
 
@@ -161,7 +161,7 @@ final class CoordinatorShutdownSequence {
             scheduler.stop();
         }
         if (executor != null) {
-            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, DRAIN_TIMEOUT_MS);
+            org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(executor, DRAIN_TIMEOUT_MS);
         }
     }
 

@@ -27,7 +27,7 @@ import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTra
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;

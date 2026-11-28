@@ -4,7 +4,7 @@ import org.pangrova.common.api.annotation.Experimental;
 
 import java.time.Instant;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable aggregate identity published for one complete index generation. */
 @Experimental

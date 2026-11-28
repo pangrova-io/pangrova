@@ -8,7 +8,7 @@ import org.pangrova.query.dispatch.StatementCompletionEvent;
 import org.pangrova.query.dispatch.StatementCompletionListener;
 import org.pangrova.planner.analysis.SqlCompiler;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Refreshes the SQL compiler schema after DDL/DML mutations.

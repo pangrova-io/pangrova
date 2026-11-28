@@ -1,6 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -22,7 +22,7 @@ public record AcceptedSourceSnapshot(SourceCatalogDeployment deployment, String 
         if (version <= 0 || manifestSize <= 0 || manifestSize > 256L * 1024 * 1024
                 || manifestSha256.length != 32 || schemaSha256.length != 32
                 || !("V1".equals(namingScheme) || "V2".equals(namingScheme))
-                || !DigestUtils.isSha256Hex(membershipId)) {
+                || !Sha256Digests.isSha256Hex(membershipId)) {
             throw new IllegalArgumentException("Invalid accepted source snapshot");
         }
         requireRelativePath(manifestRelativePath);

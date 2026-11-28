@@ -1,8 +1,8 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
@@ -39,10 +39,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-import static org.pangrova.common.util.Preconditions.requireText;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.common.validation.Preconditions.requireText;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /**
  * Atomic publication and snapshot lookup for generated-column value sidecars.
@@ -288,7 +288,7 @@ public final class JdbcGeneratedValuePublicationStore
 
     private static String manifestDigest(
             GenerationPublicationJob job, List<GenerationOutput> outputs) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         update(digest, job.tenantId());
         update(digest, job.artifactId());
         update(digest, job.artifactType());

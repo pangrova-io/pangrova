@@ -5,7 +5,7 @@ import jakarta.ws.rs.container.CompletionCallback;
 import jakarta.ws.rs.container.ConnectionCallback;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.common.client.error.ErrorDetail;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;

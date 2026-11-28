@@ -16,7 +16,7 @@ import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAncho
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.protocol.catalog.CatalogDeploymentFingerprint;

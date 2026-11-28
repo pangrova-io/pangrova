@@ -8,7 +8,7 @@ import java.time.Instant;
 import java.util.Optional;
 import org.pangrova.connector.api.materialization.CommitEvidence;
 
-import static org.pangrova.common.util.Preconditions.requireNonNullField;
+import static org.pangrova.common.validation.Preconditions.requireNonNullField;
 
 /**
  * One physical generation of a materialized result.

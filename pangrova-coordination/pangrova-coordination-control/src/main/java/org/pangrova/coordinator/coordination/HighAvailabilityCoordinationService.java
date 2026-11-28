@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.MetricAttributes;
 import org.pangrova.observability.api.metrics.MetricsProvider;

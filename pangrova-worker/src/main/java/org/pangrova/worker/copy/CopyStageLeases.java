@@ -2,7 +2,7 @@ package org.pangrova.worker.copy;
 
 import org.pangrova.worker.exception.CopyPreparationHaltedException;
 import org.pangrova.worker.exception.CopySourceReadRejectedException;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest;
@@ -386,8 +386,8 @@ public final class CopyStageLeases implements AutoCloseable {
         private final CompletableFuture<SourcePreparationResult> result = new CompletableFuture<>();
 
         private Lease(PrepareCopySourceRequest request, Clock clock) {
-            this.canonicalSha256 = DigestUtils.sha256().digest(request.canonicalBytes());
-            this.nonceSha256 = DigestUtils.sha256().digest(request.sourceRead().nonce()
+            this.canonicalSha256 = Sha256Digests.sha256().digest(request.canonicalBytes());
+            this.nonceSha256 = Sha256Digests.sha256().digest(request.sourceRead().nonce()
                     .getBytes(StandardCharsets.UTF_8));
             this.scope = request.sourceRead().scope();
             this.deadline = request.preparation().getDeadlineEpochMs();
@@ -402,9 +402,9 @@ public final class CopyStageLeases implements AutoCloseable {
         }
 
         private boolean matches(PrepareCopySourceRequest request) {
-            return Arrays.equals(canonicalSha256, DigestUtils.sha256().digest(request.canonicalBytes()))
+            return Arrays.equals(canonicalSha256, Sha256Digests.sha256().digest(request.canonicalBytes()))
                     && MessageDigest.isEqual(nonceSha256,
-                            DigestUtils.sha256().digest(request.sourceRead().nonce().getBytes(StandardCharsets.UTF_8)))
+                            Sha256Digests.sha256().digest(request.sourceRead().nonce().getBytes(StandardCharsets.UTF_8)))
                     && scope.equals(request.sourceRead().scope());
         }
     }

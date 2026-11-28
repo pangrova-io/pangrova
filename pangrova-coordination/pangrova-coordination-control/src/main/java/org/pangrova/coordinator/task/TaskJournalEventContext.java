@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.task;
 
 import com.google.protobuf.CodedOutputStream;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.query.api.journal.JournalEventContext;
 
@@ -47,7 +47,7 @@ public final class TaskJournalEventContext {
     }
 
     private static byte[] hash(TaskAttemptId attempt, long sequence) {
-        var digest = DigestUtils.sha256();
+        var digest = Sha256Digests.sha256();
         digest.update(DOMAIN);
         try (var sink = new DigestOutputStream(OutputStream.nullOutputStream(), digest)) {
             var encoded = CodedOutputStream.newInstance(sink);

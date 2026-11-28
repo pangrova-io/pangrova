@@ -2,7 +2,7 @@ package org.pangrova.worker.resource.memory;
 
 import org.pangrova.worker.exception.DoubleReleaseException;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * A memory pool that delegates all reserve/release operations to a

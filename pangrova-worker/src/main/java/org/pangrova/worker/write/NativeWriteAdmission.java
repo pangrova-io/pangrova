@@ -1,6 +1,6 @@
 package org.pangrova.worker.write;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.HashMap;
 import java.util.HashSet;

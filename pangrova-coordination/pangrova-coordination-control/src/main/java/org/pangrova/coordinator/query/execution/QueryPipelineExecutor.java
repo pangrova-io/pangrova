@@ -53,7 +53,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Thread safety: stateless beyond references to thread-safe collaborators.</p>
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 final class QueryPipelineExecutor {
 
     private static final int SQL_PREVIEW_LIMIT = 80;

@@ -18,9 +18,9 @@ import org.pangrova.coordination.api.membership.WorkerShuffleDeployment;
 import org.pangrova.coordination.api.membership.WorkerSnapshot;
 import org.pangrova.observability.api.metrics.LongCounter;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

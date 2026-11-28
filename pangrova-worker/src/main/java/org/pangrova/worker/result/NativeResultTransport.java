@@ -1,6 +1,6 @@
 package org.pangrova.worker.result;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import com.google.protobuf.Message;
 import org.pangrova.worker.execution.TaskExecutor;

@@ -3,8 +3,8 @@ package org.pangrova.worker.bootstrap.ownership;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory;
 import org.pangrova.worker.task.TaskManager;
 

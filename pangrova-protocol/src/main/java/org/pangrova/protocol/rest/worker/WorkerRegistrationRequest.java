@@ -13,7 +13,7 @@ import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 
 import java.util.List;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Registration payload sent by Worker to Coordinator on startup.

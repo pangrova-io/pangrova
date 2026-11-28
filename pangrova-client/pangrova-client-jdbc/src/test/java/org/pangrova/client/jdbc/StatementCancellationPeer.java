@@ -4,9 +4,9 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.common.client.session.RetryPolicy;
-import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.ExecutorDrain;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.common.client.result.ResultEndpoint;
 
 import java.io.IOException;

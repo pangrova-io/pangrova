@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.task;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.query.api.stage.StageCompletionCallback;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.scheduler.speculation.DuplicateTaskResolver;

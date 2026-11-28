@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import javax.annotation.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /** One-shot process admission and retryable, actual-return shutdown ownership. No callback runs under its lock. */
 @ThreadSafe

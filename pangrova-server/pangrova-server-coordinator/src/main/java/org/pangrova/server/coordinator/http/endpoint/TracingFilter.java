@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.http.endpoint;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;

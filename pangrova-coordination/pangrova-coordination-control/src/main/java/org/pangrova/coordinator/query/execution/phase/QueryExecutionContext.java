@@ -11,7 +11,7 @@ import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.parser.parse.TimeTravelSqlClauses;
 import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable context passed through the query execution pipeline.

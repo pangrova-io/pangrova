@@ -10,7 +10,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable engine query session. Carries an authenticated actor, an optional exact

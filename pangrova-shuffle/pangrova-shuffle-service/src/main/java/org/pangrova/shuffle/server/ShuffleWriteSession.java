@@ -9,7 +9,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.security.enums.CapabilityOperation;

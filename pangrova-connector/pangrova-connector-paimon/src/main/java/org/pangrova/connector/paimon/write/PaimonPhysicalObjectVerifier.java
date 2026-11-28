@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.table.FileStoreTable;
@@ -27,7 +27,7 @@ final class PaimonPhysicalObjectVerifier {
             byte[] footer = input.readNBytes(8);
             verifyFooter(footer, receipt);
             input.seek(0);
-            var digest = DigestUtils.sha256();
+            var digest = Sha256Digests.sha256();
             byte[] buffer = new byte[64 * 1024];
             long bytes = 0;
             for (int count; (count = input.read(buffer)) != -1;) {

@@ -1,6 +1,6 @@
 package org.pangrova.security.api.authorization;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.common.api.annotation.Experimental;
@@ -98,7 +98,7 @@ public record DeferredAuthorizationScope(
     }
 
     private static void requireDigest(String value) {
-        if (!DigestUtils.isSha256Hex(value)) {
+        if (!Sha256Digests.isSha256Hex(value)) {
             throw new IllegalArgumentException("Definition content requires a canonical SHA-256 digest");
         }
     }

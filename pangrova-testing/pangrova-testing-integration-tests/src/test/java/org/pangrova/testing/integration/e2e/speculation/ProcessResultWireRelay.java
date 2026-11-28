@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;

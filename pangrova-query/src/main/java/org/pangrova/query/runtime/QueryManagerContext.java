@@ -14,7 +14,7 @@ import org.pangrova.query.lifecycle.TenantAdmissionPort;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * QueryManager dependencies supplied by the process composition root.

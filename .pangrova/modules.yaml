@@ -754,8 +754,8 @@ artifacts:
   pangrova-persistence-jdbc-support:
     path: pangrova-persistence/pangrova-persistence-jdbc-support
     moduleName: org.pangrova.persistence.jdbc.support
-    packageRoots: [org.pangrova.persistence.jdbc.support]
-    exports: [org.pangrova.persistence.jdbc.support]
+    packageRoots: [org.pangrova.persistence.jdbc.datasource, org.pangrova.persistence.jdbc.migration, org.pangrova.persistence.jdbc.operation]
+    exports: [org.pangrova.persistence.jdbc.datasource, org.pangrova.persistence.jdbc.migration, org.pangrova.persistence.jdbc.operation]
     allowedImports: []
     forbiddenImports: [pangrova-persistence-generation-api, pangrova-metadata-catalog, pangrova-coordination-control, pangrova-worker]
     providers: {}

@@ -13,7 +13,7 @@ import java.util.Set;
 import org.pangrova.coordinator.worker.WorkerInfo;
 
 /** Atomically retains the sole issued attempt and its exact request for fencing and speculative cloning. */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 final class TaskIdentityRegistry {
     private final ConcurrentHashMap<String, Identity> identities = new ConcurrentHashMap<>();
     // Published under the issuance lock and read by placement without locking or scanning attempts.

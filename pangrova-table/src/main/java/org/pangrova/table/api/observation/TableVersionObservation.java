@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Durable record of one observed version transition for a controlled table.

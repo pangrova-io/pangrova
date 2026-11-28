@@ -1,7 +1,7 @@
 package org.pangrova.planner.stability;
 
-import org.pangrova.common.util.DigestUtils;
-import org.pangrova.common.util.SqlText;
+import org.pangrova.common.crypto.Sha256Digests;
+import org.pangrova.common.text.SqlText;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.externalize.RelWriterImpl;
 import org.apache.calcite.sql.SqlExplainLevel;
@@ -47,7 +47,7 @@ public final class PlanHasher {
      */
     public static String queryHash(String sql) {
         Objects.requireNonNull(sql, "sql");
-        return DigestUtils.sha256Hex(SqlText.baselineKey(sql));
+        return Sha256Digests.sha256Hex(SqlText.baselineKey(sql));
     }
 
     /**
@@ -57,7 +57,7 @@ public final class PlanHasher {
      */
     public static String planHash(RelNode plan) {
         Objects.requireNonNull(plan, "plan");
-        return DigestUtils.sha256Hex(canonicalDigest(plan));
+        return Sha256Digests.sha256Hex(canonicalDigest(plan));
     }
 
     /**

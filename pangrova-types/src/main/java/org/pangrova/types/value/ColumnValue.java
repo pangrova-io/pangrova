@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import org.pangrova.common.util.OrderedMaps;
+import org.pangrova.common.collection.OrderedMaps;
 
 /**
  * Type-safe representation of a column value in a row.

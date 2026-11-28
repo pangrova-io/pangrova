@@ -72,7 +72,7 @@ class JdbcTabularExportPublicationStoreTest {
                 org.pangrova.generation.api.enums.GenerationOutputScope.WORK_UNIT, 7, 0, "a".repeat(64), "");
         assertThat(buildStore.completePage(new org.pangrova.generation.api.page.GenerationPageCompletion(
                 TENANT, job.jobId(), lease.pageId(), lease.fencingToken(), lease.ownerEpoch(), report,
-                org.pangrova.common.util.DigestUtils.sha256Hex(report), List.of(output), START, executions.reportedOwner(TENANT, job.jobId(), lease.ownerEpoch())))).isTrue();
+                org.pangrova.common.crypto.Sha256Digests.sha256Hex(report), List.of(output), START, executions.reportedOwner(TENANT, job.jobId(), lease.ownerEpoch())))).isTrue();
         GenerationJob claimed = buildStore.claimReadyForPublication(
                 TENANT, job.jobId(), executions.takeOwnership(TENANT, job.jobId(), "publisher-a", 9), 9,
                 Duration.ofSeconds(30), START.plusSeconds(1)).orElseThrow();
@@ -121,7 +121,7 @@ class JdbcTabularExportPublicationStoreTest {
             buildStore.createJob(job, dispatch(partitions), pages);
             var worker = executions.takeOwnership(TENANT, job.jobId(), "worker-dispatch", 1);
             byte[] report = "validated-terminal-report".getBytes(StandardCharsets.UTF_8);
-            String reportChecksum = org.pangrova.common.util.DigestUtils.sha256Hex(report);
+            String reportChecksum = org.pangrova.common.crypto.Sha256Digests.sha256Hex(report);
             for (int partition = 0; partition < partitions; partition++) {
                 var lease = buildStore.claimNextPage(TENANT, job.jobId(), worker, 1, Duration.ofSeconds(30), START)
                         .orElseThrow();

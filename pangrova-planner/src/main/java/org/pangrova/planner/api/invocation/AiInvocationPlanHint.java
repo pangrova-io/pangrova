@@ -5,7 +5,7 @@ import org.pangrova.common.api.annotation.Internal;
 
 import java.util.Locale;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Wire-neutral intent for one governed AI scalar expression. Exact model and

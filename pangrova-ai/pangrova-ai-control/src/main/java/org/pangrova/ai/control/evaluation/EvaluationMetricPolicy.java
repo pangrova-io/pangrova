@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Tenant-scoped, immutable metric rules selected by an evaluation run's policy version. */
 public record EvaluationMetricPolicy(

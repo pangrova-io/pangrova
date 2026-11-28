@@ -1,7 +1,7 @@
 package org.pangrova.generation.codec.execution;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 
@@ -25,12 +25,12 @@ public final class GenerationExchangeEvidenceCodec {
 
     /** Returns the integrity identity of the immutable server allocation. */
     public static String sha256(GenerationExchangeRegistration registration) {
-        return DigestUtils.sha256Hex(encode(registration));
+        return Sha256Digests.sha256Hex(encode(registration));
     }
 
     /** Returns the integrity identity of the exact finalization envelope. */
     public static String sha256(GenerationExchangeFinalization finalization) {
-        return DigestUtils.sha256Hex(encode(finalization));
+        return Sha256Digests.sha256Hex(encode(finalization));
     }
 
     /** Accepts only bounded, correctly hashed, canonical allocation evidence. */

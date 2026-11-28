@@ -1,6 +1,6 @@
 package org.pangrova.materialization.api.identity;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Strategy identifier used by the refresh strategy registry.

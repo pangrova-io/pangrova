@@ -16,7 +16,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.pangrova.common.concurrent.ExecutorDrain;
+import org.pangrova.common.concurrency.ExecutorDrain;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;

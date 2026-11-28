@@ -1,6 +1,6 @@
 package org.pangrova.worker.resource.tenant;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.rest.worker.TenantUsageSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

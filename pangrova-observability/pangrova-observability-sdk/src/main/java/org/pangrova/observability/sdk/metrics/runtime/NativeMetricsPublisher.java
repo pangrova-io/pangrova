@@ -1,6 +1,6 @@
 package org.pangrova.observability.sdk.metrics.runtime;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.observability.metrics.MetricsScope;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.slf4j.Logger;

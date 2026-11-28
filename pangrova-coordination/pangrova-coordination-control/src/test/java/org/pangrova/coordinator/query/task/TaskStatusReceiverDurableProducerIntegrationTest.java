@@ -23,7 +23,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
@@ -231,7 +231,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
             try (var rows = statement.executeQuery()) {
                 assertThat(rows.next()).isTrue();
                 assertThat(rows.getBytes(1)).isEqualTo(original);
-                assertThat(rows.getString(2)).isEqualTo(DigestUtils.sha256Hex(original));
+                assertThat(rows.getString(2)).isEqualTo(Sha256Digests.sha256Hex(original));
             }
         }
     }
@@ -720,7 +720,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 GenerationExchangeEvidenceCodec.sha256(registration), registration.shuffleId(),
                 registration.planEpoch(), owner, registration.producerCount(), registration.producerSetSha256(),
                 List.of(new GenerationExchangeFinalization.Partition(0, 0, 0, -1, "d".repeat(64))),
-                0, 0, DigestUtils.sha256Hex(provider));
+                0, 0, Sha256Digests.sha256Hex(provider));
 
         installStatementCounters();
         String reportScan = "SELECT partition_id,state,report_bytes,report_sha256,%FROM artifact_build_pages%";

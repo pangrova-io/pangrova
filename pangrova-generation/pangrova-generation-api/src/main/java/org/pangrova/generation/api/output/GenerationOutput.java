@@ -2,7 +2,7 @@ package org.pangrova.generation.api.output;
 
 import org.pangrova.generation.api.enums.GenerationOutputScope;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable object metadata emitted directly by a Native background task. */
 public record GenerationOutput(

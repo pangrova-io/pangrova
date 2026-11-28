@@ -1,6 +1,6 @@
 package org.pangrova.persistence.table.postgresql.control;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.table.api.identity.TableRef;
@@ -14,8 +14,8 @@ import org.pangrova.table.api.ownership.TableControlStore;
 import org.pangrova.table.api.ownership.TableReadOwnerStore;
 import org.pangrova.table.api.identity.CatalogDeploymentIdentity;
 import org.pangrova.table.api.observation.TableVersionObservation;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -30,7 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setJson;
 
 /**
  * JDBC-backed control store. Ownership decisions and maintenance admission must
@@ -326,7 +326,7 @@ public final class JdbcTableControlStore implements TableControlStore, TableRead
         ps.setString(2, observation.versionToken());
         ps.setString(3, observation.previousVersionToken());
         ps.setString(4, observation.source());
-        JdbcSupport.setInstant(ps, 5, observation.observedAt());
+        JdbcOperations.setInstant(ps, 5, observation.observedAt());
     }
 
     @Override
@@ -345,14 +345,14 @@ public final class JdbcTableControlStore implements TableControlStore, TableRead
                         rs.getString("version_token"),
                         rs.getString("previous_version_token"),
                         rs.getString("source"),
-                        JdbcSupport.getInstant(rs, "observed_at")));
+                        JdbcOperations.getInstant(rs, "observed_at")));
             }
             return observations;
         });
     }
 
     private static int executeUpdate(Connection conn, String sql,
-            JdbcSupport.SqlConsumer binder) throws SQLException {
+            JdbcOperations.SqlConsumer binder) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             binder.accept(ps);
             return ps.executeUpdate();
@@ -379,14 +379,14 @@ public final class JdbcTableControlStore implements TableControlStore, TableRead
         }
         ps.setLong(13, record.metadataRevision());
         ps.setString(14, record.versionToken());
-        JdbcSupport.setNullableInstant(ps, 15, record.versionObservedAt());
+        JdbcOperations.setNullableInstant(ps, 15, record.versionObservedAt());
         ps.setString(16, record.ownerPrincipal());
         setJson(ps, 17, toJson(record.properties()));
         ps.setString(18, record.sourceSignature());
-        JdbcSupport.setInstant(ps, 19, record.createdAt());
-        JdbcSupport.setInstant(ps, 20, record.updatedAt());
-        JdbcSupport.setNullableInstant(ps, 21, record.lastSyncedAt());
-        JdbcSupport.setNullableInstant(ps, 22, record.lastMaintainedAt());
+        JdbcOperations.setInstant(ps, 19, record.createdAt());
+        JdbcOperations.setInstant(ps, 20, record.updatedAt());
+        JdbcOperations.setNullableInstant(ps, 21, record.lastSyncedAt());
+        JdbcOperations.setNullableInstant(ps, 22, record.lastMaintainedAt());
     }
 
     private static String toJson(Map<String, String> properties) {
@@ -412,14 +412,14 @@ public final class JdbcTableControlStore implements TableControlStore, TableRead
                 .catalogIncarnationId(rs.getString("catalog_incarnation_id"))
                 .catalogRevision(nullableLong(rs, "catalog_revision"))
                 .metadataRevision(rs.getLong("metadata_revision"))
-                .version(rs.getString("version_token"), JdbcSupport.getInstant(rs, "version_observed_at"))
+                .version(rs.getString("version_token"), JdbcOperations.getInstant(rs, "version_observed_at"))
                 .ownerPrincipal(rs.getString("owner_principal"))
                 .properties(fromJson(rs.getString("properties")))
                 .sourceSignature(rs.getString("source_signature"))
-                .createdAt(JdbcSupport.getInstant(rs, "created_at"))
-                .updatedAt(JdbcSupport.getInstant(rs, "updated_at"))
-                .lastSyncedAt(JdbcSupport.getInstant(rs, "last_synced_at"))
-                .lastMaintainedAt(JdbcSupport.getInstant(rs, "last_maintained_at"))
+                .createdAt(JdbcOperations.getInstant(rs, "created_at"))
+                .updatedAt(JdbcOperations.getInstant(rs, "updated_at"))
+                .lastSyncedAt(JdbcOperations.getInstant(rs, "last_synced_at"))
+                .lastMaintainedAt(JdbcOperations.getInstant(rs, "last_maintained_at"))
                 .build();
     }
 
@@ -448,8 +448,8 @@ public final class JdbcTableControlStore implements TableControlStore, TableRead
         return records;
     }
 
-    private <T> T query(String sql, JdbcSupport.SqlConsumer binder,
-            JdbcSupport.SqlFunction<ResultSet, T> extractor) {
+    private <T> T query(String sql, JdbcOperations.SqlConsumer binder,
+            JdbcOperations.SqlFunction<ResultSet, T> extractor) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             binder.accept(ps);

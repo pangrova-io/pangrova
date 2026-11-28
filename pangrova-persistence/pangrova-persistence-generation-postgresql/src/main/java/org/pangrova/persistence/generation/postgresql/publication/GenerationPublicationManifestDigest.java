@@ -1,6 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.generation.api.output.GenerationOutput;
 
@@ -20,7 +20,7 @@ final class GenerationPublicationManifestDigest {
     static String compute(
             JdbcIndexGenerationPublicationStore.JobRow job,
             List<GenerationOutput> outputs) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         update(digest, job.tenantId());
         update(digest, job.artifactId());
         update(digest, job.artifactType());

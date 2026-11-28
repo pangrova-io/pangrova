@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** Exact attempt identity and terminal-generation fence for scalar construction pin release. */
 final class JdbcScalarSnapshotPinStore extends JdbcStoreSupport {

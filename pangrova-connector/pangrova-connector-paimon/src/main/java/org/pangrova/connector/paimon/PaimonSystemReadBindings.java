@@ -17,7 +17,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
@@ -161,7 +161,7 @@ final class PaimonSystemReadBindings {
                     .append(object.uri()).append('\0').append(object.length())
                     .append('\0').append(object.sha256());
         }
-        return DigestUtils.sha256Hex(evidence.toString());
+        return Sha256Digests.sha256Hex(evidence.toString());
     }
 
     static String checksum(FileStoreTable table, org.apache.paimon.fs.Path path,
@@ -170,7 +170,7 @@ final class PaimonSystemReadBindings {
             throw new IOException("Paimon snapshot metadata object exceeds Native reader limit");
         }
         try (var input = table.fileIO().newInputStream(path)) {
-            var digest = DigestUtils.sha256();
+            var digest = Sha256Digests.sha256();
             byte[] buffer = new byte[64 * 1024];
             long bytes = 0;
             for (int count; (count = input.read(buffer)) != -1;) {

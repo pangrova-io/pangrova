@@ -1,8 +1,8 @@
 package org.pangrova.persistence.streaming.postgresql;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.exception.StaleEpochException;
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
@@ -302,8 +302,8 @@ public final class JdbcStreamStateStore implements StreamStateStore {
     // ── JDBC helpers ────────────────────────────────────────────────
 
     private <T> T executeQuery(String sql,
-                               JdbcSupport.SqlConsumer binder,
-                               JdbcSupport.SqlFunction<ResultSet, T> extractor) {
+                               JdbcOperations.SqlConsumer binder,
+                               JdbcOperations.SqlFunction<ResultSet, T> extractor) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             binder.accept(ps);
@@ -315,7 +315,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
         }
     }
 
-    private int executeUpdateReturning(String sql, JdbcSupport.SqlConsumer binder) {
+    private int executeUpdateReturning(String sql, JdbcOperations.SqlConsumer binder) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             binder.accept(ps);

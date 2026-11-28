@@ -4,7 +4,7 @@ import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable event carrying stage lifecycle context to handlers.

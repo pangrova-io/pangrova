@@ -9,7 +9,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.TreeMap;
 
-import org.pangrova.common.concurrent.ProcessResourceLocks;
+import org.pangrova.common.concurrency.ProcessResourceLocks;
 
 /** Process admission precedes every lock-channel open; canonical OS locks coordinate independent JVMs. */
 final class LocalMutationLocks implements AutoCloseable {

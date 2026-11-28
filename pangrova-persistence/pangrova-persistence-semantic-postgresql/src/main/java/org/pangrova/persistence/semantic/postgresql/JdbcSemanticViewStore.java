@@ -17,7 +17,7 @@
  */
 package org.pangrova.persistence.semantic.postgresql;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.semantic.api.exception.SemanticStoreException;
 import org.pangrova.semantic.api.identity.SemanticViewId;
@@ -40,10 +40,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-import static org.pangrova.common.util.Preconditions.requireText;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.common.validation.Preconditions.requireText;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** PostgreSQL implementation of immutable Semantic View metadata and fenced publication. */
 public final class JdbcSemanticViewStore implements SemanticViewStore {

@@ -3,7 +3,7 @@ package org.pangrova.worker.bootstrap;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.pangrova.security.api.audit.AuditEventWriter;

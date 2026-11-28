@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.server;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 
 import java.time.Clock;

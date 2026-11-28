@@ -13,7 +13,7 @@
  */
 package org.pangrova.ai.api.embedding;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -62,7 +62,7 @@ public record BlobReference(String uri, String mimeType, long size, String check
 
     private static void requireChecksum(String checksum) {
         requireText(checksum, "checksum");
-        if (!DigestUtils.isSha256Hex(checksum.toLowerCase(Locale.ROOT))) {
+        if (!Sha256Digests.isSha256Hex(checksum.toLowerCase(Locale.ROOT))) {
             throw new IllegalArgumentException(
                     "checksum must be a 64-character SHA-256 hex digest");
         }
@@ -101,9 +101,9 @@ public record BlobReference(String uri, String mimeType, long size, String check
     private static void requireCanonicalPath(String[] segments) {
         boolean canonical = segments.length == 4
                 && segments[0].isEmpty()
-                && DigestUtils.isSha256Hex(segments[1])
-                && DigestUtils.isSha256Hex(segments[2])
-                && DigestUtils.isSha256Hex(segments[3]);
+                && Sha256Digests.isSha256Hex(segments[1])
+                && Sha256Digests.isSha256Hex(segments[2])
+                && Sha256Digests.isSha256Hex(segments[3]);
         if (!canonical) {
             throw invalidGovernedUri();
         }

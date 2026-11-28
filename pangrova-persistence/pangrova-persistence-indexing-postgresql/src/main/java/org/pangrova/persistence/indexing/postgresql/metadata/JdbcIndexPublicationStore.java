@@ -1,8 +1,8 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -29,9 +29,9 @@ import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** Transactional validation and activation of immutable index generations. */
 final class JdbcIndexPublicationStore extends JdbcStoreSupport {
@@ -295,7 +295,7 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
 
     private static String manifestDigest(
             IndexPublicationRequest request, List<IndexFileMapping> mappings) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         update(digest, request.indexId());
         update(digest, request.sourceId());
         update(digest, Integer.toString(request.generation()));

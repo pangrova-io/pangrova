@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
 import org.pangrova.worker.enums.TaskCancellationStatus;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

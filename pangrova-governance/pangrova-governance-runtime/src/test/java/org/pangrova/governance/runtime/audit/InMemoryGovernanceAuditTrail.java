@@ -1,6 +1,6 @@
 package org.pangrova.governance.runtime.audit;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.governance.api.audit.GovernanceAuditEntry;
 import org.pangrova.governance.api.audit.GovernanceAuditTrail;
 import org.pangrova.governance.api.enums.OperationType;

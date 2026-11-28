@@ -19,7 +19,7 @@ import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 
 import org.pangrova.planner.api.result.ResultColumnModel;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.Window;

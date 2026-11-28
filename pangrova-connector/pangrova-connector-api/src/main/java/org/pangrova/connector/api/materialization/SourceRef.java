@@ -2,7 +2,7 @@ package org.pangrova.connector.api.materialization;
 
 import org.pangrova.common.api.annotation.Stable;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Fully qualified identity of a table read by a materialization definition.

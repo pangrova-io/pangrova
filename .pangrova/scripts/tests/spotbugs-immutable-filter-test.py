@@ -123,7 +123,7 @@ public final class ImmutableFilterBoundary {
 
     private static void verifyPolicyStoreConstructor(String path) throws Exception {
         Filter full = Filter.parseFilter(path);
-        String owner = "org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport";
+        String owner = "org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase";
         String signature = "(Ljavax/sql/DataSource;)V";
         command(full, owner, "<init>", signature, "CT_CONSTRUCTOR_THROW", true);
         command(full, owner + "Other", "<init>", signature, "CT_CONSTRUCTOR_THROW", false);
@@ -132,7 +132,7 @@ public final class ImmutableFilterBoundary {
         command(full, owner, "<init>", "()V", "CT_CONSTRUCTOR_THROW", false);
         command(full, owner, "<init>", signature, "SQL_INJECTION_JDBC", false);
         command(full, owner, "execute", "(Ljava/lang/String;)V", "SQL_INJECTION_JDBC", false);
-        command(full, "org.pangrova.persistence.jdbc.security.support.JdbcPolicyStoreSupport",
+        command(full, "org.pangrova.persistence.jdbc.security.support.JdbcPolicyStoreBase",
                 "<init>", signature, "CT_CONSTRUCTOR_THROW", false);
     }
 

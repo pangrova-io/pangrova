@@ -1,6 +1,6 @@
 package org.pangrova.testing.testkit.security;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 
 import java.io.IOException;
 import java.net.InetAddress;

@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.streaming;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.protocol.v2.CdcIngestBinding;
 import org.pangrova.protocol.v2.CdcSourceRange;
 import org.pangrova.protocol.v2.CdcWriteOperation;
@@ -128,7 +128,7 @@ public final class CdcTaskBindingFactory {
                     out.writeInt(operation.getNumber());
                 }
             }
-            return DigestUtils.sha256().digest(bytes.toByteArray());
+            return Sha256Digests.sha256().digest(bytes.toByteArray());
         } catch (IOException impossible) {
             throw new IllegalStateException("Unexpected CDC intent encoding failure", impossible);
         }

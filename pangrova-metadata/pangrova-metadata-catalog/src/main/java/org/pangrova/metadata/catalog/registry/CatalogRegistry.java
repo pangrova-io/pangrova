@@ -8,7 +8,7 @@ import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.metadata.api.catalog.CatalogReadAccess;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.metadata.api.event.MetadataEvent;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.api.exception.CatalogNotFoundException;

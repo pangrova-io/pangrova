@@ -25,7 +25,7 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
     @Test
     void standaloneBundleHasExactlyTheOriginalBytesAndNoRuntimeImplementation() throws Exception {
         ClassLoader loader = getClass().getClassLoader();
-        assertThatThrownBy(() -> loader.loadClass("org.pangrova.persistence.jdbc.support.SchemaMigrationRunner"))
+        assertThatThrownBy(() -> loader.loadClass("org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner"))
                 .isInstanceOf(ClassNotFoundException.class);
         assertThat(Collections.list(loader.getResources(MANIFEST))).hasSize(1);
         Set<String> resources = new HashSet<>();

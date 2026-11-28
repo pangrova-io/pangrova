@@ -4,7 +4,7 @@ import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate.PublicationRead;
 import org.pangrova.generation.api.enums.GenerationPageKind;
@@ -24,7 +24,7 @@ class GenerationStageTemplateTest {
     void bindingDigestRequiresExactLowercaseHexAndSupportsActualEmptyBindings() {
         byte[] bindings = "stage binding contract".getBytes(StandardCharsets.UTF_8);
         String encoded = Base64.getEncoder().encodeToString(bindings);
-        String expected = DigestUtils.sha256Hex(bindings);
+        String expected = Sha256Digests.sha256Hex(bindings);
         assertThat(new GenerationStageTemplate(2, encoded, expected, List.of(), List.of()).bindingBytes())
                 .containsExactly(bindings);
         assertThat(GenerationStageTemplate.of(new byte[0], List.of(), List.of()).bindingBytes()).isEmpty();
@@ -59,13 +59,13 @@ class GenerationStageTemplateTest {
 
     @Test
     void rejectsOldFormatNoncanonicalBytesAndTamperedBindingChecksum() {
-        assertThatThrownBy(() -> new GenerationStageTemplate(1, "AQ==", DigestUtils.sha256Hex(new byte[]{1}), List.of(), List.of()))
+        assertThatThrownBy(() -> new GenerationStageTemplate(1, "AQ==", Sha256Digests.sha256Hex(new byte[]{1}), List.of(), List.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("rebuild");
-        assertThatThrownBy(() -> new GenerationStageTemplate(2, "AQ", DigestUtils.sha256Hex(new byte[]{1}), List.of(), List.of()))
+        assertThatThrownBy(() -> new GenerationStageTemplate(2, "AQ", Sha256Digests.sha256Hex(new byte[]{1}), List.of(), List.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("noncanonical");
         assertThatThrownBy(() -> new GenerationStageTemplate(2, "AQ==", SHA, List.of(), List.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum");
-        assertThatThrownBy(() -> new GenerationStageTemplate(2, "AQ==", DigestUtils.sha256Hex(new byte[]{1}),
+        assertThatThrownBy(() -> new GenerationStageTemplate(2, "AQ==", Sha256Digests.sha256Hex(new byte[]{1}),
                 List.of(Base64.getEncoder().encodeToString(new byte[0])), List.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("empty");
     }
@@ -74,7 +74,7 @@ class GenerationStageTemplateTest {
     void onlyOneCurrentGraphReaderRejectsMissingFormatRatherThanSynthesizingATemplate() {
         byte[] old = "{\"purpose\":\"RELATIONAL_EXPORT\",\"stages\":[],\"exchanges\":[]}"
                 .getBytes(StandardCharsets.UTF_8);
-        assertThatThrownBy(() -> GenerationStageGraphCodec.decode(old, DigestUtils.sha256Hex(old)))
+        assertThatThrownBy(() -> GenerationStageGraphCodec.decode(old, Sha256Digests.sha256Hex(old)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("invalid")
                 .hasRootCauseMessage("Durable graph requires format 4; explicitly rebuild old jobs");
     }

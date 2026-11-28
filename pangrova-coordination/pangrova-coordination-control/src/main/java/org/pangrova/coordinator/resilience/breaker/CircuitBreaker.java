@@ -13,7 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Thread-safe circuit breaker with count-based sliding window failure tracking.

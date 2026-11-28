@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 import static org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN;
 
 /** Builds one deterministic Native source-map plan for a generated VECTOR value. */

@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 import org.pangrova.governance.api.quality.WriteQualityGate;
 import org.pangrova.governance.api.quality.WriteValidationResult;
 

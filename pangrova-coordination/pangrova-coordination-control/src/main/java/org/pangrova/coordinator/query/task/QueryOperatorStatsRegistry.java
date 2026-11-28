@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.task;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.protocol.rest.task.TaskStatusReport;

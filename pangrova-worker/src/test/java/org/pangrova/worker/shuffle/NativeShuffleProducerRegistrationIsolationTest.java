@@ -2,7 +2,7 @@ package org.pangrova.worker.shuffle;
 
 import com.google.protobuf.Message;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.Preconditions;
+import org.pangrova.common.validation.Preconditions;
 import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.shuffle.api.ShuffleServerHandle;
 import org.pangrova.worker.jni.NativeCommandBuilder;

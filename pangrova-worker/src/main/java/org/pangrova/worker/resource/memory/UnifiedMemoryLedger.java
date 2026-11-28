@@ -5,7 +5,7 @@ import org.pangrova.worker.enums.MemoryDomain;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

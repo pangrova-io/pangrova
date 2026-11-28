@@ -8,7 +8,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 import org.pangrova.shuffle.server.enums.FailureKind;

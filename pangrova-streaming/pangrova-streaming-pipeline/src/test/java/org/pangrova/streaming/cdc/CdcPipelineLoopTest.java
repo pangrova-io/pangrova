@@ -6,7 +6,7 @@ import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.pangrova.observability.noop.NoOpMetricsProvider;
 
 import org.pangrova.streaming.api.commit.SourceId;
-import org.pangrova.common.concurrent.BackoffStrategy;
+import org.pangrova.common.concurrency.BackoffStrategy;
 import org.pangrova.connector.api.write.WriteResult;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.enums.CdcOperation;

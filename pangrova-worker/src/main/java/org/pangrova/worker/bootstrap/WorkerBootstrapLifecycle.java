@@ -6,8 +6,8 @@ import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /** Serializes one-shot bootstrap admission without holding a lock during I/O. */
 @ThreadSafe

@@ -69,8 +69,8 @@ public enum SharedPackagePolicy {
     /** Signature dependencies outside the dedicated API packages. Includes their nested value types. */
     public static final Set<String> SPI_TYPES = Set.of(
             "org.pangrova.common.client.result.ResultEndpoint",
-            "org.pangrova.common.concurrent.NotThreadSafe",
-            "org.pangrova.common.concurrent.ThreadSafe",
+            "org.pangrova.common.concurrency.NotThreadSafe",
+            "org.pangrova.common.concurrency.ThreadSafe",
             "org.pangrova.common.enums.PangrovaErrorCode",
             "org.pangrova.common.enums.StorageType",
             "org.pangrova.common.exception.PangrovaException",

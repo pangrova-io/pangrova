@@ -127,7 +127,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
             routingDispatcher = null;
         }
         if (routingAsyncExecutor != null) {
-            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(routingAsyncExecutor, 5000L);
+            org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(routingAsyncExecutor, 5000L);
             routingAsyncExecutor = null;
         }
         if (routingStatusReporter != null) {
@@ -368,7 +368,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
 
     private static QueryManagerContext routingQueryManagerContext(QueryDispatcher dispatcher) {
         if (routingAsyncExecutor == null || routingAsyncExecutor.isShutdown()) {
-            routingAsyncExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+            routingAsyncExecutor = org.pangrova.common.concurrency.ManagedExecutorFactory
                     .newBoundedThreadPool("e2e-routing-async-submit", 4, 128);
         }
         return QueryManagerTestContexts.minimalAsync(

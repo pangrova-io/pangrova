@@ -1,6 +1,6 @@
 package org.pangrova.metadata.catalog.registry;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

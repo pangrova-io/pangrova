@@ -36,7 +36,7 @@ import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
 import org.pangrova.types.value.TypedRow;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 import org.pangrova.query.dispatch.StatementExecutionContext;
 import org.pangrova.query.dispatch.StatementExecutionFactory;
 

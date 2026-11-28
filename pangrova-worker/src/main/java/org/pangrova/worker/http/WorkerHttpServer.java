@@ -1,6 +1,6 @@
 package org.pangrova.worker.http;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.ext.ContextResolver;

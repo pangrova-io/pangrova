@@ -6,7 +6,7 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Objects;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.filesystem.api.blob.BlobInputStream;
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 

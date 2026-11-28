@@ -37,7 +37,7 @@ public final class TaskInfo {
     private final TaskCleanupRetry cleanupRetry = new TaskCleanupRetry();
     private final TaskNativeCreation nativeCreation = new TaskNativeCreation();
     private final TaskTerminalPublication terminalPublication = new TaskTerminalPublication();
-    @org.pangrova.common.concurrent.GuardedBy("this")
+    @org.pangrova.common.concurrency.GuardedBy("this")
     private TaskResultRelease resultRelease;
 
     TaskInfo(String taskId, SubmitTaskRequest request, Instant startTime) {

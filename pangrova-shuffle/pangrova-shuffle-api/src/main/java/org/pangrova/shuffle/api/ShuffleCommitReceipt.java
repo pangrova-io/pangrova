@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.api;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.util.List;
 import java.util.Map;
@@ -85,7 +85,7 @@ public record ShuffleCommitReceipt(ShufflePublication publication, int producerC
     }
 
     private static void requireSha256(String digest) {
-        if (!DigestUtils.isSha256Hex(digest)) {
+        if (!Sha256Digests.isSha256Hex(digest)) {
             throw new IllegalArgumentException("Expected canonical lowercase SHA-256 hex");
         }
     }

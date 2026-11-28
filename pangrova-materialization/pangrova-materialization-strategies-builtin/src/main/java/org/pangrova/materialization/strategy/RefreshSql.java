@@ -1,6 +1,6 @@
 package org.pangrova.materialization.strategy;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
@@ -48,6 +48,6 @@ public final class RefreshSql {
 
     /** Returns the lowercase hexadecimal SHA-256 digest of the UTF-8 value. */
     public static String sha256(String value) {
-        return DigestUtils.sha256Hex(value);
+        return Sha256Digests.sha256Hex(value);
     }
 }

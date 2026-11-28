@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.worker.resource.memory.TaskMemoryPool;
 import org.pangrova.shuffle.api.ShuffleServerHandle;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Mutable execution state for a running task, tracked via atomics.

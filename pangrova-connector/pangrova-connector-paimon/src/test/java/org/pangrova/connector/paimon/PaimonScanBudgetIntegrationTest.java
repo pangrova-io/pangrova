@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.metadata.Domain;

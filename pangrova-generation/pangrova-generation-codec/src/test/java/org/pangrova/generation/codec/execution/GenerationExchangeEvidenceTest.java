@@ -8,7 +8,7 @@ import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.util.List;
 
@@ -65,7 +65,7 @@ class GenerationExchangeEvidenceTest {
         byte[] canonical = GenerationExchangeEvidenceCodec.encode(allocation);
         byte[] noncanonical = java.util.Arrays.copyOf(canonical, canonical.length + 1);
         noncanonical[canonical.length] = '\n';
-        assertThatThrownBy(() -> GenerationExchangeEvidenceCodec.decodeRegistration(noncanonical, DigestUtils.sha256Hex(noncanonical)))
+        assertThatThrownBy(() -> GenerationExchangeEvidenceCodec.decodeRegistration(noncanonical, Sha256Digests.sha256Hex(noncanonical)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not canonical");
         assertThatThrownBy(() -> GenerationExchangeEvidenceCodec.decodeRegistration(null, GenerationExchangeEvidenceCodec.sha256(allocation)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum or size");
@@ -87,6 +87,6 @@ class GenerationExchangeEvidenceTest {
         byte[] response = new byte[]{8, 1};
         return new GenerationExchangeFinalization(allocation.exchangeId(), GenerationExchangeEvidenceCodec.sha256(allocation), allocation.shuffleId(),
                 allocation.planEpoch(), allocation.registeredOwner(), 1, allocation.producerSetSha256(), partitions,
-                bytes, 0, DigestUtils.sha256Hex(response));
+                bytes, 0, Sha256Digests.sha256Hex(response));
     }
 }

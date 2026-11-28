@@ -21,7 +21,7 @@ import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.ShuffleRetryPolicyValidator;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Groups QueryDispatcher dependencies into a single parameter object.

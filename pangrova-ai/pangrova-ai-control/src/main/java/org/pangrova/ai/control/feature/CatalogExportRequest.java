@@ -22,7 +22,7 @@ import org.pangrova.ai.control.enums.CatalogExportKind;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable link between one catalog object version and its artifact build job. */
 public record CatalogExportRequest(

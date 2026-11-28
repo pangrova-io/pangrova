@@ -1,6 +1,6 @@
 package org.pangrova.worker.catalog;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;

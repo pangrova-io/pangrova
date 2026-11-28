@@ -16,9 +16,9 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
-import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.ExecutorDrain;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.enums.ResultProtocol;
 

@@ -1,8 +1,8 @@
 package org.pangrova.protocol.source;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
-import org.pangrova.common.util.OrderedMaps;
+import org.pangrova.common.collection.OrderedMaps;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.FileFormat;
@@ -16,7 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Utilities for canonical split identity and typed file details. */
 public final class DataSplitProtoCodec {
@@ -36,7 +36,7 @@ public final class DataSplitProtoCodec {
                 + safe(sourceSnapshot) + '\0' + safe(dataObjectId) + '\0'
                 + safe(opaqueLocation) + '\0'
                 + startOffset + '\0' + length;
-        byte[] digest = DigestUtils.sha256()
+        byte[] digest = Sha256Digests.sha256()
                 .digest(identity.getBytes(StandardCharsets.UTF_8));
         return HexFormat.of().formatHex(digest);
     }

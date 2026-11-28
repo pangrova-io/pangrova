@@ -188,7 +188,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         String tableName = sourceId(handle);
         long targetSize = rangeTargetSize(handle, budget);
         String cacheKey = cacheable ? tableName + "|" + snapshotId + "|" + targetSize + "|"
-                + org.pangrova.common.util.DigestUtils.sha256Hex(
+                + org.pangrova.common.crypto.Sha256Digests.sha256Hex(
                         handle.properties().getOrDefault(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY, "")
                                 + org.apache.iceberg.SchemaParser.toJson(readSchema)) : null;
         if (cacheKey != null) {

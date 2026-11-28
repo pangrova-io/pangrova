@@ -1,6 +1,6 @@
 package org.pangrova.worker.bootstrap.registration;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -9,7 +9,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.SerializationException;
 import org.pangrova.common.http.HttpResponseCheck;
@@ -147,7 +147,7 @@ public final class WorkerRegistrationClient implements AutoCloseable {
     private void sendDeregister(HttpRequest request, String workerId) {
         for (int attempt = 1; attempt <= MAX_DEREGISTER_ATTEMPTS; attempt++) {
             if (trySendDeregister(request, workerId, attempt)) return;
-            if (attempt < MAX_DEREGISTER_ATTEMPTS) ThreadUtils.sleepQuietly(DEREGISTER_BACKOFF_MS);
+            if (attempt < MAX_DEREGISTER_ATTEMPTS) ThreadSleeper.sleepQuietly(DEREGISTER_BACKOFF_MS);
         }
         LOG.error("event=worker_deregistration_failed maxAttempts={} workerId={}",
                 MAX_DEREGISTER_ATTEMPTS, workerId);

@@ -1,7 +1,7 @@
 package org.pangrova.security.codec.authorization;
 
 import org.pangrova.security.api.enums.AuthorizedReadMode;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import com.fasterxml.jackson.core.JsonParser;
@@ -37,7 +37,7 @@ public final class DeferredAuthorizationScopeCodec {
 
     /** Returns a digest of the canonical exact permissions and observed policy content. */
     public static String sha256(DeferredAuthorizationScope scope) {
-        return DigestUtils.sha256Hex(encode(scope));
+        return Sha256Digests.sha256Hex(encode(scope));
     }
 
     /** Builds one receipt from the same scope observation, without a second connector lookup. */

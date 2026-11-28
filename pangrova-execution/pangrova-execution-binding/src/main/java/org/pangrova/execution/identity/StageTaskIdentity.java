@@ -1,6 +1,6 @@
 package org.pangrova.execution.identity;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.page.GenerationLease;
 
 import java.nio.ByteBuffer;
@@ -20,6 +20,6 @@ public final class StageTaskIdentity {
                 .putInt(execution.length).put(execution).putInt(page.length).put(page)
                 .putLong(lease.executionAnchor().fencingToken())
                 .putLong(lease.fencingToken()).putLong(lease.attemptId());
-        return "artifact-task:" + DigestUtils.sha256Hex(identity.array());
+        return "artifact-task:" + Sha256Digests.sha256Hex(identity.array());
     }
 }

@@ -92,7 +92,7 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
         byte[] report = new byte[] {1, 2};
         assertThat(builds.completePage(new org.pangrova.generation.api.page.GenerationPageCompletion(
                 job.tenantId(), job.jobId(), lease.pageId(), lease.fencingToken(), lease.ownerEpoch(), report,
-                org.pangrova.common.util.DigestUtils.sha256Hex(report),
+                org.pangrova.common.crypto.Sha256Digests.sha256Hex(report),
                 List.of(new org.pangrova.generation.api.output.GenerationOutput("object-terminal-0",
                         job.stagingUri() + "/terminal-0", "TABULAR_DATA", "terminal-0", 0,
                         org.pangrova.generation.api.enums.GenerationOutputScope.WORK_UNIT, 7, 0,

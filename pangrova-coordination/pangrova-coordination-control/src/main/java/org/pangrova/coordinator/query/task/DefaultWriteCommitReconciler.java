@@ -29,7 +29,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.Optional;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Real {@link WriteCommitReconciler} (A-COMMIT-01): AUTO-FINISHES a distributed-write intent left

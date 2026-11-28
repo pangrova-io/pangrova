@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.coordination;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ExecutorDrain;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore;
 

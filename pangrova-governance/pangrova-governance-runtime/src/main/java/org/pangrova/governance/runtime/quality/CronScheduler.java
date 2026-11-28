@@ -8,7 +8,7 @@ import com.cronutils.parser.CronParser;
 import org.pangrova.governance.api.audit.GovernanceAuditTrail;
 import org.pangrova.governance.api.enums.OperationType;
 import org.pangrova.governance.api.quality.DataQualityRule;
-import org.pangrova.common.concurrent.ExecutorDrain;
+import org.pangrova.common.concurrency.ExecutorDrain;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,8 +22,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Schedules periodic data quality checks using standard cron expressions.

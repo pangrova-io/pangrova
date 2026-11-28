@@ -3,7 +3,7 @@ package org.pangrova.connector.lance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.protocol.source.SourceSnapshotBindings;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.LanceWriteOperation;

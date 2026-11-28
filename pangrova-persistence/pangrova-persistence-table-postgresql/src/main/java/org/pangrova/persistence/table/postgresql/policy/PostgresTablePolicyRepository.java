@@ -1,14 +1,14 @@
 package org.pangrova.persistence.table.postgresql.policy;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.table.api.exception.TableControlException;
 import org.pangrova.table.api.policy.GovernanceBinding;
 import org.pangrova.table.api.enums.GovernanceBindingType;
 import org.pangrova.table.api.policy.TablePolicyRepository;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setJson;
 
 /**
  * Durable governance bindings keyed by {@code table_id}.
@@ -81,8 +81,8 @@ public final class PostgresTablePolicyRepository
                 ps.setString(4, binding.bindingRef());
                 setJson(ps, 5, serializeConfig(binding.config()));
                 ps.setString(6, binding.createdBy());
-                JdbcSupport.setInstant(ps, 7, binding.createdAt());
-                JdbcSupport.setInstant(ps, 8, binding.updatedAt());
+                JdbcOperations.setInstant(ps, 7, binding.createdAt());
+                JdbcOperations.setInstant(ps, 8, binding.updatedAt());
                 GovernanceBinding persisted;
                 try (ResultSet rows = ps.executeQuery()) {
                     if (!rows.next()) throw new SQLException("Governance binding upsert returned no row");
@@ -193,8 +193,8 @@ public final class PostgresTablePolicyRepository
                 rs.getString("binding_ref"),
                 parseConfig(rs.getString("config")),
                 rs.getString("created_by"),
-                JdbcSupport.getInstant(rs, "created_at"),
-                JdbcSupport.getInstant(rs, "updated_at"));
+                JdbcOperations.getInstant(rs, "created_at"),
+                JdbcOperations.getInstant(rs, "updated_at"));
     }
 
     private static String serializeConfig(Map<String, String> config) {

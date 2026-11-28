@@ -4,8 +4,8 @@ import org.pangrova.scheduler.api.exception.CircuitBreakerOpenException;
 import org.pangrova.scheduler.api.exception.TaskDispatchException;
 import org.pangrova.scheduler.api.enums.ErrorCategory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
-import static org.pangrova.common.util.Preconditions.checkPort;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkPort;
 
 import java.io.IOException;
 import java.net.ConnectException;

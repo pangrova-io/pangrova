@@ -9,7 +9,7 @@ import org.pangrova.generation.api.enums.GenerationExecutionKind;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable identity plus mutable progress snapshot for one artifact generation. */
 public record GenerationJob(

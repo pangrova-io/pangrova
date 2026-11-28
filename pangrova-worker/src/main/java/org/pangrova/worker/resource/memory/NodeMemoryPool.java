@@ -2,7 +2,7 @@ package org.pangrova.worker.resource.memory;
 
 import org.pangrova.worker.exception.InsufficientMemoryException;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;

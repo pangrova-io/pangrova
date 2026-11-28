@@ -1,7 +1,7 @@
 package org.pangrova.persistence.streaming.postgresql;
 
-import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ExecutorDrain;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

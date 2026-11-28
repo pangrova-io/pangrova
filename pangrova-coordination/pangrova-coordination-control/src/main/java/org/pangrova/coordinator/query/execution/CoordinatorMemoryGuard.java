@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 

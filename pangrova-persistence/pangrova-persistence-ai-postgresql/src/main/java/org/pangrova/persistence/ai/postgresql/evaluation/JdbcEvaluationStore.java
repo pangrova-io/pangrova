@@ -17,7 +17,7 @@
  */
 package org.pangrova.persistence.ai.postgresql.evaluation;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.ai.control.evaluation.EvaluationDatasetId;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetVersion;
@@ -45,10 +45,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.requireOptionalText;
-import static org.pangrova.common.util.Preconditions.requireText;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.common.validation.Preconditions.requireOptionalText;
+import static org.pangrova.common.validation.Preconditions.requireText;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** PostgreSQL implementation of version-pinned evaluation metadata and release gates. */
 public final class JdbcEvaluationStore implements EvaluationStore {

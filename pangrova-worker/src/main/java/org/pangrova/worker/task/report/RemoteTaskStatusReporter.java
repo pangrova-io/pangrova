@@ -1,6 +1,6 @@
 package org.pangrova.worker.task.report;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import java.io.IOException;
 import java.net.URI;
@@ -19,9 +19,9 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import org.pangrova.common.concurrent.BackoffStrategy;
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.BackoffStrategy;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.protocol.constants.TerminalReportDeliveryPolicy;
 import org.pangrova.protocol.http.TaskStatusAck;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
@@ -407,7 +407,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
 
     /** Sleeps for the given duration. Extracted for testability. */
     void sleep(long millis) {
-        ThreadUtils.sleepQuietly(millis);
+        ThreadSleeper.sleepQuietly(millis);
     }
 
     private static LongCounter deliveryFailures(MetricsProvider metrics) {

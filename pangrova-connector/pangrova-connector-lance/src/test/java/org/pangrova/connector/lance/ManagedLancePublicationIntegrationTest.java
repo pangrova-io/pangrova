@@ -11,7 +11,7 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.protocol.v2.AcceptedSourceSnapshotRef;

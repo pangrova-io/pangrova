@@ -28,7 +28,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Tenant-scoped immutable Feature View and Training Dataset catalog. */
 public interface FeatureCatalogStore {

@@ -2,8 +2,8 @@ package org.pangrova.testing.testkit.security;
 
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.NotThreadSafe;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
@@ -146,7 +146,7 @@ public final class TestHttpsEndpoint implements AutoCloseable {
     }
 
     /** Owns a real response barrier; closing only releases the server's original response. */
-    @org.pangrova.common.concurrent.ThreadSafe
+    @org.pangrova.common.concurrency.ThreadSafe
     public final class RequestBlock implements AutoCloseable {
         private final java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
         private final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);

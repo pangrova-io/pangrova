@@ -2,7 +2,7 @@ package org.pangrova.connector.paimon;
 
 import org.apache.paimon.manifest.FileEntry;
 import org.apache.paimon.utils.SerializationUtils;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.io.OutputStream;
 import java.security.DigestOutputStream;
@@ -16,7 +16,7 @@ final class PaimonFileIdentifier {
 
     static byte[] digest(FileEntry entry) {
         try {
-            var digest = DigestUtils.sha256();
+            var digest = Sha256Digests.sha256();
             try (var output = new DataOutputStream(new DigestOutputStream(OutputStream.nullOutputStream(), digest))) {
                 output.write("pangrova-paimon-file-entry-v1\0".getBytes(StandardCharsets.UTF_8));
                 var id = entry.identifier();

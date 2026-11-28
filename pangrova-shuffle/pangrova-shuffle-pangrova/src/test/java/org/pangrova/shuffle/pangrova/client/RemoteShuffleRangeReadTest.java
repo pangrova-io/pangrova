@@ -5,7 +5,7 @@ import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.Checksum;
@@ -34,7 +34,7 @@ class RemoteShuffleRangeReadTest {
     @ValueSource(booleans = {false, true})
     void verifiesAbsoluteSequencesAndRejectsATerminalForAnotherRange(boolean wrongStart) throws Exception {
         byte[] payload = {1, 2, 3, 4, 5};
-        byte[] batchDigest = DigestUtils.sha256().digest(payload);
+        byte[] batchDigest = Sha256Digests.sha256().digest(payload);
         byte[] manifest = ShufflePartitionManifestChecksum.accumulator(4)
                 .add(4, payload.length, 2, batchDigest).finishNonEmpty();
         var range = ShufflePartitionPublication.newBuilder().setStartSequence(4).setLastSequence(4)

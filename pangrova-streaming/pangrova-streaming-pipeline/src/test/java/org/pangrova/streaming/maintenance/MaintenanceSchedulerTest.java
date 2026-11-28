@@ -2,7 +2,7 @@ package org.pangrova.streaming.maintenance;
 
 import org.pangrova.streaming.enums.TriggerPriority;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.connector.api.write.WriteResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

@@ -7,7 +7,7 @@ import java.util.HexFormat;
 import java.util.Objects;
 import java.util.TreeMap;
 import org.pangrova.common.client.query.SubmitQueryRequest;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 /** Stateless canonicalization for durable principal-scoped query acceptance. */
 public final class QueryRequestFingerprint {
@@ -18,12 +18,12 @@ public final class QueryRequestFingerprint {
     /** Hashes the opaque client key without retaining its plaintext. */
     public static String keyDigest(String key) {
         Objects.requireNonNull(key, "key");
-        return HexFormat.of().formatHex(DigestUtils.sha256().digest(key.getBytes(StandardCharsets.UTF_8)));
+        return HexFormat.of().formatHex(Sha256Digests.sha256().digest(key.getBytes(StandardCharsets.UTF_8)));
     }
 
     /** Gives a fresh submission a journal key outside the UTF-8 client key namespace. */
     public static String freshKeyDigest(String queryId) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         // A leading 0xff cannot occur in a UTF-8 encoding.
         digest.update(FRESH_KEY_PREFIX);
         return HexFormat.of().formatHex(digest.digest(queryId.getBytes(StandardCharsets.UTF_8)));
@@ -32,7 +32,7 @@ public final class QueryRequestFingerprint {
     /** Canonicalizes SQL and sorted session properties into a fixed-size request digest. */
     public static String request(SubmitQueryRequest request) {
         Objects.requireNonNull(request, "request");
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         update(digest, request.query());
         new TreeMap<>(request.sessionProperties()).forEach((name, value) -> {
             update(digest, name);

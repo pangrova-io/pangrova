@@ -18,7 +18,7 @@ import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ExecutorService;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.planner.analysis.SqlCompiler;
@@ -331,7 +331,7 @@ final class QueryBootstrap {
         if (artifactPoll != null) artifactPoll.cancel(false);
         if (selfIntelligence != null) selfIntelligence.stopScheduling();
         if (asyncSubmitExecutor != null) {
-            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+            org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(
                     asyncSubmitExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
         }
         if (artifactBuildDispatcher != null) artifactBuildDispatcher.close();
@@ -349,19 +349,19 @@ final class QueryBootstrap {
         ResourceCloser.closeAll(null,
                 () -> {
                     if (readerPinRenewalExecutor != null) {
-                        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                        org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(
                                 readerPinRenewalExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
                     }
                 },
                 () -> {
                     if (terminalCleanupExecutor != null) {
-                        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                        org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(
                                 terminalCleanupExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
                     }
                 },
                 () -> {
                     if (shuffleCleanupExecutor != null) {
-                        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                        org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(
                                 shuffleCleanupExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
                     }
                 },
@@ -456,9 +456,9 @@ final class QueryBootstrap {
                         recovery,
                         new org.pangrova.coordinator.materialization.MaterializationMaintenance
                                 .Dependencies(store, kernels.sourcePinning(), schedulerExecutor(),
-                                        org.pangrova.common.concurrent.ManagedExecutorFactory
+                                        org.pangrova.common.concurrency.ManagedExecutorFactory
                                                 .newSingleThreadExecutor("materialization-control"),
-                                        org.pangrova.common.concurrent.ManagedExecutorFactory
+                                        org.pangrova.common.concurrency.ManagedExecutorFactory
                                                 .newSingleThreadExecutor("materialization-refresh"),
                                         org.pangrova.coordinator.materialization
                                                 .MaterializationMaintenance.Settings.defaults(

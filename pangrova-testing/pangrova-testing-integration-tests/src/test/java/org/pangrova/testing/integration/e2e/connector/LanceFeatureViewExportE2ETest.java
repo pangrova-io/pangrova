@@ -190,7 +190,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
             Path path = output.opaqueUri().startsWith("file:") ? Path.of(URI.create(output.opaqueUri())) : Path.of(output.opaqueUri());
             byte[] bytes = Files.readAllBytes(path);
             assertThat(bytes.length).isEqualTo(output.sizeBytes());
-            assertThat(org.pangrova.common.util.DigestUtils.sha256Hex(bytes)).isEqualTo(output.checksumSha256());
+            assertThat(org.pangrova.common.crypto.Sha256Digests.sha256Hex(bytes)).isEqualTo(output.checksumSha256());
             try (var allocator = new RootAllocator(); var input = Files.newInputStream(path);
                  var reader = new ArrowStreamReader(input, allocator)) {
                 assertThat(reader.getVectorSchemaRoot().getSchema().getFields()).extracting(field -> field.getName())

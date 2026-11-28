@@ -1,11 +1,11 @@
 package org.pangrova.governance.runtime.lineage;
 
 import org.pangrova.governance.api.enums.LineageEventType;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.query.api.lineage.QueryLineageFact;
 import org.pangrova.persistence.query.api.lineage.QueryLineageOutbox;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageBackend;
@@ -52,7 +52,7 @@ public final class LineageEventEmitter implements AutoCloseable {
     private final QueryLineageOutbox outbox;
     private final String namespace;
     private final Object producerGate = new Object();
-    @org.pangrova.common.concurrent.GuardedBy("producerGate")
+    @org.pangrova.common.concurrency.GuardedBy("producerGate")
     private int enteredProducers;
     private static final long DURABLE_DELIVERY_LEASE_SECONDS = 30;
     private final BlockingQueue<LineageEvent> retryQueue;
@@ -295,7 +295,7 @@ public final class LineageEventEmitter implements AutoCloseable {
             try {
                 var claimed = outbox.claim(namespace, Duration.ofSeconds(DURABLE_DELIVERY_LEASE_SECONDS));
                 if (claimed.isEmpty()) {
-                    ThreadUtils.sleepQuietly(EMPTY_POLL_SLEEP_MS);
+                    ThreadSleeper.sleepQuietly(EMPTY_POLL_SLEEP_MS);
                     if (Thread.currentThread().isInterrupted()) break;
                     continue;
                 }
@@ -327,7 +327,7 @@ public final class LineageEventEmitter implements AutoCloseable {
             // successful send.
             LineageEvent event = retryQueue.peek();
             if (event == null) {
-                ThreadUtils.sleepQuietly(EMPTY_POLL_SLEEP_MS);
+                ThreadSleeper.sleepQuietly(EMPTY_POLL_SLEEP_MS);
                 // sleepQuietly restores the interrupt flag; treat interruption as shutdown
                 if (Thread.currentThread().isInterrupted()) {
                     break;
@@ -373,7 +373,7 @@ public final class LineageEventEmitter implements AutoCloseable {
         long remaining = ms;
         while (remaining > 0 && running) {
             long chunk = Math.min(remaining, BACKOFF_SLEEP_CHUNK_MS);
-            ThreadUtils.sleepQuietly(chunk);
+            ThreadSleeper.sleepQuietly(chunk);
             remaining -= chunk;
         }
     }

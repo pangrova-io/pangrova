@@ -1,6 +1,6 @@
 package org.pangrova.persistence.streaming.memory;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
 
 import java.time.Instant;

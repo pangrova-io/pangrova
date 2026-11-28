@@ -7,8 +7,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.constants.TerminalReportDeliveryPolicy;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 

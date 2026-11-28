@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
 import java.io.IOException;

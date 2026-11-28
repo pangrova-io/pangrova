@@ -8,7 +8,7 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry;
-import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
+import org.pangrova.persistence.jdbc.datasource.DriverManagerDataSource;
 import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;

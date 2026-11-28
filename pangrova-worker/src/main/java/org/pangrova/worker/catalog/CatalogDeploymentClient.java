@@ -2,7 +2,7 @@ package org.pangrova.worker.catalog;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.common.util.UriComponents;
+import org.pangrova.common.net.UriComponents;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 
 import java.io.IOException;

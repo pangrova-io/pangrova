@@ -38,7 +38,7 @@ import org.pangrova.indexing.storage.IndexStorageManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.CacheEvent;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;

@@ -2,7 +2,7 @@ package org.pangrova.persistence.streaming.postgresql;
 
 import org.pangrova.testing.testkit.constants.TestObservability;
 
-import org.pangrova.common.concurrent.BackoffStrategy;
+import org.pangrova.common.concurrency.BackoffStrategy;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.enums.CdcOperation;
 import org.pangrova.streaming.api.cdc.CdcRecordConverter;

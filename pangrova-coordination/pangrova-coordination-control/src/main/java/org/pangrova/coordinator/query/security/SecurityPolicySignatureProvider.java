@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.security;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.planner.analysis.PlannedQuery;
 import org.pangrova.security.api.identity.UserIdentity;
 
@@ -44,6 +44,6 @@ public final class SecurityPolicySignatureProvider {
             sb.append("groups=").append(new TreeSet<>(user.groups())).append(';');
         }
         sb.append("effectivePlan=").append(securedPlan.effectivePlanDigest());
-        return DigestUtils.sha256Hex(sb.toString());
+        return Sha256Digests.sha256Hex(sb.toString());
     }
 }

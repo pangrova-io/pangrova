@@ -5,7 +5,7 @@ import java.util.function.Function;
 
 import org.pangrova.execution.task.DispatchResult;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Final phase: distributed query dispatch.

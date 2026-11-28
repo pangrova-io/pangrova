@@ -19,7 +19,7 @@ import org.pangrova.ai.api.invocation.RerankingBatchResult;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.List;
 import java.util.Set;

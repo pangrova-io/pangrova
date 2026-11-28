@@ -1,6 +1,6 @@
 package org.pangrova.protocol.descriptor;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
@@ -21,7 +21,7 @@ public final class CanonicalProtocolDescriptors {
     private static final FileDescriptorSet DESCRIPTORS =
             buildDescriptorSet(org.pangrova.protocol.v2.Runtime.getDescriptor());
     private static final byte[] DESCRIPTOR_BYTES = DESCRIPTORS.toByteArray();
-    private static final ByteString SHA256 = ByteString.copyFrom(DigestUtils.sha256().digest(DESCRIPTOR_BYTES));
+    private static final ByteString SHA256 = ByteString.copyFrom(Sha256Digests.sha256().digest(DESCRIPTOR_BYTES));
 
     private CanonicalProtocolDescriptors() {}
 

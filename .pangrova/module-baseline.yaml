@@ -411,8 +411,10 @@ artifacts:
       - org.pangrova.common.client.query
       - org.pangrova.common.client.result
       - org.pangrova.common.client.session
-      - org.pangrova.common.concurrent
+      - org.pangrova.common.collection
+      - org.pangrova.common.concurrency
       - org.pangrova.common.connector
+      - org.pangrova.common.crypto
       - org.pangrova.common.enums
       - org.pangrova.common.exception
       - org.pangrova.common.file
@@ -420,11 +422,16 @@ artifacts:
       - org.pangrova.common.json
       - org.pangrova.common.lifecycle
       - org.pangrova.common.lifecycle.rollback
+      - org.pangrova.common.net
+      - org.pangrova.common.numeric
       - org.pangrova.common.resilience
       - org.pangrova.common.resilience.api
       - org.pangrova.common.resilience.policy
       - org.pangrova.common.session
-      - org.pangrova.common.util
+      - org.pangrova.common.text
+      - org.pangrova.common.time
+      - org.pangrova.common.units
+      - org.pangrova.common.validation
     pomDependencies: []
     imports:
       main: []
@@ -442,19 +449,24 @@ artifacts:
       - org.pangrova.common.client.query
       - org.pangrova.common.client.result
       - org.pangrova.common.client.session
-      - org.pangrova.common.concurrent
+      - org.pangrova.common.collection
+      - org.pangrova.common.concurrency
       - org.pangrova.common.connector
+      - org.pangrova.common.crypto
       - org.pangrova.common.enums
       - org.pangrova.common.exception
       - org.pangrova.common.file
       - org.pangrova.common.http
       - org.pangrova.common.json
       - org.pangrova.common.lifecycle
+      - org.pangrova.common.net
+      - org.pangrova.common.numeric
       - org.pangrova.common.resilience
       - org.pangrova.common.resilience.api
       - org.pangrova.common.resilience.policy
       - org.pangrova.common.session
-      - org.pangrova.common.util
+      - org.pangrova.common.text
+      - org.pangrova.common.validation
     providers:
       {}
   pangrova-config:
@@ -2872,13 +2884,17 @@ artifacts:
   pangrova-persistence-jdbc-support:
     path: pangrova-persistence/pangrova-persistence-jdbc-support
     mainPackages:
-      - org.pangrova.persistence.jdbc.support
+      - org.pangrova.persistence.jdbc.datasource
+      - org.pangrova.persistence.jdbc.migration
+      - org.pangrova.persistence.jdbc.operation
     pomDependencies: []
     imports:
       main: []
       test: []
     exportedPackages:
-      - org.pangrova.persistence.jdbc.support
+      - org.pangrova.persistence.jdbc.datasource
+      - org.pangrova.persistence.jdbc.migration
+      - org.pangrova.persistence.jdbc.operation
     providers:
       {}
   pangrova-persistence-materialization-api:
@@ -3123,7 +3139,6 @@ artifacts:
       - org.pangrova.persistence.security.postgresql.mask
       - org.pangrova.persistence.security.postgresql.policy
       - org.pangrova.persistence.security.postgresql.rowfilter
-      - org.pangrova.persistence.security.postgresql.support
       - org.pangrova.persistence.security.postgresql.tenant
       - org.pangrova.persistence.security.postgresql.transaction
     pomDependencies:
@@ -3152,7 +3167,6 @@ artifacts:
       - org.pangrova.persistence.security.postgresql.mask
       - org.pangrova.persistence.security.postgresql.policy
       - org.pangrova.persistence.security.postgresql.rowfilter
-      - org.pangrova.persistence.security.postgresql.support
       - org.pangrova.persistence.security.postgresql.tenant
       - org.pangrova.persistence.security.postgresql.transaction
     providers:

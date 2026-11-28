@@ -22,10 +22,10 @@ import java.util.UUID;
 
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.setJson;
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.toJson;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setNullableInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setNullableInstant;
 
 /** PostgreSQL write-ahead journal and atomic descriptor fencing for schema evolution. */
 final class JdbcIndexSchemaEvolutionStore {

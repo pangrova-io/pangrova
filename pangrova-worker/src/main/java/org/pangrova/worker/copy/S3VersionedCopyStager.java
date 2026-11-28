@@ -1,6 +1,6 @@
 package org.pangrova.worker.copy;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
@@ -84,7 +84,7 @@ final class S3VersionedCopyStager {
         String bucket = uri.getRawAuthority();
         String key = uri.getRawPath().substring(1);
         String scope = HexFormat.of().formatHex(
-                DigestUtils.sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
+                Sha256Digests.sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
         String canonicalSourceUrl = "s3://" + bucket + "/" + key;
         try {
             budget.checkpoint();
@@ -132,7 +132,7 @@ final class S3VersionedCopyStager {
         Objects.requireNonNull(staged, "staged source must not be null");
         requireRetrySource(profile, sourceUrl, tenantId);
         String scope = HexFormat.of().formatHex(
-                DigestUtils.sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
+                Sha256Digests.sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
         requireRetryProof(profile, sourceUrl, staged, scope);
         verifyManagedObject(scope, staged.contentSha256(), staged.contentSize(), deadlineNanos, budget);
         return staged;
@@ -149,7 +149,7 @@ final class S3VersionedCopyStager {
         long deadlineNanos = System.nanoTime() + maxStageNanos;
         requireRetrySource(profile, sourceUrl, tenantId);
         String scope = HexFormat.of().formatHex(
-                DigestUtils.sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
+                Sha256Digests.sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
         requireRetryProof(profile, sourceUrl, staged, scope);
         Files.createDirectories(stagingRoot);
         if (Files.isSymbolicLink(stagingRoot)) {
@@ -165,7 +165,7 @@ final class S3VersionedCopyStager {
         var owned = new VerifiedLocalCopySource(local, stagingRoot, proof);
         try {
             ownership.publishOwner().accept(owned);
-            MessageDigest digest = DigestUtils.sha256();
+            MessageDigest digest = Sha256Digests.sha256();
             try (var input = managedStorage.open(
                     new BlobObjectId(scope, staged.contentSha256(), staged.contentSize()),
                     ownership.budget()::reserve)) {
@@ -209,7 +209,7 @@ final class S3VersionedCopyStager {
         if (!profile.name().equals(staged.profileName()) || !sourceUrl.equals(staged.sourceUrl())
                 || !scope.equals(staged.tenantScope()) || staged.sourceVersionId() == null
                 || staged.sourceVersionId().isBlank() || "null".equals(staged.sourceVersionId())
-                || staged.contentSha256() == null || !DigestUtils.isSha256Hex(staged.contentSha256())
+                || staged.contentSha256() == null || !Sha256Digests.isSha256Hex(staged.contentSha256())
                 || staged.contentSize() < 0 || staged.contentSize() > maxSourceBytes
                 || !managedStorage.objectUri(new BlobObjectId(scope, staged.contentSha256(), staged.contentSize()))
                         .equals(staged.managedObjectUri())) {
@@ -236,7 +236,7 @@ final class S3VersionedCopyStager {
                                 .equals(input.response().contentRange())) {
                     throw new IOException("S3 COPY GET response differs from the pinned HEAD version");
                 }
-                MessageDigest digest = DigestUtils.sha256();
+                MessageDigest digest = Sha256Digests.sha256();
                 try (FileChannel channel = FileChannel.open(draft,
                         StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
                         var output = Channels.newOutputStream(channel)) {
@@ -264,7 +264,7 @@ final class S3VersionedCopyStager {
             budget.checkpoint();
             return;
         }
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         try (var input = managedStorage.open(new BlobObjectId(scope, checksum, expectedSize), budget::reserveRead)) {
             try {
                 long size = transfer(input, OutputStream.nullOutputStream(), digest,

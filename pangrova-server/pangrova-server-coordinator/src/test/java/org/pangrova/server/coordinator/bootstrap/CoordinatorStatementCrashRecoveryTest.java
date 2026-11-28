@@ -7,7 +7,7 @@ import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.testinfra.SignedOidcIssuer;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;

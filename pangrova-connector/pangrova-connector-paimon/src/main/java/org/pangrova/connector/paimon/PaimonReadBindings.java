@@ -9,7 +9,7 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.paimon.scan.PaimonReadSchema;
@@ -72,7 +72,7 @@ final class PaimonReadBindings {
     static TableVersionToken version(FileStoreTable table, Snapshot snapshot) {
         return TableVersionToken.of("PAIMON", table.uuid(),
                 snapshot == null ? "EMPTY" : Long.toString(snapshot.id()),
-                Long.toString(table.schema().id()), DigestUtils.sha256Hex(table.location().toString()));
+                Long.toString(table.schema().id()), Sha256Digests.sha256Hex(table.location().toString()));
     }
 
     static void validate(Catalog catalog, ConnectorReadBinding binding) {
@@ -158,7 +158,7 @@ final class PaimonReadBindings {
     private static String identity(FileStoreTable table, Snapshot snapshot) {
         // The SDK may synthesize uuid() from name and earliest schema time. It is
         // additional evidence, not a replacement for the actual manifest identity.
-        return DigestUtils.sha256Hex(table.uuid() + "\0" + table.location() + "\0"
+        return Sha256Digests.sha256Hex(table.uuid() + "\0" + table.location() + "\0"
                 + (snapshot == null ? "EMPTY" : snapshot.toJson()));
     }
 }

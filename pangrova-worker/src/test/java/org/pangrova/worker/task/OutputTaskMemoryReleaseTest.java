@@ -60,7 +60,7 @@ class OutputTaskMemoryReleaseTest {
     void closeActualOwners() {
         Throwable failure = null;
         if (resultCleanup != null) {
-            failure = closeOwner(() -> org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+            failure = closeOwner(() -> org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(
                     resultCleanup, 3_000), failure);
         }
         if (manager != null) {
@@ -252,7 +252,7 @@ class OutputTaskMemoryReleaseTest {
             assertThat(reports.reports()).filteredOn(OutputTaskMemoryReleaseTest::isNativeReleased).hasSize(2);
         } finally {
             endpoint.stop(0);
-            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(httpHandlers, 3000);
+            org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(httpHandlers, 3000);
         }
     }
 

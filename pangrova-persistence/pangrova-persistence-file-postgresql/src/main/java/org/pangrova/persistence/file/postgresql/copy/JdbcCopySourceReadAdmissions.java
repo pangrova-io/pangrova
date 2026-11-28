@@ -1,8 +1,8 @@
 package org.pangrova.persistence.file.postgresql.copy;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -94,7 +94,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
         byte[] nonceBytes = new byte[NONCE_BYTES];
         random.nextBytes(nonceBytes);
         String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes);
-        String nonceHash = DigestUtils.sha256Hex(nonceBytes);
+        String nonceHash = Sha256Digests.sha256Hex(nonceBytes);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -161,7 +161,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
                 accessControl.checkCanReadStorageProfile(root.identity(), current.profile().name());
                 String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes);
                 StagedSource proof = root.stagedSource().orElseThrow();
-                insert(connection, DigestUtils.sha256Hex(nonceBytes), scope, root.identity(),
+                insert(connection, Sha256Digests.sha256Hex(nonceBytes), scope, root.identity(),
                         root.authorizationRevision(),
                         parentHash, proof);
                 requireCurrentFences(connection, scope, expectedAnchor);
@@ -217,7 +217,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
     public Redemption redeem(Ticket ticket, Scope presented, ExecutionAnchor expectedAnchor) {
         Objects.requireNonNull(ticket, "ticket");
         Objects.requireNonNull(presented, "presented");
-        String nonceHash = DigestUtils.sha256Hex(Base64.getUrlDecoder().decode(ticket.nonce()));
+        String nonceHash = Sha256Digests.sha256Hex(Base64.getUrlDecoder().decode(ticket.nonce()));
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -265,7 +265,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
         if (!expectedManagedObjectUri(presented, staged).equals(staged.managedObjectUri())) {
             throw denied();
         }
-        String nonceHash = DigestUtils.sha256Hex(Base64.getUrlDecoder().decode(ticket.nonce()));
+        String nonceHash = Sha256Digests.sha256Hex(Base64.getUrlDecoder().decode(ticket.nonce()));
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -578,7 +578,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
     }
 
     private static String expectedTenantScope(String tenantId) {
-        return DigestUtils.sha256Hex(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8));
+        return Sha256Digests.sha256Hex(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8));
     }
 
     private static AccessDeniedException denied() {

@@ -3,7 +3,7 @@ package org.pangrova.scheduler.speculation;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * First-to-finish deduplication for speculative attempts of one query partition.

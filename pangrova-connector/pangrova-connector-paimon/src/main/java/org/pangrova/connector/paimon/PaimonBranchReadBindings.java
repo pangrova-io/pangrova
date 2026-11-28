@@ -22,7 +22,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.utils.BranchManager;
 import org.apache.paimon.utils.FileSystemBranchManager;
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
@@ -149,6 +149,6 @@ final class PaimonBranchReadBindings {
                     .append(directory.device()).append('\0').append(directory.inode())
                     .append('\0').append(directory.zoneOffsetSeconds());
         }
-        return DigestUtils.sha256Hex(evidence.toString());
+        return Sha256Digests.sha256Hex(evidence.toString());
     }
 }

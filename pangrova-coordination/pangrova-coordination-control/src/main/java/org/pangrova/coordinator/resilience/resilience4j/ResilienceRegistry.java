@@ -15,7 +15,7 @@ import io.github.resilience4j.retry.RetryRegistry;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import io.github.resilience4j.timelimiter.TimeLimiterRegistry;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig.BulkheadSettings;

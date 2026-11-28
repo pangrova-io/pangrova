@@ -40,7 +40,7 @@ import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Orchestrates the query execution pipeline via a phase-based architecture.
@@ -58,7 +58,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * <p>Concurrency strategy: this class is shared across concurrent query
  * submissions. All mutable state uses thread-safe constructs.</p>
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecutionPort {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryDispatcher.class);

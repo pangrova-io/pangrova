@@ -39,7 +39,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Owns per-query lifecycle state, cancellation, terminal routing, and lineage events. */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public final class DAGLifecycleController {
     private static final Logger LOG =
             LoggerFactory.getLogger(DAGLifecycleController.class);

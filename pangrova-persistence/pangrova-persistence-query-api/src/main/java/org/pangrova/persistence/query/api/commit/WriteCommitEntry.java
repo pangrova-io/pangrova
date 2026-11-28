@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import org.pangrova.common.file.CopyFileCommitBinding;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Represents a write commit intent recorded in the {@link WriteCommitJournal}.

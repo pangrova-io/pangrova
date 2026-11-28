@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.io.IOException;
 import java.net.URI;
@@ -49,7 +49,7 @@ final class PaimonLocalStagingAuthority {
     private static String fingerprint(BasicFileAttributes attributes) {
         Object key = attributes.fileKey();
         if (!attributes.isDirectory() || key == null) return "";
-        return DigestUtils.sha256Hex(BOOT_ID + ":" + key);
+        return Sha256Digests.sha256Hex(BOOT_ID + ":" + key);
     }
 
     private static String readBootId() {

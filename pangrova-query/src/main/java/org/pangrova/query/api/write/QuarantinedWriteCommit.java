@@ -5,7 +5,7 @@ import org.pangrova.common.api.annotation.Internal;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * A distributed write intent whose outcome could not be proven, retained for manual

@@ -1,6 +1,6 @@
 package org.pangrova.common.file;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -16,13 +16,13 @@ public record CopyFileCommitBinding(
 
 
     public CopyFileCommitBinding {
-        if (!DigestUtils.isSha256Hex(fileKey)) {
+        if (!Sha256Digests.isSha256Hex(fileKey)) {
             throw new IllegalArgumentException("fileKey must be lowercase SHA-256 hex");
         }
         if (loadGeneration < 0) {
             throw new IllegalArgumentException("loadGeneration must not be negative");
         }
-        if (!DigestUtils.isSha256Hex(claimDigest)) {
+        if (!Sha256Digests.isSha256Hex(claimDigest)) {
             throw new IllegalArgumentException("claimDigest must be lowercase SHA-256 hex");
         }
         if (tableUuid == null) {

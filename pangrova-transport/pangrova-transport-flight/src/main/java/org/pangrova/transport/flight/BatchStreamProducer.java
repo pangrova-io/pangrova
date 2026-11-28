@@ -1,7 +1,7 @@
 package org.pangrova.transport.flight;
 
 import org.pangrova.protocol.enums.DataTicketType;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.protocol.transport.DataProducer;
 import org.pangrova.protocol.exception.DataProducerException;
 import org.pangrova.protocol.transport.DataTicket;
@@ -200,7 +200,7 @@ public final class BatchStreamProducer implements FlightProducer {
     }
 
     private static void sleepForBackoff() {
-        ThreadUtils.sleepQuietly(POLL_BACKOFF_MILLIS);
+        ThreadSleeper.sleepQuietly(POLL_BACKOFF_MILLIS);
     }
 
     /**

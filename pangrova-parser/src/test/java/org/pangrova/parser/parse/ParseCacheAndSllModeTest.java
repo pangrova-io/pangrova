@@ -4,7 +4,7 @@ import org.pangrova.parser.api.exception.ParseException;
 
 import org.pangrova.parser.api.ast.Statement;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.SqlText;
+import org.pangrova.common.text.SqlText;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

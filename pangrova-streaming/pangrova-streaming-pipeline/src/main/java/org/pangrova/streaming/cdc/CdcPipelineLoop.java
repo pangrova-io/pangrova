@@ -1,7 +1,7 @@
 package org.pangrova.streaming.cdc;
 
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.connector.api.write.WriteResult;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
@@ -396,7 +396,7 @@ public final class CdcPipelineLoop implements Runnable {
      * flag is restored and the pipeline is signalled to stop.
      */
     private void sleepQuietly(long millis) {
-        ThreadUtils.sleepQuietly(millis);
+        ThreadSleeper.sleepQuietly(millis);
         if (Thread.currentThread().isInterrupted()) {
             running = false;
         }

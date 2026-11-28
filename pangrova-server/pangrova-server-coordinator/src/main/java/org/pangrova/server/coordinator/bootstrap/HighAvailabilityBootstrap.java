@@ -155,7 +155,7 @@ final class HighAvailabilityBootstrap {
         haService.start(config.coordinatorId());
         if (durableExecutionAnchors) {
             recoveryFuture = schedulerExecutor.scheduleWithFixedDelay(
-                    () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(
+                    () -> org.pangrova.common.concurrency.ExecutorDrain.runOwned(
                             schedulerExecutor, this::recoverExecutionsIfControlLeader),
                     config.workerHealthCheckIntervalMs(),
                     config.workerHealthCheckIntervalMs(),
@@ -282,7 +282,7 @@ final class HighAvailabilityBootstrap {
     private void startTaskTimeoutChecker() {
         long intervalMs = config.workerHealthCheckIntervalMs();
         taskTimeoutFuture = schedulerExecutor.scheduleAtFixedRate(
-                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(schedulerExecutor,
+                () -> org.pangrova.common.concurrency.ExecutorDrain.runOwned(schedulerExecutor,
                         () -> CoordinatorShutdownSequence.checkTaskTimeouts(taskTracker, queryManager)),
                 intervalMs, intervalMs, TimeUnit.MILLISECONDS);
         LOG.info("Phase: TaskTimeoutChecker -- started (taskTimeout={}s)",

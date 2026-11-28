@@ -1,6 +1,6 @@
 package org.pangrova.client.http;
 
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.slf4j.Logger;
@@ -134,7 +134,7 @@ final class RetryableHttpExecutor {
     }
 
     private void sleepForRetry(Duration delay) {
-        ThreadUtils.sleepQuietly(delay);
+        ThreadSleeper.sleepQuietly(delay);
         if (Thread.currentThread().isInterrupted()) {
             throw new PangrovaConnectionException(
                     "RETRY_INTERRUPTED", "Retry sleep interrupted", null);

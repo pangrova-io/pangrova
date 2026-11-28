@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.common.concurrent.ExecutorDrain;
+import org.pangrova.common.concurrency.ExecutorDrain;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.session.ConnectorSession;

@@ -1,8 +1,8 @@
 package org.pangrova.persistence.file.postgresql.claim;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.file.api.enums.CopyFileClaimResult;
 import org.pangrova.common.annotation.DeadCode;
@@ -75,7 +75,7 @@ public final class JdbcCopyFileClaimStore implements CopyFileClaimStore {
 
     @Override
     public Optional<CopyFileClaim> get(String claimKey, long loadGeneration) {
-        if (!DigestUtils.isSha256Hex(claimKey)) {
+        if (!Sha256Digests.isSha256Hex(claimKey)) {
             throw new IllegalArgumentException("claimKey must be lowercase SHA-256 hex");
         }
         if (loadGeneration < 0) {

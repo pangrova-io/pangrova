@@ -1,6 +1,6 @@
 package org.pangrova.worker;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import org.pangrova.worker.task.TaskManager;
 

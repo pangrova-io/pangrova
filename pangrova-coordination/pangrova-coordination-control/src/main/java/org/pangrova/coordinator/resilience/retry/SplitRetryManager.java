@@ -2,7 +2,7 @@ package org.pangrova.coordinator.resilience.retry;
 
 import org.pangrova.common.enums.ErrorCategory;
 import org.pangrova.coordinator.enums.SplitRetryState;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.resilience.policy.ErrorClassifier;
 import org.pangrova.common.resilience.policy.RetryPolicy;

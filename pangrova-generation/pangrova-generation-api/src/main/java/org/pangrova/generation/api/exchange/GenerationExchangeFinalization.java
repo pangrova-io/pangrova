@@ -1,6 +1,6 @@
 package org.pangrova.generation.api.exchange;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 
@@ -101,7 +101,7 @@ public record GenerationExchangeFinalization(
     }
 
     private static byte[] rangeDigest(List<BatchRange> ranges) {
-        var digest = DigestUtils.sha256();
+        var digest = Sha256Digests.sha256();
         digest.update(RANGE_INDEX_DOMAIN);
         var coordinates = ByteBuffer.allocate(4 * Long.BYTES);
         var hex = HexFormat.of();

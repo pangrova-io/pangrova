@@ -13,7 +13,7 @@
  */
 package org.pangrova.coordinator.query.audit;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.planner.analysis.PlannedQuery;
 import org.pangrova.planner.api.lineage.ColumnDerivation;
 import org.pangrova.query.api.lineage.QueryLineageMetadata;

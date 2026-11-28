@@ -41,10 +41,10 @@ import org.pangrova.materialization.api.port.PublishCommand;
 import org.pangrova.materialization.api.port.ReclaimableSourcePin;
 import org.pangrova.connector.api.materialization.CommitEvidence;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setNullableInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setJson;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setNullableInstant;
 
 /**
  * PostgreSQL authority of the unified materialization kernel.

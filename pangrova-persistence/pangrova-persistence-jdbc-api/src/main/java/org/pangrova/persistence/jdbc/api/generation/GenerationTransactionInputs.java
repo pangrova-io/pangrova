@@ -1,7 +1,7 @@
 package org.pangrova.persistence.jdbc.api.generation;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.dependency.GenerationDependency;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.page.GenerationPage;
@@ -38,7 +38,7 @@ public interface GenerationTransactionInputs {
     record StoredDispatch(GenerationDispatchSpec dispatchSpec, String graphSha256) {
         public StoredDispatch {
             Objects.requireNonNull(dispatchSpec, "dispatchSpec");
-            if (!DigestUtils.isSha256Hex(graphSha256)) {
+            if (!Sha256Digests.isSha256Hex(graphSha256)) {
                 throw new IllegalArgumentException("Stored dispatch requires the verified SHA-256 of its graph");
             }
         }

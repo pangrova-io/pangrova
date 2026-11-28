@@ -178,7 +178,7 @@
     <suppress files="RetryingCommitWrapper\.java$" id="BanThreadSleep"/>
 
     <!-- Canonical interrupt-preserving sleep helper centralizes blocking delay. -->
-    <suppress files="ThreadUtils\.java$" id="BanThreadSleep"/>
+    <suppress files="ThreadSleeper\.java$" id="BanThreadSleep"/>
 
     <!--
         pangrova-client-cli: stdout is this module's user interface, not a log sink.
@@ -260,7 +260,7 @@
          swallow interruption; these are the deliberate blocking-delay boundaries
          (retry backoff, poll-until-first-batch, shutdown drain) where a blocking wait
          is the design. The pure no-op catch blocks were migrated to
-         ThreadUtils.sleepQuietly instead of being suppressed.
+         ThreadSleeper.sleepQuietly instead of being suppressed.
 
          Convergence: replace the poll loops with transport-level await primitives as they land;
          each removal deletes its entry here.

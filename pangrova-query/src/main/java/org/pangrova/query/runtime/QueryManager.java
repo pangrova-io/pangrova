@@ -56,9 +56,9 @@ import org.pangrova.observability.api.enums.SpanKind;
 import org.pangrova.observability.api.tracing.Scope;
 import org.pangrova.observability.api.tracing.TracingProvider;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.observability.logging.LogContext;
 import org.pangrova.query.runtime.QueryLifecycleMetrics.AdmissionRejection;
 

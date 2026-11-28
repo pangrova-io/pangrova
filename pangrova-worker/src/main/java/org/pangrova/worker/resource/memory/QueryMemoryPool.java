@@ -2,7 +2,7 @@ package org.pangrova.worker.resource.memory;
 
 import org.pangrova.worker.exception.InsufficientMemoryException;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Per-query memory pool. Reserves its quota from the parent

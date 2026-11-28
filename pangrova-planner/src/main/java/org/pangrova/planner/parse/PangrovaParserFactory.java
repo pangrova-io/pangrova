@@ -18,7 +18,7 @@ import java.io.Reader;
  * 2. Using AstToSqlNodeConverter to convert AST → Calcite SqlNode tree
  * 3. Feeding the SqlNode directly into Calcite SqlValidator
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public final class PangrovaParserFactory implements SqlParserImplFactory {
 
     private final SqlParser parser;

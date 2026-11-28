@@ -6,7 +6,7 @@ import org.pangrova.metadata.api.enums.AssetType;
 import java.time.Instant;
 import java.util.Map;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * {@link AssetType#VOLUME} asset: a named handle to a directory of files

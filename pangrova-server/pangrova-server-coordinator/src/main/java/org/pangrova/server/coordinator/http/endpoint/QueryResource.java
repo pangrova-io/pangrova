@@ -4,7 +4,7 @@ import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.query.api.enums.QueryState;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;

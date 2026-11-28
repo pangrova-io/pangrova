@@ -1,6 +1,6 @@
 package org.pangrova.worker.heartbeat;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Configuration for the periodic heartbeat sender.

@@ -32,7 +32,7 @@ import org.pangrova.persistence.materialization.api.publication.MaterializationP
 import org.pangrova.materialization.api.port.PublishedMaterialization;
 import org.pangrova.connector.api.materialization.SourceRef;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
 
 /**
  * Durable read model of published materializations.
@@ -42,7 +42,7 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
  * include {@link #registryEpoch(TenantId)} in plan and result cache keys; the
  * V68 object triggers advance the epoch on every head mutation.
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public final class JdbcMaterializationCatalog implements MaterializationCatalog {
 
     private static final String PUBLISHED_SELECT =
@@ -72,7 +72,7 @@ public final class JdbcMaterializationCatalog implements MaterializationCatalog 
     private static final int MAX_CACHED_TENANTS = 256;
     private static final int MAX_CACHED_PUBLICATIONS = 4096;
 
-    @org.pangrova.common.concurrent.GuardedBy("snapshots")
+    @org.pangrova.common.concurrency.GuardedBy("snapshots")
     private int cachedPublications;
     private final Map<TenantId, MaterializationPublicationSnapshot> snapshots =
             new LinkedHashMap<>(MAX_CACHED_TENANTS, 1.0f, true);

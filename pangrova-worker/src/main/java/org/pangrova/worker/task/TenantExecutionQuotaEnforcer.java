@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
 import org.pangrova.worker.exception.TenantQuotaExceededException;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.worker.resource.tenant.TenantResourceTracker;
 import org.pangrova.worker.resource.tenant.TenantResourceQuota;
 import org.slf4j.Logger;

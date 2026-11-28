@@ -2,7 +2,7 @@ package org.pangrova.worker.function;
 
 import org.pangrova.worker.enums.NativeFunctionType;
 import org.pangrova.worker.exception.NativeRuntimeException;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.function.api.aggregate.AggregateFunction;
 import org.pangrova.function.api.runtime.FunctionCallbackScope;
@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Provides invocation callbacks for Java UDF/UDAF implementations used by

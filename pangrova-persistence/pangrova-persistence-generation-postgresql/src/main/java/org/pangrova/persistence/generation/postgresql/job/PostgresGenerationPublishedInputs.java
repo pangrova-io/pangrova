@@ -28,7 +28,7 @@ import java.util.Optional;
 
 import static org.pangrova.generation.api.constants.GenerationOutputTypeIds.TEXT_INDEX;
 import static org.pangrova.generation.api.constants.GenerationOutputTypeIds.VECTOR_INDEX;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
 
 /** Same-connection immutable publication reads, shared by query resolution and durable claim preparation. */
 final class PostgresGenerationPublishedInputs {

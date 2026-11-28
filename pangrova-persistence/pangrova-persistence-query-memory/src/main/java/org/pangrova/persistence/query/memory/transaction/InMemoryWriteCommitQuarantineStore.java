@@ -1,7 +1,7 @@
 package org.pangrova.persistence.query.memory.transaction;
 
 import org.pangrova.query.api.write.QuarantinedWriteCommit;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore;
 
 import java.util.Comparator;

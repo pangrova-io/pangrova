@@ -1,6 +1,6 @@
 package org.pangrova.persistence.file.api.copy;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -32,7 +32,7 @@ final class CopySourceAdmissionValidation {
     }
 
     static boolean isSha256(String value) {
-        return DigestUtils.isSha256Hex(value);
+        return Sha256Digests.isSha256Hex(value);
     }
 
     static boolean isManagedObjectUri(String value, String scope, String checksum) {

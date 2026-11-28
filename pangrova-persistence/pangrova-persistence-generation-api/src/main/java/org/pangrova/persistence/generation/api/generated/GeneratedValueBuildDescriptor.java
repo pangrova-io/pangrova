@@ -2,7 +2,7 @@ package org.pangrova.persistence.generation.api.generated;
 
 import java.time.Instant;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Durable identity of one generated-column sidecar independent of its generations. */
 public record GeneratedValueBuildDescriptor(

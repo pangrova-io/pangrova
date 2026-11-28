@@ -1,7 +1,7 @@
 package org.pangrova.client.http;
 
-import org.pangrova.common.util.UriComponents;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.common.net.UriComponents;
+import org.pangrova.common.concurrency.ThreadSleeper;
 import org.pangrova.common.client.metadata.MetadataTableIdentifier;
 import org.pangrova.common.client.metadata.MetadataTableInfo;
 import org.pangrova.client.http.authentication.ClientAuthentication;
@@ -380,7 +380,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
                         if (recoveryDeadline == deadlineEpochMillis) throw statusDeadline(failure);
                         throw failure;
                     }
-                    ThreadUtils.sleepQuietly(RECOVERY_INTERVAL_MS);
+                    ThreadSleeper.sleepQuietly(RECOVERY_INTERVAL_MS);
                     if (Thread.currentThread().isInterrupted()) {
                         throw new PangrovaConnectionException("CONNECTION_INTERRUPTED",
                                 "Interrupted waiting for query retirement queryId=" + receipt.queryId(), failure);

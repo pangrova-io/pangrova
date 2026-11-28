@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive testing: E2E with TestContainers, property-based tests with jqwik, TPC-H/DS benchmarks
 
 ### Changed
+- **BREAKING** Common Java utilities now use responsibility-specific packages. JDBC helpers
+  use `jdbc.datasource`, `jdbc.migration` and `jdbc.operation` while retaining the Maven
+  coordinates and automatic module name. Recompile external Java plugins against the
+  matching Coordinator and Worker release.
 - Generated-value sidecars now use one nullable segment-v2 contract and matching
   Java/Native build/overlay capability version 2.0.0. Readers reject old formats;
   sidecars must be rebuilt, not silently reinterpreted. Final SQL/distributed

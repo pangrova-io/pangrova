@@ -8,7 +8,7 @@ import org.pangrova.ai.api.invocation.AttemptAdmission;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.embedding.BlobReference;

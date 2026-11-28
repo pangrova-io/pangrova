@@ -529,7 +529,7 @@
 
     <!-- Retry jitter is not used for secrets or security-sensitive randomness. -->
     <Match>
-        <Class name="org.pangrova.common.concurrent.RetryingCommitWrapper"/>
+        <Class name="org.pangrova.common.concurrency.RetryingCommitWrapper"/>
         <Bug pattern="PREDICTABLE_RANDOM"/>
     </Match>
 
@@ -778,7 +778,7 @@
          no resource during construction, publishes no object and has no finalizer.
          Keep only the exact constructor classification after the persistence owner move. -->
     <Match>
-        <Class name="org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport"/>
+        <Class name="org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase"/>
         <Method name="&lt;init&gt;" params="javax.sql.DataSource" returns="void"/>
         <Bug pattern="CT_CONSTRUCTOR_THROW"/>
     </Match>

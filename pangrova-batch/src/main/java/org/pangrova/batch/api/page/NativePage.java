@@ -2,9 +2,9 @@ package org.pangrova.batch.api.page;
 
 import org.pangrova.batch.api.enums.BatchFormat;
 
-import static org.pangrova.common.util.Preconditions.checkArgument;
-import static org.pangrova.common.util.Preconditions.checkNotNull;
-import static org.pangrova.common.util.Preconditions.checkState;
+import static org.pangrova.common.validation.Preconditions.checkArgument;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkState;
 
 import org.pangrova.common.api.annotation.Experimental;
 

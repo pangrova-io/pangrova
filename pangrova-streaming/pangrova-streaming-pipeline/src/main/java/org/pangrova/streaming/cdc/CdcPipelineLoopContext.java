@@ -1,6 +1,6 @@
 package org.pangrova.streaming.cdc;
 
-import org.pangrova.common.concurrent.BackoffStrategy;
+import org.pangrova.common.concurrency.BackoffStrategy;
 import org.pangrova.streaming.api.cdc.CdcRecordConverter;
 import org.pangrova.streaming.api.source.CdcSourceReader;
 import org.pangrova.streaming.api.cdc.CdcWriteSink;

@@ -3,7 +3,7 @@ package org.pangrova.connector.lance;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.protocol.v2.PrepareDistributedWriteResult;
 

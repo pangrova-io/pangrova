@@ -22,7 +22,7 @@ import javax.naming.directory.InitialDirContext;
 import javax.naming.directory.SearchControls;
 import javax.naming.directory.SearchResult;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;

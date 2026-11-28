@@ -1,7 +1,7 @@
 package org.pangrova.execution.api;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.Preconditions;
+import org.pangrova.common.validation.Preconditions;
 
 import java.net.URL;
 import java.net.URLClassLoader;

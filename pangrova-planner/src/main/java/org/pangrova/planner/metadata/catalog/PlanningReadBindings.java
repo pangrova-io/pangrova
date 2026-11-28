@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 /** Query-local owner of immutable read bindings shared by schema and cost-statistic lookup. */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public final class PlanningReadBindings implements ConnectorStatisticsProvider {
     private final CatalogReadAccess catalogs;
     private final ConnectorSession authenticatedSession;

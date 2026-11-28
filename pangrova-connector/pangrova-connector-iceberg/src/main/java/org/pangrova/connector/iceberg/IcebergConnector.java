@@ -2,7 +2,7 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.iceberg.write.IcebergPageSinkProvider;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.exception.ConnectorException;

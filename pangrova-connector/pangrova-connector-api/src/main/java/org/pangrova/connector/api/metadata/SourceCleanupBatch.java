@@ -1,6 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 import java.security.MessageDigest;
@@ -13,7 +13,7 @@ public record SourceCleanupBatch(String executionId, String fingerprint, String 
     public SourceCleanupBatch {
         objects = List.copyOf(objects);
         sha256 = sha256.clone();
-        if (executionId == null || executionId.isBlank() || !DigestUtils.isSha256Hex(fingerprint)
+        if (executionId == null || executionId.isBlank() || !Sha256Digests.isSha256Hex(fingerprint)
                 || cleanupId == null || !cleanupId.matches("[0-9a-f]{32}") || datasetUri == null || datasetUri.isBlank()
                 || objects.isEmpty() || objects.size() > SourceObjectPage.MAX_PAGE_OBJECTS
                 || !MessageDigest.isEqual(sha256, SourceObjectPage.digest(objects))) {

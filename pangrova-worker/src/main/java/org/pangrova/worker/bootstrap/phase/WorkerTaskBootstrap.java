@@ -123,7 +123,7 @@ public final class WorkerTaskBootstrap {
     /** The task registry owns retention; the bootstrap owner closes its single timer. */
     static void startTaskCleanup(WorkerBootstrapConfig config, TaskManager tm, WorkerTaskOwnership ownership) {
         java.util.concurrent.ScheduledExecutorService cleanupExecutor =
-                org.pangrova.common.concurrent.ManagedExecutorFactory
+                org.pangrova.common.concurrency.ManagedExecutorFactory
                         .newSingleThreadScheduledExecutor("worker-task-cleanup");
         retainExecutor(cleanupExecutor, ownership);
         ((java.util.concurrent.ScheduledThreadPoolExecutor) cleanupExecutor)

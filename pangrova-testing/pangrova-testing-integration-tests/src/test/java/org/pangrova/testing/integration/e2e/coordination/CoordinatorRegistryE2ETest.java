@@ -4,7 +4,7 @@ import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
-import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
+import org.pangrova.persistence.jdbc.datasource.DriverManagerDataSource;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.testing.testkit.ContainerTestBase;

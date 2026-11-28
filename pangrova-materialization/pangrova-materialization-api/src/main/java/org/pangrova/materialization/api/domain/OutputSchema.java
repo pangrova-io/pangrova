@@ -1,6 +1,6 @@
 package org.pangrova.materialization.api.domain;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.util.HashSet;
 import java.util.List;
@@ -54,6 +54,6 @@ public record OutputSchema(List<ColumnDefinition> columns) {
                     .append(':')
                     .append(column.nullable());
         }
-        return DigestUtils.sha256Hex(canonical.toString());
+        return Sha256Digests.sha256Hex(canonical.toString());
     }
 }

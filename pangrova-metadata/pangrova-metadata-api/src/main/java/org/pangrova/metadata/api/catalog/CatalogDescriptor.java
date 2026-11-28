@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable descriptor for a registered catalog.

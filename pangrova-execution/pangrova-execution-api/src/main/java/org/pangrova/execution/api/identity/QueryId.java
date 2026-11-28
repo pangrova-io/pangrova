@@ -2,7 +2,7 @@ package org.pangrova.execution.api.identity;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable identifier for a query within the Pangrova engine.

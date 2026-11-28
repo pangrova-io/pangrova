@@ -12,7 +12,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
@@ -21,7 +21,7 @@ import org.pangrova.shuffle.api.ShufflePublication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Stage entity: wraps an immutable {@link StageNode} plan with a

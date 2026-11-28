@@ -22,7 +22,7 @@ import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Tracks query ownership via HA coordination and handles query lifecycle
@@ -31,7 +31,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  *
  * <p>Thread-safe: {@code ownershipSnapshot} uses AtomicReference for atomic reads.</p>
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public final class QueryOwnershipTracker {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryOwnershipTracker.class);

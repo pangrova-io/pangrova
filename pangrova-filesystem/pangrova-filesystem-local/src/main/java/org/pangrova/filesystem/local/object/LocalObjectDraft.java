@@ -16,7 +16,7 @@ import java.util.HexFormat;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.filesystem.api.object.FileStat;
 
 /** Owns one private, forced publication candidate and its byte-derived immutable receipt. */
@@ -24,7 +24,7 @@ final class LocalObjectDraft implements AutoCloseable {
     private static final int BUFFER_BYTES = 64 * 1024;
     private final Path path;
     private final FileChannel channel;
-    private final MessageDigest digest = DigestUtils.sha256();
+    private final MessageDigest digest = Sha256Digests.sha256();
     private final OutputStream output;
 
     private LocalObjectDraft(Path path, FileChannel channel) {

@@ -25,7 +25,7 @@ import org.pangrova.generation.api.graph.GenerationStageGraph;
 import com.google.protobuf.ByteString;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.generation.ProtectedSourceSchemaVerifier;
 import org.pangrova.planner.analysis.AuthorizedRelation;
@@ -62,7 +62,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Submits single-source Feature View snapshots to the generic Native export pipeline. */
 public final class DurableFeatureExportService {
@@ -145,14 +145,14 @@ public final class DurableFeatureExportService {
         String artifactId = "feature-view/" + feature.id().catalogName() + "/"
                 + feature.id().schemaName() + "/" + feature.id().viewName()
                 + "/v" + feature.version();
-        String generation = DigestUtils.sha256Hex(
+        String generation = Sha256Digests.sha256Hex(
                 (feature.definitionSha256() + "\n" + sourceSnapshot + "\n" + principal
                         + "\n" + compiled.effectivePlanDigest() + "\n"
-                        + DigestUtils.sha256Hex(compiled.planBytes()) + "\n" + compiled.stageGraph().sha256()
+                        + Sha256Digests.sha256Hex(compiled.planBytes()) + "\n" + compiled.stageGraph().sha256()
                         + "\n" + DeferredAuthorizationScopeCodec.sha256(authorizationScope))
                         .getBytes(StandardCharsets.UTF_8));
-        String tenantScope = DigestUtils.sha256Hex(tenantId).substring(0, 32);
-        String artifactDigest = DigestUtils.sha256Hex(artifactId);
+        String tenantScope = Sha256Digests.sha256Hex(tenantId).substring(0, 32);
+        String artifactDigest = Sha256Digests.sha256Hex(artifactId);
         String jobId = "tabular-export:tenant-" + tenantScope + ":"
                 + artifactDigest.substring(0, 32) + ":" + generation;
         String stagingUri = baseArtifactUri + "/v2/tenants/" + tenantScope

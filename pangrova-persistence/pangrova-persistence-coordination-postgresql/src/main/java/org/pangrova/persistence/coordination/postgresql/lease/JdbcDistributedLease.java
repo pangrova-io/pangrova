@@ -1,6 +1,6 @@
 package org.pangrova.persistence.coordination.postgresql.lease;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.coordination.api.exception.CoordinationStorageException;
 
@@ -19,8 +19,8 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /**
  * JDBC-backed distributed lease using a single {@code distributed_lease} table.

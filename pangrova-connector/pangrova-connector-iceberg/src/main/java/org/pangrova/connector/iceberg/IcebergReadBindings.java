@@ -8,7 +8,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.api.enums.TableDeclarationEvidence;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
@@ -217,7 +217,7 @@ final class IcebergReadBindings {
         String selected = snapshot == null ? "EMPTY" : snapshot.snapshotId() + "\0"
                 + snapshot.schemaId() + "\0" + snapshot.sequenceNumber() + "\0"
                 + snapshot.timestampMillis() + "\0" + snapshot.manifestListLocation();
-        return DigestUtils.sha256Hex(uuid + "\0" + table.location() + "\0" + selected);
+        return Sha256Digests.sha256Hex(uuid + "\0" + table.location() + "\0" + selected);
     }
 
     private static TableMetadata metadata(Table table) {
@@ -246,6 +246,6 @@ final class IcebergReadBindings {
                     .append(manifest.length()).append('\0').append(manifest.sha256())
                     .append('\0').append(manifest.specId()).append('\0').append(manifest.content());
         }
-        return DigestUtils.sha256Hex(identity.toString());
+        return Sha256Digests.sha256Hex(identity.toString());
     }
 }

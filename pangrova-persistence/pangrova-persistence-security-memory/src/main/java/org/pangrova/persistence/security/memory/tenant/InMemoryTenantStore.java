@@ -2,7 +2,7 @@ package org.pangrova.persistence.security.memory.tenant;
 
 import org.pangrova.security.api.enums.TenantMembershipOperation;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.security.api.tenant.Tenant;
 import org.pangrova.security.api.enums.TenantRole;
 

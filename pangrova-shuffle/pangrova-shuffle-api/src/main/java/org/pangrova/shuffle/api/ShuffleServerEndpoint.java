@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.api;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Endpoint descriptor for a remote shuffle server that holds shuffle partition data.

@@ -2,7 +2,7 @@ package org.pangrova.persistence.workflow.postgresql.projection;
 
 import org.pangrova.persistence.catalog.postgresql.projection.CatalogProjectionSql;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;

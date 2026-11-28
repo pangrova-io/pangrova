@@ -1,6 +1,6 @@
 package org.pangrova.persistence.query.memory.coordination;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore;
 
@@ -16,7 +16,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Single-process execution-anchor store for standalone deployments and tests. */
 @ThreadSafe

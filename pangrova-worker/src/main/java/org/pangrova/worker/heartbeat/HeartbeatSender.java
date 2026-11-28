@@ -1,7 +1,7 @@
 package org.pangrova.worker.heartbeat;
 
 import org.pangrova.protocol.rest.worker.HeartbeatRequest;
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -22,7 +22,7 @@ import org.pangrova.common.json.JsonMapperFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Periodically sends heartbeat HTTP POST to Coordinator /v1/worker/heartbeat.

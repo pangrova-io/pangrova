@@ -246,7 +246,7 @@ class LocalFsSpoolStoreTest {
     private int probeDirectory() throws Exception {
         var paths = new ArrayList<String>();
         for (Class<?> type : List.of(LocalSpoolDirectoryOwnerProbe.class, LocalFsSpoolStore.class,
-                SpoolStore.class, org.pangrova.common.util.Preconditions.class)) {
+                SpoolStore.class, org.pangrova.common.validation.Preconditions.class)) {
             paths.add(Path.of(type.getProtectionDomain().getCodeSource().getLocation().toURI()).toString());
         }
         var process = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),

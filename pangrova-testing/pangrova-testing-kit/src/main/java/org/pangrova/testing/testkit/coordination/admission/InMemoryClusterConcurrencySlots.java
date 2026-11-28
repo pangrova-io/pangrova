@@ -2,7 +2,7 @@ package org.pangrova.testing.testkit.coordination.admission;
 
 import org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;

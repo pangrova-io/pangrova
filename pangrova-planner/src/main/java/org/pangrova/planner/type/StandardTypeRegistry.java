@@ -1,6 +1,6 @@
 package org.pangrova.planner.type;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.RowField;

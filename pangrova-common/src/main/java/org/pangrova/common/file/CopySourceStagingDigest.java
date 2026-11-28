@@ -1,6 +1,6 @@
 package org.pangrova.common.file;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -42,7 +42,7 @@ public final class CopySourceStagingDigest {
             out.writeLong(scope.ownerFencingToken());
             out.writeLong(scope.deadlineEpochMs());
             out.flush();
-            return DigestUtils.sha256Hex(bytes.toByteArray());
+            return Sha256Digests.sha256Hex(bytes.toByteArray());
         } catch (IOException failure) {
             throw new IllegalStateException("COPY staging command cannot be encoded", failure);
         }

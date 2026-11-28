@@ -1,6 +1,6 @@
 package org.pangrova.generation.publication.read;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.generation.api.output.GenerationOutputRole;
 
@@ -321,7 +321,7 @@ final class PublishedGenerationBindingValidator {
     }
 
     static byte[] sha256Bytes(byte[] value) {
-        return DigestUtils.sha256().digest(value);
+        return Sha256Digests.sha256().digest(value);
     }
 
     static GenerationOutputFormat requireFormatContract(String formatId, String artifactType) {

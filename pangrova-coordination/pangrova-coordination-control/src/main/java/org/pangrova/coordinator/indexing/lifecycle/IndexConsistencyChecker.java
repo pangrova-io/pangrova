@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.indexing.config.ConsistencyConfig;

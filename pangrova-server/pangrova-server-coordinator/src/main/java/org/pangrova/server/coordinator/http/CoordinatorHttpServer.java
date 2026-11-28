@@ -6,7 +6,7 @@ import org.pangrova.server.coordinator.http.request.RequestLimitConfig;
 
 import java.net.InetSocketAddress;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.ext.ContextResolver;

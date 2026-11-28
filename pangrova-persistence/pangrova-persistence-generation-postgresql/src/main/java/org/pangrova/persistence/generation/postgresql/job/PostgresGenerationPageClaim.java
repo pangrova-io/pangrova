@@ -17,8 +17,8 @@ import java.util.Optional;
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.fencingToken;
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreSupport.failExhaustedPage;
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreSupport.markJobRunning;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** Claims one already-locked page in the current-authority transaction. */
 final class PostgresGenerationPageClaim {

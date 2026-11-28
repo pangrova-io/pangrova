@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Optional;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 import org.pangrova.governance.api.quality.DataQualityRule;
 import org.pangrova.governance.api.quality.QualityRuleExecutor;
 import org.pangrova.governance.api.quality.QualityRuleStore;

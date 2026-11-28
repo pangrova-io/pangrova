@@ -25,7 +25,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.nio.charset.StandardCharsets;
@@ -61,7 +61,7 @@ public final class SemanticViewDefinitionValidator {
             validateOptionalArrays(root);
             String canonicalJson = MAPPER.writeValueAsString(canonicalize(root));
             return new ValidatedSemanticViewDefinition(
-                    canonicalJson, DigestUtils.sha256Hex(canonicalJson), sources);
+                    canonicalJson, Sha256Digests.sha256Hex(canonicalJson), sources);
         } catch (JsonProcessingException failure) {
             throw invalid("Semantic View definition is not valid JSON", failure);
         }

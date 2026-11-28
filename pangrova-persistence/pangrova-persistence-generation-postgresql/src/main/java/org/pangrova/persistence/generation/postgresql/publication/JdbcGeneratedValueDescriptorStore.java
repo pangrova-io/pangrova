@@ -1,6 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
@@ -13,8 +13,8 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** JDBC persistence and fencing for generated-value descriptor targets. */
 @org.pangrova.common.api.annotation.Internal

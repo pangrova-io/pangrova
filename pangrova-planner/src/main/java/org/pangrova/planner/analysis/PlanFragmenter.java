@@ -77,7 +77,7 @@ import java.util.Optional;
 import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 import static org.pangrova.protocol.task.CanonicalTaskRequests.MAX_BUILD_KEY_COLUMNS;
 
 /**

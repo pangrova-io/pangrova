@@ -4,7 +4,7 @@ import org.pangrova.generation.api.graph.GenerationStageGraph;
 
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Immutable control-plane values for dispatching Native artifact work.

@@ -1,6 +1,6 @@
 package org.pangrova.governance.runtime.lineage;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.governance.api.lineage.LineageRecord;
 
 import java.util.List;

@@ -29,7 +29,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection.findPage;
 
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
@@ -42,7 +42,7 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
     protected static String insertDispatchSpec(
             Connection connection, GenerationDispatchSpec spec) throws SQLException {
         byte[] graphBytes = GenerationStageGraphCodec.encode(spec.stageGraph());
-        String graphSha256 = org.pangrova.common.util.DigestUtils.sha256Hex(graphBytes);
+        String graphSha256 = org.pangrova.common.crypto.Sha256Digests.sha256Hex(graphBytes);
         String sql = "INSERT INTO artifact_build_dispatch_specs "
                 + "(tenant_id,job_id,stage_graph_bytes,stage_graph_sha256,principal,max_memory_bytes,"
                 + "max_threads,max_spill_bytes,task_timeout_millis,authorization_scope_bytes) "

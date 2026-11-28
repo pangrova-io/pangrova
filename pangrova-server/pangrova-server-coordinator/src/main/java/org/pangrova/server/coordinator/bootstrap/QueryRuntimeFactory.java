@@ -7,7 +7,7 @@ import javax.sql.DataSource;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.runtime.QueryManagerContext;

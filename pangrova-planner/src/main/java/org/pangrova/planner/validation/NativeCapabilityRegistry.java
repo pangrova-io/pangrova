@@ -1,6 +1,6 @@
 package org.pangrova.planner.validation;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.Set;
 import java.util.Collection;

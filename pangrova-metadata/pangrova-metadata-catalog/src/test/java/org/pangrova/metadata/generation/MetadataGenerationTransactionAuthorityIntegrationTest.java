@@ -25,7 +25,7 @@ import org.pangrova.generation.api.dependency.GenerationDependencySet;
 import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
 import org.pangrova.generation.api.enums.GenerationExecutionKind;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
@@ -408,7 +408,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
         byte[] report = new byte[] {1, 2};
         assertThat(builds.completePage(new org.pangrova.generation.api.page.GenerationPageCompletion(
                 TENANT, jobId, lease.pageId(), lease.fencingToken(), lease.ownerEpoch(), report,
-                org.pangrova.common.util.DigestUtils.sha256Hex(report),
+                org.pangrova.common.crypto.Sha256Digests.sha256Hex(report),
                 List.of(new org.pangrova.generation.api.output.GenerationOutput("terminal-object-" + id,
                         job.stagingUri() + "/terminal-0", "TABULAR_DATA", lease.pageId(), 0,
                         org.pangrova.generation.api.enums.GenerationOutputScope.WORK_UNIT,

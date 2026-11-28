@@ -3,7 +3,7 @@ package org.pangrova.materialization.api.domain;
 import java.time.Duration;
 import java.time.Instant;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Reader-held pin that prevents garbage collection of a generation.

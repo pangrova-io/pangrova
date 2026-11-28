@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Canonical description of an AI capability shared by planning, Worker dispatch

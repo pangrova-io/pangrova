@@ -152,7 +152,7 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
     public synchronized void close() {
         closed = true;
         sessions.values().forEach(Session::cancel);
-        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, SHUTDOWN_TIMEOUT_MS);
+        org.pangrova.common.concurrency.ExecutorDrain.shutdownAndAwait(executor, SHUTDOWN_TIMEOUT_MS);
         sessions.clear();
     }
 

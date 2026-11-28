@@ -15,7 +15,7 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /**
  * Lease and reader-pin statements of the materialization repository.

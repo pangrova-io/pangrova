@@ -23,8 +23,8 @@ import org.pangrova.ai.control.enums.EvaluationSubjectType;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireOptionalText;
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireOptionalText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Version-pinned evaluation execution and its single terminal outcome. */
 public record EvaluationRun(

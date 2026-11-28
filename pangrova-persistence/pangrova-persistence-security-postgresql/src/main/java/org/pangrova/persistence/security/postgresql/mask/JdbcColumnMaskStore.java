@@ -1,6 +1,6 @@
 package org.pangrova.persistence.security.postgresql.mask;
 
-import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
+import org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase;
 
 import java.sql.Array;
 import java.sql.Connection;
@@ -21,7 +21,7 @@ import org.pangrova.persistence.security.api.mask.EnrichedColumnMaskStore;
  * {@code EmptyColumnMaskStore} in production once column masking is enabled, so authored masks load
  * and enforce. Selected by {@code SecurityBootstrap} per config; until then masking remains inert.
  */
-public final class JdbcColumnMaskStore extends JdbcPolicyStoreSupport
+public final class JdbcColumnMaskStore extends JdbcPolicyStoreBase
         implements EnrichedColumnMaskStore {
     private static final String MASK_COLUMNS = "SELECT mask_id, mask_name, catalog_name, schema_name, table_name, "
             + "column_name, mask_expression, apply_to_roles, exempt_roles, enabled, table_id FROM column_mask ";

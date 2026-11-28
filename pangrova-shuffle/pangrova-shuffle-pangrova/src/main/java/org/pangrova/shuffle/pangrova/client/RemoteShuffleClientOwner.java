@@ -8,8 +8,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /** Pool-owned actual channel; borrower counts are guarded by the pool admission monitor. */
 @ThreadSafe

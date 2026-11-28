@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.batch.api.reader.ReadableBatch;

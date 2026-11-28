@@ -7,7 +7,7 @@ import org.pangrova.types.value.TypedRow;
 import java.util.List;
 import java.util.Map;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable result of a statement execution.

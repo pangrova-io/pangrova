@@ -17,7 +17,7 @@ import org.pangrova.planner.enums.PlannedDmlOperation;
 import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.metadata.PlanTable;
 
-import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.common.concurrency.NotThreadSafe;
 import org.pangrova.planner.api.lineage.ColumnDerivation;
 import org.pangrova.planner.lineage.ColumnLineageExtractor;
 import org.pangrova.planner.security.ColumnMaskApplier;

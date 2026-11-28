@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable result returned by the unified AI invocation path. */
 @Experimental

@@ -1,6 +1,6 @@
 package org.pangrova.scheduler.admission;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.scheduler.api.resource.AdmissionDecision;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
 

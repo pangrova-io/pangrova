@@ -1,6 +1,6 @@
 package org.pangrova.persistence.catalog.postgresql.source;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
 import org.pangrova.connector.api.exception.SourcePublicationRetryableException;

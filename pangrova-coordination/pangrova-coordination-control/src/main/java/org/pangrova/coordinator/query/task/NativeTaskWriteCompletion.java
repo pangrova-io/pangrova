@@ -6,7 +6,7 @@ import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 
 import java.util.List;
 import java.util.Optional;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.governance.api.quality.WriteQualityGate;

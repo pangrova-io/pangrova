@@ -11,8 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /** Owns opened read streams and their absolute-expiry alarms for one file endpoint. */
 @ThreadSafe

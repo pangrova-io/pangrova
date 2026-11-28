@@ -5,7 +5,7 @@ import org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPuller;
 import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher;
 import org.pangrova.observability.sdk.metrics.WorkerMetrics;

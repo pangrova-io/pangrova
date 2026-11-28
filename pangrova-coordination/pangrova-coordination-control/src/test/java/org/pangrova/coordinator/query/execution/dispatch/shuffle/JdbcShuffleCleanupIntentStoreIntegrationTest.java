@@ -17,7 +17,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.query.postgresql.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;

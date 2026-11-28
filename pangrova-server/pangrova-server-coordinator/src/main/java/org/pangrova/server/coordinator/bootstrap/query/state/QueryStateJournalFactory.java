@@ -8,7 +8,7 @@ import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Creates the appropriate {@link QueryStateJournal} implementation

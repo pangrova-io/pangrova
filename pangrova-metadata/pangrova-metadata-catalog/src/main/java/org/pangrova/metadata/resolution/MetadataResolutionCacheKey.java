@@ -1,6 +1,6 @@
 package org.pangrova.metadata.resolution;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.session.MetadataSessionContext;
@@ -26,7 +26,7 @@ record MetadataResolutionCacheKey(
     }
 
     private static String digest(MetadataSessionContext session, ConnectorSession connector) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         update(digest, session.securityToken());
         new TreeMap<>(connector.getProperties()).forEach((key, value) -> {
             update(digest, key);

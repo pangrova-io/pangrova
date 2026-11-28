@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestReporter;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.common.client.enums.ResultProtocol;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.protocol.http.TaskRuntimeFilterDelivery;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.task.TaskRuntimeFilterWire;

@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Immutable handle for Paimon table write operations.

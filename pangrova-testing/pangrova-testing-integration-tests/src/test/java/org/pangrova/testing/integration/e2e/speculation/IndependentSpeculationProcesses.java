@@ -4,7 +4,7 @@ import org.pangrova.common.enums.ResultDisposition;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.common.client.query.QueryStatusResponse;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;

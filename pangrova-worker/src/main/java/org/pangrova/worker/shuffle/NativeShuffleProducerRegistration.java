@@ -1,6 +1,6 @@
 package org.pangrova.worker.shuffle;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import org.pangrova.shuffle.api.ShufflePartitionTicket;
 import org.pangrova.shuffle.api.ShuffleServerHandle;

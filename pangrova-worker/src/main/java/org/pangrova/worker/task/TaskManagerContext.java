@@ -2,7 +2,7 @@ package org.pangrova.worker.task;
 
 import org.pangrova.worker.task.report.TaskStatusReporter;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import org.pangrova.worker.result.ResultTransport;
 import org.pangrova.protocol.v2.ExchangeInputBinding;

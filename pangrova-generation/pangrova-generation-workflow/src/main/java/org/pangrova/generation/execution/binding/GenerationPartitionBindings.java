@@ -1,6 +1,6 @@
 package org.pangrova.generation.execution.binding;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.generation.execution.template.FrozenStageBindings;
 
@@ -266,7 +266,7 @@ public final class GenerationPartitionBindings {
     }
 
     private static String dependencyDigest(List<GenerationOutput> inputs) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         inputs.stream()
                 .sorted(Comparator.comparing(GenerationOutput::sourceObjectId)
                         .thenComparingInt(GenerationOutput::ordinal))

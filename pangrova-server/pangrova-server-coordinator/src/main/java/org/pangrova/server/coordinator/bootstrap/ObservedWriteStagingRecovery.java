@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.common.concurrent.ExecutorDrain;
+import org.pangrova.common.concurrency.ExecutorDrain;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcObservedWriteStaging;
 import org.pangrova.persistence.streaming.postgresql.PostgresChangeSubscription;

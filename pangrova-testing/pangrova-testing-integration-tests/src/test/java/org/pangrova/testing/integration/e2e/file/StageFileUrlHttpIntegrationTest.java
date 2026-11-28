@@ -40,7 +40,7 @@ import org.pangrova.server.coordinator.http.endpoint.file.FileSpaceFilesResource
 import org.pangrova.file.access.FileGrantAudit;
 import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
-import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.migration.SchemaMigrationRunner;
 import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;

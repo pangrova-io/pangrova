@@ -18,7 +18,7 @@ import org.pangrova.parser.api.ast.Statement;
 import org.antlr.v4.runtime.BailErrorStrategy;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
-import org.pangrova.common.util.SqlText;
+import org.pangrova.common.text.SqlText;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -52,7 +52,7 @@ import java.util.function.BiFunction;
  *   <li>Maximum parse tree depth (default 256)</li>
  * </ul>
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
 
     /** Default maximum SQL text length in bytes: 1 MB. */

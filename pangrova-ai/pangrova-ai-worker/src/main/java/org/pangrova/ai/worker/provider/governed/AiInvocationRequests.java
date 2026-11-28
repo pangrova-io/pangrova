@@ -3,7 +3,7 @@ package org.pangrova.ai.worker.provider.governed;
 import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.enums.AiExecutionMode;
 import org.pangrova.ai.api.enums.AiOperation;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
@@ -156,7 +156,7 @@ final class AiInvocationRequests {
     }
 
     private static String fingerprint(AiExecutionContext context, RequestDefinition definition) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         update(digest, "pangrova.ai.invocation.v2");
         update(digest, context.tenantId());
         update(digest, context.principal());

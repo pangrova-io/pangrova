@@ -7,7 +7,7 @@ import org.pangrova.table.api.rename.TableControlRenameIntent;
 import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.ownership.TableControlStore;
 import org.pangrova.table.api.observation.TableVersionObservation;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.util.ArrayList;
 import java.util.Comparator;

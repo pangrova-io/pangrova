@@ -1,6 +1,6 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentTableAuthorization;
 
@@ -34,8 +34,8 @@ import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadat
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.mapDescriptor;
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.setJson;
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.toJson;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /**
  * JDBC operations for {@link IndexDescriptor} CRUD, schema evolution,
@@ -437,7 +437,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             conn.setAutoCommit(false);
             try {
                 FailureTarget target = lockFailureTarget(conn, indexId, generation,
-                        org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant(expectedBuildUpdatedAt));
+                        org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant(expectedBuildUpdatedAt));
                 if (target != null && attemptId != null && !attemptId.equals(target.attemptId())) {
                     target = null;
                 }
@@ -931,7 +931,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
         }
         return findIndexGenerationSnapshotReservation(indexId, generation, snapshotId)
                 .map(updatedAt -> updatedAt.equals(
-                        org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant(reservationUpdatedAt)))
+                        org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant(reservationUpdatedAt)))
                 .orElse(false);
     }
 

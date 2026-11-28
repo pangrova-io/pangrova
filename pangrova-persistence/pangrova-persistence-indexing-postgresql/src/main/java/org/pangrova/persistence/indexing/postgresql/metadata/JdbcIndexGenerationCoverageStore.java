@@ -1,8 +1,8 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
@@ -430,7 +430,7 @@ final class JdbcIndexGenerationCoverageStore extends JdbcStoreSupport implements
     }
 
     private static String manifestDigest(JobRow job, List<OutputRow> outputs) {
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         update(digest, job.tenantId());
         update(digest, job.artifactId());
         update(digest, job.artifactType());

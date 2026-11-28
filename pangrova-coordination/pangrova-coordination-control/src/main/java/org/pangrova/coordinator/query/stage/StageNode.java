@@ -19,7 +19,7 @@ import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 
 import java.util.List;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Represents a single execution stage in a distributed query plan.

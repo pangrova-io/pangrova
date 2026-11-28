@@ -18,13 +18,13 @@
 package org.pangrova.semantic.api.version;
 
 import org.pangrova.semantic.api.identity.SemanticViewId;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.semantic.api.enums.SemanticViewValidationState;
 
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Immutable, validated definition version of a governed Semantic View. */
 public record SemanticViewVersion(
@@ -44,7 +44,7 @@ public record SemanticViewVersion(
         }
         requireText(ownerPrincipal, "ownerPrincipal");
         requireText(definitionJson, "definitionJson");
-        DigestUtils.requireSha256(definitionSha256, "definitionSha256");
+        Sha256Digests.requireSha256(definitionSha256, "definitionSha256");
         Objects.requireNonNull(validationState, "validationState must not be null");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
         if (validationState == SemanticViewValidationState.VALIDATED) {

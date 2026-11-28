@@ -15,7 +15,7 @@ package org.pangrova.ai.worker.provider;
 
 import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.enums.AiOperation;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.control.config.AiModelConfigParser;

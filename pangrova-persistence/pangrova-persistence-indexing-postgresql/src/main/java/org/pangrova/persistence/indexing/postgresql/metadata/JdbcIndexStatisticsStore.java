@@ -1,9 +1,9 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 
@@ -76,7 +76,7 @@ final class JdbcIndexStatisticsStore extends JdbcStoreSupport {
         var lockKeys = statistics.stream().map(file ->
                 statisticsScopeIdentity(tenantId, catalog, schema, table, file.snapshotId()))
                 .distinct().map(identity -> Long.parseUnsignedLong(
-                        DigestUtils.sha256Hex("file-statistics:" + identity).substring(0, 16), 16))
+                        Sha256Digests.sha256Hex("file-statistics:" + identity).substring(0, 16), 16))
                 .distinct().sorted().toList();
         try (var lock = connection.prepareStatement("SELECT pg_advisory_xact_lock(?)")) {
             for (long lockKey : lockKeys) {

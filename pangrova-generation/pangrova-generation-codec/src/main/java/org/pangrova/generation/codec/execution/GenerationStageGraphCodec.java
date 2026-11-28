@@ -1,7 +1,7 @@
 package org.pangrova.generation.codec.execution;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 
 /** Owns the versioned persisted representation and integrity identity of a durable stage graph. */
@@ -18,7 +18,7 @@ public final class GenerationStageGraphCodec {
 
     /** Hashes the exact canonical representation, including every stage binding. */
     public static String sha256(GenerationStageGraph graph) {
-        return DigestUtils.sha256Hex(encode(graph));
+        return Sha256Digests.sha256Hex(encode(graph));
     }
 
     /** Verifies size, digest and canonical bytes before accepting a persisted graph. */

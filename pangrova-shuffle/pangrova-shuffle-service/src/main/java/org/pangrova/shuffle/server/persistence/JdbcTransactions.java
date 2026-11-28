@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.server.persistence;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import java.sql.Connection;
 import java.sql.SQLException;

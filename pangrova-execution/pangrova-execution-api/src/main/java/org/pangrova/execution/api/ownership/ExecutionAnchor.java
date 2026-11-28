@@ -5,7 +5,7 @@ import org.pangrova.common.api.annotation.Stable;
 import java.time.Instant;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Durable ownership identity for one query or background execution.

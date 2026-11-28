@@ -31,7 +31,7 @@ import java.util.ServiceLoader;
  * <p>This class is thread-safe. Readers observe one immutable snapshot on the hot path; synchronized registration
  * publishes a fully sorted replacement once, without intermediate removals or gaps.
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public final class StatementParserRegistry {
 
     record Snapshot(long revision, List<StatementParser> parsers) {

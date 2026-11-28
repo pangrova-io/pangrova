@@ -5,7 +5,7 @@ import org.pangrova.connector.api.enums.ChangeSetMode;
 import java.time.Instant;
 import org.pangrova.common.api.annotation.Stable;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Proof that a change-set plan was fully evaluated and may be applied.

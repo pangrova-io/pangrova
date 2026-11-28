@@ -12,7 +12,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.sql.DataSource;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.journal.QueryAcceptance;

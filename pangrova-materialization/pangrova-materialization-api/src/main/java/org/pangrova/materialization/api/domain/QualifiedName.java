@@ -2,7 +2,7 @@ package org.pangrova.materialization.api.domain;
 
 import java.util.List;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Dot-separated SQL object name.

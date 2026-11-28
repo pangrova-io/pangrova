@@ -18,7 +18,7 @@ import org.pangrova.testing.testkit.security.TestTlsAuthority;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;

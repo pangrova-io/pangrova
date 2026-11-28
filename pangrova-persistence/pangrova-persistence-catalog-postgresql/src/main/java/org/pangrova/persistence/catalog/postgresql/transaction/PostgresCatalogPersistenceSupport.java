@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.pangrova.persistence.jdbc.support.JdbcSupport;
+import org.pangrova.persistence.jdbc.operation.JdbcOperations;
 import org.pangrova.common.api.annotation.Internal;
 
 /**
@@ -34,7 +34,7 @@ public abstract class PostgresCatalogPersistenceSupport {
     }
 
     protected final boolean executeMutation(String operation, String cacheKey, InvalidationType type,
-            JdbcSupport.SqlFunction<Connection, Boolean> mutation) {
+            JdbcOperations.SqlFunction<Connection, Boolean> mutation) {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try {
@@ -79,8 +79,8 @@ public abstract class PostgresCatalogPersistenceSupport {
         }
     }
 
-    protected final <T> T executeQuery(String sql, JdbcSupport.SqlConsumer binder,
-            JdbcSupport.SqlFunction<ResultSet, T> extractor) {
+    protected final <T> T executeQuery(String sql, JdbcOperations.SqlConsumer binder,
+            JdbcOperations.SqlFunction<ResultSet, T> extractor) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             binder.accept(ps);
@@ -92,7 +92,7 @@ public abstract class PostgresCatalogPersistenceSupport {
         }
     }
 
-    protected static int executeUpdate(Connection conn, String sql, JdbcSupport.SqlConsumer binder)
+    protected static int executeUpdate(Connection conn, String sql, JdbcOperations.SqlConsumer binder)
             throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             binder.accept(ps);

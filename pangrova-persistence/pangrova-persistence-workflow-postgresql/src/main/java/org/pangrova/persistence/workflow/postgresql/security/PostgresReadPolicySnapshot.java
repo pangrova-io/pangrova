@@ -1,6 +1,6 @@
 package org.pangrova.persistence.workflow.postgresql.security;
 
-import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
+import org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase;
 import org.pangrova.persistence.table.postgresql.policy.PostgresTablePolicyRepository;
 import org.pangrova.security.api.authorization.TableReadPolicySource.Target;
 import org.pangrova.security.api.mask.ColumnMask;
@@ -19,7 +19,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /** Reads the current tables and their foreground policies from one PostgreSQL statement snapshot. */
-final class PostgresReadPolicySnapshot extends JdbcPolicyStoreSupport {
+final class PostgresReadPolicySnapshot extends JdbcPolicyStoreBase {
     private static final String READ = """
             WITH read_target(catalog_name, schema_name, table_name, target_ordinal) AS (
                 SELECT * FROM unnest(CAST(? AS text[]), CAST(? AS text[]), CAST(? AS text[])) WITH ORDINALITY

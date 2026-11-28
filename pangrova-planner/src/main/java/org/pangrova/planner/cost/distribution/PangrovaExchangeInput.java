@@ -13,7 +13,7 @@ import org.pangrova.protocol.v2.BatchSerde;
 import java.util.List;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Consumer-side leaf of a fragmented distributed exchange.

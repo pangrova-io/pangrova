@@ -8,7 +8,7 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import java.util.Map;
 import java.util.TreeMap;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Immutable handle for Iceberg table write operations.
@@ -121,6 +121,6 @@ public record IcebergOutputTableHandle(
     public java.util.Optional<org.pangrova.connector.api.metadata.table.TableIdentity> tableIdentity() {
         return java.util.Optional.of(new org.pangrova.connector.api.metadata.table.TableIdentity(
                 "ICEBERG", tableUuid, tableLocation,
-                org.pangrova.common.util.DigestUtils.sha256Hex(schemaJson)));
+                org.pangrova.common.crypto.Sha256Digests.sha256Hex(schemaJson)));
     }
 }

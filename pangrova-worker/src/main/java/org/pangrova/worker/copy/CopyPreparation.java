@@ -12,7 +12,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /** One preparation's cumulative requested payloads and private-draft reservation. */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public final class CopyPreparation {
     private final StageResourceGrant grant;
     private final long deadline;

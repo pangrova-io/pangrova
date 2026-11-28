@@ -21,8 +21,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.getInstant;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.setInstant;
 
 /** Same-connection PostgreSQL transitions for durable source snapshot intent and references. */
 final class PostgresSnapshotPinLedger {

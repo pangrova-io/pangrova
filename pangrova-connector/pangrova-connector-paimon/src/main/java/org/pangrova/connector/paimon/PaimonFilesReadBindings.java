@@ -16,7 +16,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.JsonSerdeUtil;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.paimon.handle.PaimonFilesTableHandle;
 import org.pangrova.protocol.v2.PaimonFilesReadContext;
 import org.pangrova.protocol.v2.PinnedMetadataObject;
@@ -197,7 +197,7 @@ final class PaimonFilesReadBindings {
             evidence.append('\0').append(source.uri()).append('\0').append(source.sha256()).append('\0')
                     .append(HexFormat.of().formatHex(source.context().toByteArray()));
         }
-        return DigestUtils.sha256Hex(evidence.toString());
+        return Sha256Digests.sha256Hex(evidence.toString());
     }
 
     private static ConnectorReadBinding declaration(PaimonFilesTableHandle handle) {

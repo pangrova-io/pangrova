@@ -8,11 +8,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexCleanup.MappedArtifactRetirement;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 /** Durable mapped-artifact retirement receipt, shared by transactional removal and maintenance. */
 final class JdbcMappedArtifactRetirementStore extends JdbcStoreSupport {
@@ -58,7 +58,7 @@ final class JdbcMappedArtifactRetirementStore extends JdbcStoreSupport {
                 + "FROM index_descriptors d WHERE d.index_id=?";
         try (var statement = connection.prepareStatement(sql)) {
             for (RetiredPath path : paths) {
-                statement.setString(1, DigestUtils.sha256Hex(path.artifactPath()));
+                statement.setString(1, Sha256Digests.sha256Hex(path.artifactPath()));
                 statement.setString(2, path.dataFilePath());
                 statement.setString(3, path.artifactPath());
                 statement.setInt(4, path.retiredGeneration());

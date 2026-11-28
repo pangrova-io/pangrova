@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
-import static org.pangrova.common.util.Preconditions.requirePositiveDuration;
+import static org.pangrova.common.validation.Preconditions.requirePositiveDuration;
 
 /**
  * Query-role control-plane poller for replayable Native artifact work.

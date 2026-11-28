@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.query.task;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;

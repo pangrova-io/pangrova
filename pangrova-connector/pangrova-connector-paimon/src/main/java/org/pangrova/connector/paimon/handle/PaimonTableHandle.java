@@ -7,7 +7,7 @@ import java.util.Optional;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.SnapshotRange;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Immutable handle referencing a Paimon table by schema, name, and metadata snapshot.

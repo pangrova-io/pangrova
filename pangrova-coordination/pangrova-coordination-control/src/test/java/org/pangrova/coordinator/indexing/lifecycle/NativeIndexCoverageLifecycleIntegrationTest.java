@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService;
 import org.pangrova.coordinator.indexing.ddl.IndexBuildServices;
@@ -89,7 +89,7 @@ class NativeIndexCoverageLifecycleIntegrationTest extends ContainerTestBase {
     private static final String TENANT = "native-coverage-tenant";
     private static final String INDEX = "native-coverage-index";
     private static final String JOB = "index-build:tenant-"
-            + DigestUtils.sha256Hex(TENANT).substring(0, 32) + ":" + INDEX + ":generation:0";
+            + Sha256Digests.sha256Hex(TENANT).substring(0, 32) + ":" + INDEX + ":generation:0";
     private static final String SNAPSHOT = "snapshot-0";
     private static final QualifiedTableName TABLE = new QualifiedTableName("catalog", "schema", "items");
 

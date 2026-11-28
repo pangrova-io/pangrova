@@ -8,7 +8,7 @@ import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
 import org.pangrova.generation.submission.GenerationStageGraphFactory;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
@@ -52,7 +52,7 @@ class GenerationEncodingCompatibilityTest {
                 r.registeredOwner(), 2, r.producerSetSha256(),
                 List.of(new GenerationExchangeFinalization.Partition(1, 10, 2, 0, "d".repeat(64)),
                         new GenerationExchangeFinalization.Partition(0, 0, 0, -1, "e".repeat(64))),
-                10, 2, DigestUtils.sha256Hex(response));
+                10, 2, Sha256Digests.sha256Hex(response));
     }
     @Test
     void graphKeepsPersistedBytesAndDigest() throws Exception {
@@ -113,7 +113,7 @@ class GenerationEncodingCompatibilityTest {
         var boundary = registrationWithSnapshot("x".repeat(16 * 1024 * 1024 - overhead));
         byte[] bytes = GenerationExchangeEvidenceCodec.encode(boundary);
         assertThat(bytes).hasSize(16 * 1024 * 1024);
-        assertThat(GenerationExchangeEvidenceCodec.decodeRegistration(bytes, DigestUtils.sha256Hex(bytes))).isEqualTo(boundary);
+        assertThat(GenerationExchangeEvidenceCodec.decodeRegistration(bytes, Sha256Digests.sha256Hex(bytes))).isEqualTo(boundary);
     }
 
     @Test
@@ -138,7 +138,7 @@ class GenerationEncodingCompatibilityTest {
         for (String changed : List.of("null", original + " {}", original + "\n",
                 original.substring(0, original.length() - 1) + ",\"unrecognized\":true}")) {
             byte[] bytes = changed.getBytes(StandardCharsets.UTF_8);
-            assertThatThrownBy(() -> decode.apply(bytes, DigestUtils.sha256Hex(bytes)))
+            assertThatThrownBy(() -> decode.apply(bytes, Sha256Digests.sha256Hex(bytes)))
                     .as(fixture).isInstanceOf(IllegalArgumentException.class);
         }
     }

@@ -1,6 +1,6 @@
 package org.pangrova.persistence.streaming.postgresql;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.streaming.api.cdc.CdcRegistration;
 import org.pangrova.streaming.api.enums.CdcStreamState;
 import org.pangrova.streaming.api.cdc.CdcRegistrationStore;

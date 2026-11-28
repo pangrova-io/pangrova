@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.api;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Describes a remote shuffle endpoint for data retrieval.

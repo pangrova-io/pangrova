@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg.handle;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import java.util.List;
 import java.util.Objects;
@@ -24,7 +24,7 @@ public record IcebergFileTableHandle(
     public record ManifestObject(String uri, long length, String sha256, int specId, int content) {
         public ManifestObject {
             if (uri == null || uri.isBlank() || length <= 0 || sha256 == null
-                    || !DigestUtils.isSha256Hex(sha256) || specId < 0
+                    || !Sha256Digests.isSha256Hex(sha256) || specId < 0
                     || (content != 0 && content != 1)) {
                 throw new IllegalArgumentException("Invalid pinned Iceberg child manifest");
             }

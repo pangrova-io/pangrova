@@ -12,7 +12,7 @@ import io.grpc.ChannelCredentials;
 import io.grpc.Grpc;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.v2.shuffle.CleanupRequest;
 import org.pangrova.protocol.v2.shuffle.CleanupResponse;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
@@ -44,7 +44,7 @@ import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool.PemTlsConfig
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 import static org.pangrova.shuffle.pangrova.client.coordinator.PangrovaShuffleControlProtocol.requireSameRegistration;
 import static org.pangrova.shuffle.pangrova.client.coordinator.PangrovaShuffleControlProtocol.toHandle;
 import static org.pangrova.shuffle.pangrova.client.coordinator.PangrovaShuffleControlProtocol.toProtocol;

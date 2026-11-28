@@ -14,7 +14,7 @@ import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.InputFile;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
@@ -108,7 +108,7 @@ final class IcebergManifestReadBindings {
     }
 
     static String digest(InputFile input, long expectedLength) {
-        var sha = DigestUtils.sha256();
+        var sha = Sha256Digests.sha256();
         byte[] buffer = new byte[HASH_BUFFER_BYTES];
         long readBytes = 0;
         try (var stream = input.newStream()) {

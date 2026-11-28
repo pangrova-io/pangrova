@@ -19,7 +19,7 @@ import org.pangrova.connector.api.session.ConnectorSession;
  * <p>Called from {@link org.pangrova.planner.analysis.PangrovaPlanner#plan(String)} before
  * Calcite table resolution to transparently redirect DT queries.</p>
  */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 public final class DynamicTableRewriter {
 
     private final PublishedTargetResolver publishedTargetResolver;

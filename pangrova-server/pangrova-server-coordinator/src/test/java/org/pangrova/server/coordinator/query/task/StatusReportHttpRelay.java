@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.query.task;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.rest.task.TaskStatusWire;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.ExecutionDrainState;

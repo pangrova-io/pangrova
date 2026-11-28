@@ -9,7 +9,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** PostgreSQL execution ownership check using only the supplied transaction and its database clock. */
 public final class JdbcExecutionTransactionFence implements ExecutionTransactionFence {

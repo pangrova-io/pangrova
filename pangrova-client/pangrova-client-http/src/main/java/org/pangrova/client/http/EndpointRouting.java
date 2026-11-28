@@ -1,6 +1,6 @@
 package org.pangrova.client.http;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

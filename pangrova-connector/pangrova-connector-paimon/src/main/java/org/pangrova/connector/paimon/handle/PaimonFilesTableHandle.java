@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.handle;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
 import org.pangrova.protocol.v2.PaimonFilesReadContext;
@@ -21,7 +21,7 @@ public record PaimonFilesTableHandle(PaimonTableHandle baseTable, List<Manifest>
         public Manifest {
             context = Objects.requireNonNull(context, "context").toBuilder().build();
             if (uri == null || uri.isBlank() || length <= 0 || snapshotId <= 0
-                    || !DigestUtils.isSha256Hex(sha256) || context.getFilesCount() == 0) {
+                    || !Sha256Digests.isSha256Hex(sha256) || context.getFilesCount() == 0) {
                 throw new IllegalArgumentException("Paimon file manifest requires exact identity and selected files");
             }
         }

@@ -6,7 +6,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
-import org.pangrova.common.concurrent.RetryingCommitWrapper;
+import org.pangrova.common.concurrency.RetryingCommitWrapper;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;

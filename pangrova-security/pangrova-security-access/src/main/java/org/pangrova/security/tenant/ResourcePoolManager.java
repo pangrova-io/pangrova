@@ -1,6 +1,6 @@
 package org.pangrova.security.tenant;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.security.api.tenant.ResourcePool;
 import org.pangrova.security.api.tenant.Tenant;
 

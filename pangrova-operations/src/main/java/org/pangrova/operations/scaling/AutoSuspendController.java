@@ -1,7 +1,7 @@
 package org.pangrova.operations.scaling;
 
 import org.pangrova.common.annotation.ExperimentalImplementation;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 import java.time.Clock;
 import java.time.Duration;

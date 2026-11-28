@@ -1,6 +1,6 @@
 package org.pangrova.persistence.generation.api.generated;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Exact immutable generated-value generation selected for a source snapshot. */
 public record GeneratedValueGenerationReference(

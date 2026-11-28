@@ -1,6 +1,6 @@
 package org.pangrova.worker.catalog;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Idempotent exact-deployment lease held until the Native metadata operation returns. */

@@ -1,5 +1,5 @@
 package org.pangrova.persistence.coordination.postgresql.membership;
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import org.pangrova.coordination.api.membership.WorkerRegistrationIdentity;
 

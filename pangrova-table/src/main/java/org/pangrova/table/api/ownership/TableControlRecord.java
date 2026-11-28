@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Durable management state for a LINKED or MANAGED table.

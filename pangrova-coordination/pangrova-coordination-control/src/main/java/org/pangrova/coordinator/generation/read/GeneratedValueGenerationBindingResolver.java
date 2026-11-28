@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /** Resolves an exact generated-value sidecar into the common operator binding contract. */
 public final class GeneratedValueGenerationBindingResolver {

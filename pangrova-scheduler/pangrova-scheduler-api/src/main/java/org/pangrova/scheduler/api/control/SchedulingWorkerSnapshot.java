@@ -13,7 +13,7 @@
  */
 package org.pangrova.scheduler.api.control;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Immutable snapshot of a worker's current state for control-loop evaluation.

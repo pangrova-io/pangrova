@@ -12,9 +12,9 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 
 /**
  * Periodic health evaluator for all registered Workers.
@@ -70,7 +70,7 @@ public final class WorkerHealthScheduler {
 
     public void start() {
         scheduledTask = scheduler.scheduleAtFixedRate(
-                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(scheduler, this::evaluateAll),
+                () -> org.pangrova.common.concurrency.ExecutorDrain.runOwned(scheduler, this::evaluateAll),
                 intervalMs,
                 intervalMs,
                 TimeUnit.MILLISECONDS);

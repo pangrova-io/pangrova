@@ -4,7 +4,7 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 
 import java.time.Instant;
 
-import static org.pangrova.common.util.Preconditions.requireText;
+import static org.pangrova.common.validation.Preconditions.requireText;
 
 /**
  * Lease held by a scheduler owner while it refreshes one materialization.

@@ -1,6 +1,6 @@
 package org.pangrova.persistence.materialization.postgresql;
 
-import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -31,8 +31,8 @@ final class JdbcMaterializationSql {
     }
 
     <T> Optional<T> queryOne(String action, String sql,
-            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlConsumer binder,
-            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlFunction<ResultSet, T> mapper) {
+            org.pangrova.persistence.jdbc.operation.JdbcOperations.SqlConsumer binder,
+            org.pangrova.persistence.jdbc.operation.JdbcOperations.SqlFunction<ResultSet, T> mapper) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             binder.accept(statement);
@@ -45,8 +45,8 @@ final class JdbcMaterializationSql {
     }
 
     <T> List<T> queryList(String action, String sql,
-            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlConsumer binder,
-            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlFunction<ResultSet, T> mapper) {
+            org.pangrova.persistence.jdbc.operation.JdbcOperations.SqlConsumer binder,
+            org.pangrova.persistence.jdbc.operation.JdbcOperations.SqlFunction<ResultSet, T> mapper) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             binder.accept(statement);
@@ -63,7 +63,7 @@ final class JdbcMaterializationSql {
     }
 
     <T> T inTransaction(String action,
-            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlFunction<Connection, T> work) {
+            org.pangrova.persistence.jdbc.operation.JdbcOperations.SqlFunction<Connection, T> work) {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {

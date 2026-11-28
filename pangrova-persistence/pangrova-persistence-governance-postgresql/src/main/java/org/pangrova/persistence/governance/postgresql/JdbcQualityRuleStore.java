@@ -14,7 +14,7 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.governance.api.quality.QualityCheckResult;
 import org.pangrova.governance.api.enums.Severity;
 import org.pangrova.governance.api.quality.DataQualityRule;

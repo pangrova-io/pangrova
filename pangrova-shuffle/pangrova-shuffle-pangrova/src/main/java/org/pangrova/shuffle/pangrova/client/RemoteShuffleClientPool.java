@@ -2,8 +2,8 @@ package org.pangrova.shuffle.pangrova.client;
 
 import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
 
-import static org.pangrova.common.util.Preconditions.checkArgument;
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkArgument;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 import java.io.Closeable;
 import java.nio.file.Path;
@@ -18,8 +18,8 @@ import java.util.concurrent.TimeUnit;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
-import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.concurrent.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
 import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;

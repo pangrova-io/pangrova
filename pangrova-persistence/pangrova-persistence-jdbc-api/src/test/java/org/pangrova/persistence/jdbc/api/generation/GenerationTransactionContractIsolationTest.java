@@ -1,7 +1,7 @@
 package org.pangrova.persistence.jdbc.api.generation;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 
 import java.net.URL;
@@ -19,7 +19,7 @@ class GenerationTransactionContractIsolationTest {
                 org.pangrova.security.api.identity.UserIdentity.class.getProtectionDomain().getCodeSource().getLocation(),
                 GenerationTransactionAuthority.class.getProtectionDomain().getCodeSource().getLocation(),
                 GenerationDispatchSpec.class.getProtectionDomain().getCodeSource().getLocation(),
-                DigestUtils.class.getProtectionDomain().getCodeSource().getLocation(),
+                Sha256Digests.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.execution.api.ownership.ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation()
         };
         try (var loader = new URLClassLoader(locations, ClassLoader.getPlatformClassLoader())) {

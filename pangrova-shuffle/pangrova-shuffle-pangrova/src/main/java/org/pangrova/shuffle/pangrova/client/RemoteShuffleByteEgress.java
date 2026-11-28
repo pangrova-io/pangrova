@@ -14,8 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.common.concurrent.GuardedBy;
-import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrency.GuardedBy;
+import org.pangrova.common.concurrency.ThreadSafe;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.ShuffleExecutionBinding;
 import org.pangrova.protocol.v2.TaskRequest;

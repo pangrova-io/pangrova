@@ -5,7 +5,7 @@ import org.pangrova.query.api.lifecycle.QueryOperation;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Holds one actual operation in the sole issued-query authority until its final exit. */
-@org.pangrova.common.concurrent.ThreadSafe
+@org.pangrova.common.concurrency.ThreadSafe
 final class QueryIssuanceOperation implements QueryOperation, org.pangrova.connector.api.query.ConnectorQueryOperation {
     private final Runnable exited;
     private final AtomicBoolean closed = new AtomicBoolean();

@@ -3,7 +3,7 @@ package org.pangrova.indexing.storage;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 
 /**
@@ -28,7 +28,7 @@ public final class NativeIndexArtifactLayout {
 
     /** Derives one immutable identity shared by submission, storage, and authority recovery. */
     public static AttemptIdentity attempt(String tenantId, IndexDescriptor descriptor, String attemptId) {
-        return new AttemptIdentity(DigestUtils.sha256Hex(tenantId).substring(0, 32),
+        return new AttemptIdentity(Sha256Digests.sha256Hex(tenantId).substring(0, 32),
                 safeComponent(descriptor.indexId()), descriptor.generation(), safeComponent(attemptId));
     }
 
@@ -63,7 +63,7 @@ public final class NativeIndexArtifactLayout {
 
         /** Returns the historical or current idempotency key for the exact snapshot. */
         public String idempotencyKey(String sourceSnapshot) {
-            return jobId() + ":snapshot:" + (isLegacy() ? sourceSnapshot : DigestUtils.sha256Hex(sourceSnapshot));
+            return jobId() + ":snapshot:" + (isLegacy() ? sourceSnapshot : Sha256Digests.sha256Hex(sourceSnapshot));
         }
 
         private boolean isLegacy() {

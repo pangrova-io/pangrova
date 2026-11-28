@@ -13,7 +13,7 @@
  */
 package org.pangrova.ai.api.model;
 
-import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.crypto.Sha256Digests;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -51,7 +51,7 @@ public final class AiModelIdentity {
         if (model == null) {
             throw new IllegalArgumentException("model must not be null");
         }
-        MessageDigest digest = DigestUtils.sha256();
+        MessageDigest digest = Sha256Digests.sha256();
         updateModelIdentity(digest, model);
         model.capabilities().stream()
                 .sorted(Comparator

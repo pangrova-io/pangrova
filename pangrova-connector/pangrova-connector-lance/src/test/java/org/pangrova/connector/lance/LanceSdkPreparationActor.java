@@ -2,7 +2,7 @@ package org.pangrova.connector.lance;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
-import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrency.ManagedExecutorFactory;
 import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
 import org.pangrova.protocol.v2.PrepareDistributedWriteResult;
 

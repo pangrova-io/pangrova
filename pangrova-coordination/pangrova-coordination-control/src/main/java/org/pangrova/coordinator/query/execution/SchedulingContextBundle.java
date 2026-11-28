@@ -9,7 +9,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 
-import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.validation.Preconditions.checkNotNull;
 
 /**
  * Groups scheduling and execution infrastructure dependencies for QueryDispatcher.
