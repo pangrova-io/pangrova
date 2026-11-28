@@ -174,13 +174,18 @@ class IndependentLateRuntimeFilterE2ETest extends ContainerTestBase {
                     await("a live Worker natively acknowledges the exact late filter").atMost(EVENT_DEADLINE)
                             .untilAsserted(() -> {
                                 List<TaskRuntimeFilterDelivery> accepted = new ArrayList<>();
+                                List<String> wireOutcomes = new ArrayList<>();
                                 for (var transfer : filterTransfers(relays, observedAfter)) {
-                                    if (transfer.response().get() != null
-                                            && transfer.response().get().statusCode() == 204) {
-                                        accepted.add(TaskRuntimeFilterWire.decode(transfer.body()));
+                                    var response = transfer.response().get();
+                                    var delivery = TaskRuntimeFilterWire.decode(transfer.body());
+                                    wireOutcomes.add(delivery.getAttempt().getTaskId() + "="
+                                            + (response == null ? "pending" : response.statusCode()));
+                                    if (response != null && response.statusCode() == 204) {
+                                        accepted.add(delivery);
                                     }
                                 }
-                                assertThat(accepted).isNotEmpty().allSatisfy(delivery -> {
+                                assertThat(accepted).as("Worker filter RPC outcomes %s", wireOutcomes)
+                                        .isNotEmpty().allSatisfy(delivery -> {
                                     assertThat(probes).contains(delivery.getAttempt());
                                     assertThat(delivery.getUpdate().getSoleTableScan()).isTrue();
                                     assertThat(delivery.getUpdate().getFiltersList()).singleElement().satisfies(filter ->
