@@ -442,6 +442,99 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void readsOnlyAnExactFinalizedRangeAndRetainsItsProofAfterResume() throws Exception {
+        String query = "certified-range-" + UUID.randomUUID();
+        String shuffle = "shuffle-" + query;
+        seedAnchor(query, owner());
+        var first = openHarness();
+        ReadPartitionRequest request;
+        FinalizeShuffleRequest finalize;
+        try (var engine = first.engine; var store = PostgresShuffleStore.create(config().database())) {
+            var cohort = ShuffleChecksums.protocol(ShuffleProducerSetChecksum.forContiguousPartitions(query, 1, 2, 1));
+            var registered = engine.register(registration().toBuilder()
+                    .setQueryId(query).setShuffleId(shuffle).setNumPartitions(1)
+                    .setExpectedProducerSetChecksum(cohort).build());
+            var producer = attempt(0, 1).toBuilder().setQueryOrJobId(query).build();
+            var grant = taskGrant(first, registered, producer, org.pangrova.protocol.v2.shuffle
+                    .ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE);
+            var checksum = ShufflePartitionManifestChecksum.accumulator();
+            try (var writer = engine.writeSession(() -> false)) {
+                for (int sequence = 0; sequence < 6; sequence++) {
+                    byte[] payload = sequencePayload(sequence);
+                    byte[] digest = ShuffleChecksums.sha256(payload);
+                    writer.accept(new CompleteWriteBatch(shuffle, 0, sequence, 1, producer, grant,
+                            ByteString.copyFrom(payload), digest));
+                    checksum.add(sequence, Long.BYTES, 1, digest);
+                }
+                writer.finish();
+            }
+            engine.commit(CommitProducerAttemptRequest.newBuilder().setShuffleId(shuffle).setProducerAttempt(producer)
+                    .setAccessCapability(grant).addPartitions(PartitionCommitSummary.newBuilder().setPartitionId(0)
+                            .setExpectedLastSequence(5).setTotalBytes(6 * Long.BYTES).setTotalRows(6).setTotalBatches(6)
+                            .setOutputChecksum(ShuffleChecksums.protocol(checksum.finishNonEmpty()))).build());
+            var allocation = store.findAllocation(shuffle).orElseThrow();
+            var manifest = new ShufflePartitionManifest.Writer((digest, bytes) -> {
+                throw new AssertionError("Inline publication should not write an object");
+            }, 2L * Long.BYTES);
+            store.batchStore().readCommittedPage(allocation, null, 8).forEach(manifest::add);
+            var fence = new ShuffleServiceModel.FinalizeFence(2, owner(), 1,
+                    cohort.getDigest().toByteArray(), allocation.metadataVersion());
+            store.finalizeShuffle(new ShuffleServiceModel.FinalizeCommand(shuffle, fence, List.of(manifest.finish(0))));
+            finalize = FinalizeShuffleRequest.newBuilder().setShuffleId(shuffle).setPlanEpoch(2).setExecutionOwner(owner())
+                    .setExpectedProducerPartitions(1).setExpectedProducerSetChecksum(cohort)
+                    .setAccessCapability(registered.getFinalizeCapability()).build();
+            var consumer = consumerAttempt().toBuilder().setQueryOrJobId(query).build();
+            request = ReadPartitionRequest.newBuilder().setShuffleId(shuffle).setPartitionId(0)
+                    .setConsumerAttempt(consumer).setDeadlineEpochMs(System.currentTimeMillis() + 60_000)
+                    .setAccessCapability(taskGrant(first, registered, consumer, org.pangrova.protocol.v2.shuffle
+                            .ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ)).build();
+        }
+        try (var engine = openHarness().engine) {
+            var published = engine.finalizeShuffle(finalize).getPartitions(0);
+            assertThat(published.getReadRangesList()).hasSize(3);
+            var range = published.getReadRanges(1);
+            var middle = request.toBuilder().setReadRange(range).setStartSequence(2).build();
+            assertRangeFrames(engine, middle);
+            long grants = performedReadWindows();
+            assertThatThrownBy(() -> engine.read(middle.toBuilder().setStartSequence(1).build()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("published range");
+            assertThatThrownBy(() -> engine.read(middle.toBuilder()
+                    .setReadRange(range.toBuilder().setManifestSha256(ByteString.copyFrom(new byte[32])))
+                    .build())).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("published range");
+            assertThat(performedReadWindows()).isEqualTo(grants);
+        }
+    }
+
+    private static void assertRangeFrames(ShuffleServiceEngine engine, ReadPartitionRequest request) throws Exception {
+        try (var transport = new CanonicalShuffleGrpcServer(engine, config().limits())) {
+            var server = ServerBuilder.forPort(0).addService(transport).build().start();
+            var channel = ManagedChannelBuilder.forAddress("localhost", server.getPort()).usePlaintext().build();
+            try {
+                var stub = ShuffleServiceGrpc.newBlockingStub(channel).withDeadlineAfter(10, TimeUnit.SECONDS);
+                for (long start : List.of(2L, 3L, 4L)) {
+                    var frames = stub.readPartition(request.toBuilder().setStartSequence(start).build());
+                    for (long sequence = start; sequence < 4; sequence++) {
+                        var frame = frames.next();
+                        assertThat(frame.getChunk().getBatchSequence()).isEqualTo(sequence);
+                        assertThat(frame.getChunk().getData().toByteArray()).isEqualTo(sequencePayload(sequence));
+                    }
+                    var terminal = frames.next().getTerminal();
+                    assertThat(terminal.hasCertifiedStartSequence()).isTrue();
+                    assertThat(terminal.getCertifiedStartSequence()).isEqualTo(2);
+                    assertThat(terminal.getCommittedLastSequence()).isEqualTo(3);
+                    assertThat(terminal.getTotalBytes()).isEqualTo(2 * Long.BYTES);
+                    assertThat(terminal.getTotalRows()).isEqualTo(2);
+                    assertThat(terminal.getOutputChecksum().getDigest()).isEqualTo(request.getReadRange().getManifestSha256());
+                    assertThat(frames.hasNext()).isFalse();
+                }
+            } finally {
+                channel.shutdownNow().awaitTermination(10, TimeUnit.SECONDS);
+                server.shutdownNow().awaitTermination(10, TimeUnit.SECONDS);
+            }
+        }
+    }
+
     private static void assertIndexAdmissionReleasesPin(
             ShuffleServiceEngine engine, ReadPartitionRequest request, String query) throws Exception {
         var limits = new ShuffleServiceConfig.Limits(1024, 1024, 3 * 1024, 1, 1, 1);

@@ -144,9 +144,18 @@ final class ShuffleServiceModel {
             long totalBytes,
             long totalRows,
             long committedLastSequence,
-            byte[] checksum) {
+            byte[] checksum,
+            List<org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange> readRanges) {
+        FinalizedPartition(int partitionId, long totalBytes, long totalRows, long committedLastSequence,
+                byte[] checksum) {
+            this(partitionId, totalBytes, totalRows, committedLastSequence, checksum, List.of());
+        }
+
         FinalizedPartition {
             checksum = checksum.clone();
+            readRanges = List.copyOf(readRanges);
+            org.pangrova.shuffle.api.ShuffleCommitReceipt.requireRangeCoverage(
+                    committedLastSequence, totalBytes, totalRows, readRanges);
         }
 
         @Override

@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;
 import org.pangrova.shuffle.security.enums.CapabilityOperation;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
@@ -24,8 +25,13 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
 interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
 
     /** Opens the exact finalized partition and durably pins its objects in one transaction. */
+    default ReadAdmission openRead(String queryId, ExecutionOwnerIdentity owner, String shuffleId, int partitionId,
+            long startSequence, long readUntilMs, long drainMillis) {
+        return openRead(queryId, owner, shuffleId, partitionId, startSequence, null, readUntilMs, drainMillis);
+    }
+
     ReadAdmission openRead(String queryId, ExecutionOwnerIdentity owner, String shuffleId, int partitionId,
-            long startSequence, long readUntilMs, long drainMillis);
+            long startSequence, ReadRange range, long readUntilMs, long drainMillis);
 
     /** Renews frame and object-read admission under the exact live owner and pin. */
     long grantReadWindow(String queryId, ExecutionOwnerIdentity owner, UUID id);

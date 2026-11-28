@@ -147,6 +147,7 @@ message PartitionFinalizationSummary {
   int64 committed_last_sequence = 4;
   // SHA-256 of the canonical ordered partition manifest.
   pangrova.protocol.v2.Checksum output_checksum = 5;
+  repeated pangrova.protocol.v2.ShufflePartitionReadRange read_ranges = 6;
 }
 
 message FinalizeShuffleResponse {
@@ -164,6 +165,8 @@ message ReadPartitionRequest {
   pangrova.protocol.v2.TaskAttemptId consumer_attempt = 4;
   uint64 deadline_epoch_ms = 5;
   pangrova.protocol.v2.ShuffleAccessCapability access_capability = 6;
+  // An exact published range. start_sequence remains the resumable cursor.
+  pangrova.protocol.v2.ShufflePartitionReadRange read_range = 7;
 }
 
 message ReadBatchResponse {
@@ -179,13 +182,16 @@ message ReadBatchResponse {
 
 message ReadPartitionTerminal {
   int64 committed_last_sequence = 1;
-  // SHA-256 of the canonical ordered partition manifest.
+  // SHA-256 of the ordered whole partition or certified read range.
   pangrova.protocol.v2.Checksum output_checksum = 2;
   uint32 committed_producer_count = 3;
   int64 total_bytes = 4;
   int64 total_rows = 5;
   pangrova.protocol.v2.Checksum producer_set_checksum = 6;
   uint64 generation_plan_epoch = 7;
+  // Present for a bounded read, including a range that begins at sequence zero.
+  // The terminal totals describe the entire certified range even after resume.
+  optional int64 certified_start_sequence = 8;
 }
 
 message CleanupRequest {

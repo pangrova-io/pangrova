@@ -1556,6 +1556,22 @@ uses the paged batch inventory once to build the ordered manifest. Publication
 then checks contiguous producer coverage and partition totals from the frozen
 winner rows in one statement. Empty outputs are still explicitly published.
 
+Large outputs also publish contiguous intervals of complete batches. The
+manifest writer targets 64 MiB per interval and retains at most 32 intervals,
+with remaining batches included in the final interval. Each interval records
+its absolute start and exclusive end, bytes, rows, and canonical digest.
+Small outputs that fit before the first split or manifest leaf boundary build
+only the whole-partition digest. Publication and replay retain the same range
+index in the partition row.
+
+The gRPC reader can request an exact published interval alongside its resume
+cursor. Admission checks that evidence in the same partition lookup, before
+it creates a read pin. The server stops at the exclusive end and reports the
+original interval totals even when resumed. The Java reader verifies the
+absolute sequence, totals, digest, and terminal coordinates against its
+independent binding. Whole-partition reads keep their existing terminal and
+skip reading the range index.
+
 In remote Shuffle mode, logical terminal transition uses the original execution
 grant to seal admission. The live DAG reports its outcome without deleting
 Shuffle. Physical cleanup starts after local operations, report publication and

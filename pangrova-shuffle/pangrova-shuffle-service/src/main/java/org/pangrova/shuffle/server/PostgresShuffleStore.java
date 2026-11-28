@@ -206,10 +206,16 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     @Override
     public ReadAdmission openRead(
             String queryId, ExecutionOwnerIdentity owner, String shuffleId, int partitionId,
-            long startSequence, long readUntilMs, long drainMillis) {
+            long startSequence, org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange range,
+            long readUntilMs, long drainMillis) {
         return transaction(dataSource, connection -> {
             requireActiveOwner(connection, queryId, owner);
-            var published = PostgresShuffleRecords.readPublishedPartition(connection, queryId, shuffleId, partitionId);
+            var published = PostgresShuffleRecords.readPublishedPartition(
+                    connection, queryId, shuffleId, partitionId, range != null);
+            if (range != null && (!published.partition().readRanges().contains(range)
+                    || startSequence < range.startSequence() || startSequence > range.endSequenceExclusive())) {
+                throw new IllegalArgumentException("shuffle read does not match a published range");
+            }
             if (startSequence < 0 || startSequence - 1 > published.partition().committedLastSequence()) {
                 throw new IllegalArgumentException("read start sequence exceeds partition range");
             }

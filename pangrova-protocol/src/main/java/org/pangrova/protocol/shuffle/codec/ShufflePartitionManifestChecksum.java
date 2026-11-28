@@ -18,18 +18,27 @@ public final class ShufflePartitionManifestChecksum {
 
     /** Creates a fresh accumulator whose first accepted batch sequence is zero. */
     public static Accumulator accumulator() {
-        return new Accumulator(DigestUtils.sha256());
+        return accumulator(0);
+    }
+
+    /** Creates an accumulator for the exact absolute sequences of a committed subrange. */
+    public static Accumulator accumulator(long firstSequence) {
+        if (firstSequence < 0) throw new IllegalArgumentException("Negative starting batch sequence");
+        return new Accumulator(DigestUtils.sha256(), firstSequence);
     }
 
     /** Mutable single-owner accumulator for fixed-width canonical manifest entries. */
     public static final class Accumulator {
         private final MessageDigest digest;
         private final ByteBuffer encodedEntry = ByteBuffer.allocate(Long.BYTES * 3).order(ByteOrder.BIG_ENDIAN);
+        private final long firstSequence;
         private long nextSequence;
         private boolean finished;
 
-        private Accumulator(MessageDigest digest) {
+        private Accumulator(MessageDigest digest, long firstSequence) {
             this.digest = digest;
+            this.firstSequence = firstSequence;
+            nextSequence = firstSequence;
             digest.update(DOMAIN);
         }
 
@@ -58,7 +67,7 @@ public final class ShufflePartitionManifestChecksum {
 
         /** Finishes exactly once and rejects an empty producer partition manifest. */
         public byte[] finishNonEmpty() {
-            if (nextSequence == 0) {
+            if (nextSequence == firstSequence) {
                 throw new IllegalStateException("producer partition manifest must not be empty");
             }
             return finish();
@@ -69,7 +78,7 @@ public final class ShufflePartitionManifestChecksum {
                 long sizeBytes,
                 long rowCount,
                 byte[] payloadSha256) {
-            if (finished || sequence != nextSequence) {
+            if (finished || sequence != nextSequence || sequence == Long.MAX_VALUE) {
                 throw new IllegalArgumentException("manifest batch sequence is not contiguous");
             }
             if (sizeBytes <= 0 || rowCount <= 0

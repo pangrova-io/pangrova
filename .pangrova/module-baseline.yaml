@@ -4577,6 +4577,7 @@ artifacts:
         - pangrova-shuffle-api
         - pangrova-shuffle-native
       test:
+        - pangrova-common
         - pangrova-protocol
         - pangrova-shuffle-api
         - pangrova-shuffle-native
@@ -4615,6 +4616,7 @@ artifacts:
         - pangrova-common
         - pangrova-persistence-jdbc-support
         - pangrova-protocol
+        - pangrova-shuffle-api
       test:
         - pangrova-protocol
         - pangrova-testing-kit

@@ -396,7 +396,8 @@ final class PostgresShuffleLifecycleTransitions {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO shuffle_finalized_partition "
                         + "(shuffle_id, partition_id, total_bytes, total_rows, "
-                        + "committed_last_sequence, output_checksum, manifest_root) VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                        + "committed_last_sequence, output_checksum, manifest_root, read_ranges) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
             for (PartitionPublication publication : command.partitions()) {
                 FinalizedPartition partition = publication.partition();
                 statement.setString(1, command.shuffleId());
@@ -406,6 +407,7 @@ final class PostgresShuffleLifecycleTransitions {
                 statement.setLong(5, partition.committedLastSequence());
                 statement.setBytes(6, partition.checksum());
                 statement.setBytes(7, publication.manifestRoot());
+                statement.setBytes(8, ShuffleReadRanges.encode(partition.readRanges()));
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -428,14 +430,14 @@ final class PostgresShuffleLifecycleTransitions {
         List<FinalizedPartition> partitions = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT partition_id, total_bytes, total_rows, committed_last_sequence, "
-                        + "output_checksum FROM shuffle_finalized_partition "
+                        + "output_checksum, read_ranges FROM shuffle_finalized_partition "
                         + "WHERE shuffle_id = ? ORDER BY partition_id")) {
             statement.setString(1, allocation.identity().shuffleId());
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
                     partitions.add(new FinalizedPartition(
                             rows.getInt(1), rows.getLong(2), rows.getLong(3),
-                            rows.getLong(4), rows.getBytes(5)));
+                            rows.getLong(4), rows.getBytes(5), ShuffleReadRanges.decode(rows.getBytes(6))));
                 }
             }
         }

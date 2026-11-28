@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.server.exception.ShuffleServiceException;
 
@@ -72,6 +73,31 @@ class ShufflePartitionManifestTest {
         assertThat(reader.page(0, fetch, () -> {})).hasSize(INLINE_BATCHES);
         assertThat(reader.page(INLINE_BATCHES, fetch, () -> {})).hasSize(17);
         assertThat(reads.get()).isEqualTo(1);
+    }
+
+    @Test
+    void publishesAbsoluteRangeDigestsWithoutChangingTheWholePartitionDigest() {
+        long size = 40L * 1024 * 1024;
+        var writer = new ShufflePartitionManifest.Writer((digest, bytes) -> {
+            throw new AssertionError("Inline publication should not write an object");
+        });
+        var expected = ShufflePartitionManifestChecksum.accumulator();
+        for (int sequence = 0; sequence < 5; sequence++) {
+            var id = identity(sequence);
+            writer.add(new StoredBatch(id, TaskAttemptId.getDefaultInstance(), id.objectKey(), size, 3, CHECKSUM));
+            expected.add(sequence, size, 3, CHECKSUM);
+        }
+        var finalized = writer.finish(PARTITION).partition();
+        assertThat(finalized.checksum()).isEqualTo(expected.finishNonEmpty());
+        assertThat(finalized.readRanges()).hasSize(3);
+        var middle = finalized.readRanges().get(1);
+        assertThat(middle.startSequence()).isEqualTo(2);
+        assertThat(middle.endSequenceExclusive()).isEqualTo(4);
+        assertThat(middle.bytes()).isEqualTo(2 * size);
+        assertThat(middle.rows()).isEqualTo(6);
+        var absoluteDigest = ShufflePartitionManifestChecksum.accumulator(2)
+                .add(2, size, 3, CHECKSUM).add(3, size, 3, CHECKSUM).finishNonEmpty();
+        assertThat(middle.manifestSha256()).isEqualTo(java.util.HexFormat.of().formatHex(absoluteDigest));
     }
 
     @Test

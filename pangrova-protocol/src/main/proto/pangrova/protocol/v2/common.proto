@@ -101,6 +101,16 @@ message ShuffleAccessCapability {
   uint64 expires_at_epoch_ms = 2;
 }
 
+// Certified nonempty range of complete batches from one finalized partition.
+// Its digest includes the absolute batch sequence in every canonical entry.
+message ShufflePartitionReadRange {
+  optional int64 start_sequence = 1;
+  optional int64 end_sequence_exclusive = 2;
+  optional int64 total_bytes = 3;
+  optional int64 total_rows = 4;
+  bytes manifest_sha256 = 5;
+}
+
 // Stable identity contract used to map an artifact-local node ordinal back to
 // a source row. This is generic infrastructure shared by indexes, caches,
 // feature materializations and training exports; retrieval implementations

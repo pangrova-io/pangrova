@@ -129,19 +129,22 @@ final class PostgresShuffleRecords {
     }
 
     static PublishedPartition readPublishedPartition(
-            Connection connection, String queryId, String shuffleId, int partitionId) throws SQLException {
+            Connection connection, String queryId, String shuffleId, int partitionId, boolean includeRanges)
+            throws SQLException {
         String sql = """
                 SELECT a.state, a.partition_count, a.plan_epoch, a.expected_producer_count,
                        a.producer_set_checksum, p.committed_last_sequence,
-                       p.total_bytes, p.total_rows, p.output_checksum, p.manifest_root
+                       p.total_bytes, p.total_rows, p.output_checksum, p.manifest_root,
+                       CASE WHEN ? THEN p.read_ranges ELSE ''::bytea END AS read_ranges
                 FROM shuffle_allocation a
                 LEFT JOIN shuffle_finalized_partition p ON p.shuffle_id = a.shuffle_id AND p.partition_id = ?
                 WHERE a.shuffle_id = ? AND a.query_id = ?
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setInt(1, partitionId);
-            statement.setString(2, shuffleId);
-            statement.setString(3, queryId);
+            statement.setBoolean(1, includeRanges);
+            statement.setInt(2, partitionId);
+            statement.setString(3, shuffleId);
+            statement.setString(4, queryId);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) {
                     throw new ShuffleServiceException(FailureKind.NOT_FOUND, "shuffle does not exist");
@@ -157,7 +160,8 @@ final class PostgresShuffleRecords {
                     throw new IllegalStateException("finalized partition missing");
                 }
                 var partition = new FinalizedPartition(partitionId, row.getLong("total_bytes"),
-                        row.getLong("total_rows"), lastSequence, row.getBytes("output_checksum"));
+                        row.getLong("total_rows"), lastSequence, row.getBytes("output_checksum"),
+                        ShuffleReadRanges.decode(row.getBytes("read_ranges")));
                 return new PublishedPartition(row.getLong("plan_epoch"), row.getInt("expected_producer_count"),
                         row.getBytes("producer_set_checksum"),
                         new PartitionPublication(partition, row.getBytes("manifest_root")));

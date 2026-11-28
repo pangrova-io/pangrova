@@ -18,7 +18,13 @@ public record PangrovaPartitionRead(
         long planEpoch,
         int expectedProducerPartitions,
         byte[] expectedProducerSetChecksum,
-        ShuffleCommitReceipt.Partition publication) {
+        ShuffleCommitReceipt.Partition publication,
+        ShuffleCommitReceipt.ReadRange readRange) {
+
+    public PangrovaPartitionRead(String shuffleId, ExchangeChannelContext context, long planEpoch,
+            int expectedProducerPartitions, byte[] expectedProducerSetChecksum, ShuffleCommitReceipt.Partition publication) {
+        this(shuffleId, context, planEpoch, expectedProducerPartitions, expectedProducerSetChecksum, publication, null);
+    }
 
     public PangrovaPartitionRead {
         Objects.requireNonNull(publication, "publication");
@@ -31,6 +37,10 @@ public record PangrovaPartitionRead(
         }
         if (expectedProducerSetChecksum == null || expectedProducerSetChecksum.length != 32) {
             throw new IllegalArgumentException("producer set checksum must be SHA-256");
+        }
+        if (readRange != null && (readRange.endSequenceExclusive() - 1 > publication.lastSequence()
+                || readRange.bytes() > publication.bytes() || readRange.rows() > publication.rows())) {
+            throw new IllegalArgumentException("Shuffle read range exceeds the partition publication");
         }
         expectedProducerSetChecksum = expectedProducerSetChecksum.clone();
     }
@@ -47,12 +57,13 @@ public record PangrovaPartitionRead(
                 && planEpoch == that.planEpoch
                 && expectedProducerPartitions == that.expectedProducerPartitions
                 && publication.equals(that.publication)
+                && Objects.equals(readRange, that.readRange)
                 && Arrays.equals(expectedProducerSetChecksum, that.expectedProducerSetChecksum);
     }
 
     @Override
     public int hashCode() {
-        return 31 * Objects.hash(shuffleId, context, planEpoch, expectedProducerPartitions, publication)
+        return 31 * Objects.hash(shuffleId, context, planEpoch, expectedProducerPartitions, publication, readRange)
                 + Arrays.hashCode(expectedProducerSetChecksum);
     }
 }

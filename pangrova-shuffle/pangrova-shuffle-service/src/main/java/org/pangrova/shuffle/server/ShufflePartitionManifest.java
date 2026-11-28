@@ -73,13 +73,21 @@ final class ShufflePartitionManifest {
         private final List<ByteBuffer> directories = new ArrayList<>();
         private final ShufflePartitionManifestChecksum.Accumulator checksum =
                 ShufflePartitionManifestChecksum.accumulator();
+        private final long rangeTargetBytes;
+        private ShuffleReadRanges.Writer ranges;
         private ByteBuffer page;
         private long batches;
         private long bytes;
         private long rows;
 
         Writer(NodeWriter objects) {
+            this(objects, ShuffleReadRanges.TARGET_BYTES);
+        }
+
+        Writer(NodeWriter objects, long rangeTargetBytes) {
             this.objects = objects;
+            if (rangeTargetBytes <= 0) throw new IllegalArgumentException("shuffle range target must be positive");
+            this.rangeTargetBytes = rangeTargetBytes;
         }
 
         void add(StoredBatch batch) {
@@ -89,6 +97,7 @@ final class ShufflePartitionManifest {
             }
             byte[] digest = batch.checksum();
             checksum.add(batches, batch.sizeBytes(), batch.rowCount(), digest);
+            addRangeEntry(batch, digest);
             bytes = Math.addExact(bytes, batch.sizeBytes());
             rows = Math.addExact(rows, batch.rowCount());
             batches = Math.incrementExact(batches);
@@ -103,8 +112,28 @@ final class ShufflePartitionManifest {
         }
 
         PartitionPublication finish(int partitionId) {
-            var partition = new FinalizedPartition(partitionId, bytes, rows, batches - 1, checksum.finish());
+            var partition = new FinalizedPartition(
+                    partitionId, bytes, rows, batches - 1, checksum.finish(),
+                    ranges == null ? List.of() : ranges.finish(batches));
             return new PartitionPublication(partition, finishRoot());
+        }
+
+        private void addRangeEntry(StoredBatch batch, byte[] digest) {
+            if (ranges == null && page != null && (bytes >= rangeTargetBytes
+                    || (!page.hasRemaining() && page.capacity() == BATCHES_PER_PAGE * ENTRY_BYTES))) {
+                // All preceding entries are still in the first leaf. Small outputs never hash a second manifest.
+                ranges = new ShuffleReadRanges.Writer(rangeTargetBytes);
+                ByteBuffer prefix = page.asReadOnlyBuffer().flip();
+                byte[] checksum = new byte[DIGEST_BYTES];
+                for (long sequence = 0; prefix.hasRemaining(); sequence++) {
+                    prefix.position(prefix.position() + 2 * Integer.BYTES + Long.BYTES);
+                    long batchBytes = prefix.getLong();
+                    long batchRows = prefix.getLong();
+                    prefix.get(checksum);
+                    ranges.add(sequence, batchBytes, batchRows, checksum);
+                }
+            }
+            if (ranges != null) ranges.add(batches, batch.sizeBytes(), batch.rowCount(), digest);
         }
 
         private byte[] finishRoot() {
@@ -186,10 +215,14 @@ final class ShufflePartitionManifest {
         }
 
         List<ReadBatch> page(long start, NodeReader objects, Runnable requireAuthority) {
-            if (start < 0 || start > batches) {
+            return page(start, batches, objects, requireAuthority);
+        }
+
+        List<ReadBatch> page(long start, long endExclusive, NodeReader objects, Runnable requireAuthority) {
+            if (start < 0 || start > endExclusive || endExclusive > batches) {
                 throw new IllegalArgumentException("shuffle manifest sequence is outside the partition");
             }
-            if (start == batches) {
+            if (start == endExclusive) {
                 return List.of();
             }
             byte[] encoded = findLeaf(start, objects, requireAuthority);
@@ -197,7 +230,7 @@ final class ShufflePartitionManifest {
             ByteBuffer leaf = ByteBuffer.wrap(encoded);
             int firstEntry = (int) (start % BATCHES_PER_PAGE);
             leaf.position(payloadOffset + firstEntry * ENTRY_BYTES);
-            int entries = Math.min(BATCHES_PER_READ, leaf.remaining() / ENTRY_BYTES);
+            int entries = (int) Math.min(endExclusive - start, Math.min(BATCHES_PER_READ, leaf.remaining() / ENTRY_BYTES));
             List<ReadBatch> result = new ArrayList<>(entries);
             for (int index = 0; index < entries; index++) {
                 result.add(readEntry(leaf, start + result.size()));
@@ -205,12 +238,12 @@ final class ShufflePartitionManifest {
             return result;
         }
 
-        int memoryReservation(long start) {
-            if (start == batches) {
+        int memoryReservation(long start, long endExclusive) {
+            if (start == endExclusive) {
                 return root.length;
             }
             int reservation = root.length
-                    + 2 * Math.toIntExact(Math.min(BATCHES_PER_READ, batches)) * DECODED_ENTRY_BYTES;
+                    + 2 * Math.toIntExact(Math.min(BATCHES_PER_READ, endExclusive - start)) * DECODED_ENTRY_BYTES;
             if (batches > INLINE_BATCHES) {
                 reservation += 2 * (NODE_ID_BYTES + ENTRY_BYTES * Math.toIntExact(Math.min(BATCHES_PER_PAGE, batches)));
                 reservation += 2 * (cachedNodes.length - 1) * (NODE_ID_BYTES + FANOUT * DIGEST_BYTES);

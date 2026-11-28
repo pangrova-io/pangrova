@@ -64,7 +64,7 @@ final class ShuffleReadPump implements Runnable {
         this.executor = executor;
         this.memoryBytes = memoryBytes;
         this.indexMemoryBytes = indexMemoryBytes;
-        this.indexReservation = result.manifest().memoryReservation(result.startSequence());
+        this.indexReservation = result.manifest().memoryReservation(result.startSequence(), result.endSequenceExclusive());
         this.limits = limits;
         this.sequence = result.startSequence();
         if (!indexMemoryBytes.tryAcquire(indexReservation)) {
@@ -148,7 +148,7 @@ final class ShuffleReadPump implements Runnable {
         if (payload != null) {
             return true;
         }
-        if (sequence > result.partition().committedLastSequence()) {
+        if (sequence == result.endSequenceExclusive()) {
             if (pageIndex != page.size()) {
                 throw new IllegalStateException("finalized shuffle partition exceeds its committed sequence");
             }
@@ -211,15 +211,22 @@ final class ShuffleReadPump implements Runnable {
 
     private ReadBatchResponse terminal() {
         FinalizedPartition partition = result.partition();
-        return ReadBatchResponse.newBuilder().setTerminal(
-                ReadPartitionTerminal.newBuilder()
-                        .setCommittedLastSequence(partition.committedLastSequence())
-                        .setOutputChecksum(ShuffleChecksums.protocol(partition.checksum()))
-                        .setCommittedProducerCount(result.committedProducerCount())
-                        .setTotalBytes(partition.totalBytes()).setTotalRows(partition.totalRows())
-                        .setProducerSetChecksum(ShuffleChecksums.protocol(
-                                result.producerSetChecksum()))
-                        .setGenerationPlanEpoch(result.planEpoch())).build();
+        var terminal = ReadPartitionTerminal.newBuilder()
+                .setCommittedLastSequence(result.endSequenceExclusive() - 1)
+                .setCommittedProducerCount(result.committedProducerCount())
+                .setProducerSetChecksum(ShuffleChecksums.protocol(result.producerSetChecksum()))
+                .setGenerationPlanEpoch(result.planEpoch());
+        var range = result.range();
+        if (range == null) {
+            terminal.setTotalBytes(partition.totalBytes()).setTotalRows(partition.totalRows())
+                    .setOutputChecksum(ShuffleChecksums.protocol(partition.checksum()));
+        } else {
+            terminal.setCertifiedStartSequence(range.startSequence())
+                    .setTotalBytes(range.bytes()).setTotalRows(range.rows())
+                    .setOutputChecksum(ShuffleChecksums.protocol(
+                            java.util.HexFormat.of().parseHex(range.manifestSha256())));
+        }
+        return ReadBatchResponse.newBuilder().setTerminal(terminal).build();
     }
 
     private void fail(RuntimeException failure) {

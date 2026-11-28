@@ -122,6 +122,12 @@ public final class PangrovaShuffleClient implements Closeable {
             ExchangeChannelContext context,
             ShuffleAccessCapability accessCapability,
             long startSequence) {
+        return openPartitionRead(shuffleId, context, accessCapability, startSequence, null);
+    }
+
+    RemoteShufflePartitionRead openPartitionRead(String shuffleId, ExchangeChannelContext context,
+            ShuffleAccessCapability accessCapability, long startSequence,
+            org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange range) {
         requireValidCapability(accessCapability);
         long timeout = context.deadlineEpochMillis() - System.currentTimeMillis();
         if (timeout <= 0) {
@@ -129,7 +135,7 @@ public final class PangrovaShuffleClient implements Closeable {
         }
         return new RemoteShufflePartitionRead(
                 asyncStub.withDeadlineAfter(timeout, TimeUnit.MILLISECONDS),
-                buildReadRequest(shuffleId, context, accessCapability, startSequence));
+                buildReadRequest(shuffleId, context, accessCapability, startSequence, range));
     }
 
     /** Renews an operation-scoped data capability for one task attempt. */
@@ -190,17 +196,33 @@ public final class PangrovaShuffleClient implements Closeable {
             ExchangeChannelContext context,
             ShuffleAccessCapability accessCapability,
             long startSequence) {
+        return buildReadRequest(shuffleId, context, accessCapability, startSequence, null);
+    }
+
+    static ReadPartitionRequest buildReadRequest(String shuffleId, ExchangeChannelContext context,
+            ShuffleAccessCapability accessCapability, long startSequence,
+            org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange range) {
         if (startSequence < 0) {
             throw new IllegalArgumentException("shuffle read start sequence is negative");
         }
-        return ReadPartitionRequest.newBuilder()
+        var request = ReadPartitionRequest.newBuilder()
                 .setShuffleId(shuffleId)
                 .setPartitionId(context.exchangePartitionId())
                 .setStartSequence(startSequence)
                 .setConsumerAttempt(toProtocol(context))
                 .setDeadlineEpochMs(context.deadlineEpochMillis())
-                .setAccessCapability(accessCapability)
-                .build();
+                .setAccessCapability(accessCapability);
+        if (range != null) {
+            if (startSequence < range.startSequence() || startSequence > range.endSequenceExclusive()) {
+                throw new IllegalArgumentException("Shuffle read cursor is outside the published range");
+            }
+            request.setReadRange(org.pangrova.protocol.v2.ShufflePartitionReadRange.newBuilder()
+                    .setStartSequence(range.startSequence()).setEndSequenceExclusive(range.endSequenceExclusive())
+                    .setTotalBytes(range.bytes()).setTotalRows(range.rows())
+                    .setManifestSha256(com.google.protobuf.ByteString.copyFrom(
+                            java.util.HexFormat.of().parseHex(range.manifestSha256()))));
+        }
+        return request.build();
     }
 
     static org.pangrova.protocol.v2.TaskAttemptId toProtocol(

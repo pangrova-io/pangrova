@@ -35,7 +35,11 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
     private final Set<RemoteShufflePartitionRead> ownedReads = ConcurrentHashMap.newKeySet();
     private volatile RemoteShufflePartitionRead read;
     private ShuffleAccessCapability activeCapability;
-    private final StreamingBatchChunkValidator validator = new StreamingBatchChunkValidator();
+    private final StreamingBatchChunkValidator validator;
+    private final long expectedLast;
+    private final long expectedBytes;
+    private final long expectedRows;
+    private final String expectedManifest;
     private RuntimeException readFailure;
     private final AtomicBoolean finished = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -54,6 +58,14 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
             checkNotNull(readAccess, "readAccess must not be null");
             this.client = clientLease.client();
             this.context = binding.context();
+            var partition = binding.publication();
+            var range = binding.readRange();
+            long startSequence = range == null ? 0 : range.startSequence();
+            validator = new StreamingBatchChunkValidator(startSequence);
+            expectedLast = range == null ? partition.lastSequence() : range.endSequenceExclusive() - 1;
+            expectedBytes = range == null ? partition.bytes() : range.bytes();
+            expectedRows = range == null ? partition.rows() : range.rows();
+            expectedManifest = range == null ? partition.manifestSha256() : range.manifestSha256();
             ShuffleAccessCapability initial = ShuffleAccessCapability.newBuilder()
                     .setToken(ByteString.copyFrom(readAccess.token()))
                     .setExpiresAtEpochMs(readAccess.expiresAtEpochMs())
@@ -62,7 +74,7 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
                     client, binding.shuffleId(), context.taskAttempt(),
                     ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ, initial);
             this.activeCapability = currentCapability();
-            this.read = openRead(activeCapability, 0);
+            this.read = openRead(activeCapability, startSequence);
             ownedReads.add(read);
         } catch (RuntimeException | Error failure) {
             rpcScope.cancel(failure);
@@ -132,7 +144,7 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
     private RemoteShufflePartitionRead openRead(ShuffleAccessCapability capability, long sequence) {
         Context previous = rpcScope.attach();
         try {
-            return client.openPartitionRead(binding.shuffleId(), context, capability, sequence);
+            return client.openPartitionRead(binding.shuffleId(), context, capability, sequence, binding.readRange());
         } finally {
             rpcScope.detach(previous);
         }
@@ -153,12 +165,11 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
     }
 
     private BatchChunk verifiedChunk(BatchChunk chunk, long rowCount) {
-        var published = binding.publication();
-        if (chunk.getBatchSequence() > published.lastSequence()
+        if (chunk.getBatchSequence() > expectedLast
                 || (chunk.getChunkIndex() == 0
-                        && chunk.getBatchSizeBytes() > published.bytes() - validator.totalBytes())
-                || chunk.getData().size() > published.bytes() - validator.totalBytes()
-                || rowCount > published.rows() - validator.totalRows()) {
+                        && chunk.getBatchSizeBytes() > expectedBytes - validator.totalBytes())
+                || chunk.getData().size() > expectedBytes - validator.totalBytes()
+                || rowCount > expectedRows - validator.totalRows()) {
             throw RemoteShuffleClientException.corruption("read exceeds coordinator publication");
         }
         validator.accept(chunk, rowCount);
@@ -200,13 +211,15 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
                 terminal.getProducerSetChecksum(),
                 binding.expectedProducerSetChecksum(),
                 "producer set");
-        var published = binding.publication();
-        if (terminal.getCommittedLastSequence() != published.lastSequence()
-                || terminal.getTotalBytes() != published.bytes() || terminal.getTotalRows() != published.rows()) {
+        var range = binding.readRange();
+        if (terminal.hasCertifiedStartSequence() != (range != null)
+                || (range != null && terminal.getCertifiedStartSequence() != range.startSequence())
+                || terminal.getCommittedLastSequence() != expectedLast
+                || terminal.getTotalBytes() != expectedBytes || terminal.getTotalRows() != expectedRows) {
             throw RemoteShuffleClientException.corruption("terminal totals do not match coordinator publication");
         }
         requireExpectedChecksum(terminal.getOutputChecksum(),
-                HexFormat.of().parseHex(published.manifestSha256()), "coordinator publication");
+                HexFormat.of().parseHex(expectedManifest), "coordinator publication");
         validator.validateOutputChecksum(terminal.getOutputChecksum());
     }
 
