@@ -14,7 +14,15 @@ import subprocess
 from pathlib import Path
 
 
+STATUS_MESSAGE_STORAGE = (
+    "__ZZNK5arrow6Status7messageEvE10no_message",
+    "__ZGVZNK5arrow6Status7messageEvE10no_message",
+)
+
+
 def is_public(symbol: str) -> bool:
+    if symbol in STATUS_MESSAGE_STORAGE:
+        return False
     name = symbol.removeprefix("_")  # Mach-O adds one leading underscore.
     if name.startswith(("arrow_", "Arrow", "descriptor_table_Flight")):
         return True
@@ -57,7 +65,7 @@ def prepare(build_dir: Path, seed: Path) -> None:
         seed.read_text() + "\n" + "\n".join(sorted(private)) + "\n"
     )
     (build_dir / "arrow-public-symbols.json").write_text(json.dumps(expected, sort_keys=True))
-    print(f"Localizing {len(private)} static dependency exports; retaining the existing Arrow ABI")
+    print(f"Localizing {len(private)} private exports and retaining the public Arrow ABI")
 
 
 def verify(build_dir: Path) -> None:
@@ -72,7 +80,11 @@ def verify(build_dir: Path) -> None:
         unresolved = private_imports(library)
         if unresolved:
             raise RuntimeError(f"Unresolved static dependency imports in {name}: {unresolved[:10]}")
-        print(f"Verified {name}: {len(public)} public exports, no static dependency exports")
+        fixups = subprocess.check_output(["xcrun", "dyld_info", "-fixups", str(library)], text=True)
+        for line in fixups.splitlines():
+            if "weak-bind" in line and any(symbol in line for symbol in STATUS_MESSAGE_STORAGE):
+                raise RuntimeError(f"Arrow status storage can coalesce across libraries in {name}: {line.strip()}")
+        print(f"Verified {name}: {len(public)} public exports and private status storage")
 
 
 def main() -> None:

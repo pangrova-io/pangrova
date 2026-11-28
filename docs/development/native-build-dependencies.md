@@ -159,6 +159,12 @@ compiler or sanitizer flags automatically. The reviewed
 Release optimization flags and executable/shared linker flags. This keeps the
 bundled Arrow build instrumented as well as the later Arrow Flight build.
 
+On macOS, Arrow and Arrow Flight keep the private empty-message storage in
+`arrow::Status::message` local to each dynamic library. Their Mach-O fixup
+checks reject bindings that could share writable initializer storage with a
+C++20 consumer's constant-initialized copy. The public Arrow exports remain
+available to native callers.
+
 Pangrova checks Folly's headers and archive instrumentation regardless of whether
 Velox dependencies came from `deps-install` or a system prefix. Missing or
 uninstrumented Folly is an error, not a reason to fall back to Release. The
