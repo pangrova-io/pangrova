@@ -32,13 +32,7 @@ class PipelineSchedulingTest {
     @Test
     void invalidMaxConcurrentStagesRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> new PipelineConfig(true, -1, 5000));
-    }
-
-    @Test
-    void invalidCommitTimeoutRejected() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new PipelineConfig(true, 0, 0));
+                () -> new PipelineConfig(true, -1));
     }
 
     @Test

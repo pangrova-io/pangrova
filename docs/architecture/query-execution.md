@@ -733,7 +733,9 @@ A more complex example — `SELECT c.name, SUM(o.amount) FROM orders o JOIN cust
 
 #### 3.3.3 REST API Definitions
 
-> Note: this section is the authoritative specification of the Control Plane (REST/JSON). The Protobuf snippets that appear here serve only as design notes for the internal Java↔Native path or for the `.proto` definitions in `pangrova-protocol`. The final network API (Coordinator ↔ Worker) is JSON/HTTP; all Protobuf definitions should be kept in sync with the `pangrova-protocol` repository.
+> Public query control uses HTTP with JSON. Worker task dispatch, status
+> reports, runtime filter delivery, and cancellation carry typed Protobuf
+> messages. Their schemas live in `pangrova-protocol`.
 
 **Service overview**
 
@@ -746,8 +748,11 @@ Worker exposes (HTTP/REST):
 - `POST /v1/task` SubmitTask
 - `DELETE /v1/task/{taskId}` CancelTask
 - `POST /v1/task/{taskId}/dynamic-filter` accepts a bounded Protobuf row-filter update for an exact attempt
-- `POST /v1/task/upstream-commit` NotifyUpstreamCommit
 - `GET /v1/health` HealthCheck
+
+Blocking Shuffle readers use the exact upstream publication in their
+admitted input binding. Direct Flight inputs carry the producer cohort and
+partition tickets.
 
 Worker -> Coordinator (HTTP/REST):
 - `POST /v1/task/status-report` ReportTaskStatus

@@ -11,7 +11,6 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.ActualTaskManagerFixture;
 import org.pangrova.worker.task.TaskManager;
 
@@ -106,7 +105,6 @@ class TaskResourceEpochFenceTest {
         return new TaskResource(
                 manager,
                 runtime.transports().exchangeTransport(),
-                new ExchangeSourceRegistry(),
                 "127.0.0.1",
                 runtime.resultPort(),
                 null);

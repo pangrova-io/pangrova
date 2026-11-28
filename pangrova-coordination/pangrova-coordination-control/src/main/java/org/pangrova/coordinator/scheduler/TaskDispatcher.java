@@ -83,34 +83,4 @@ public interface TaskDispatcher {
     default SchedulerCancelResult cancelTask(SubmitTaskRequest request, String workerHost, int httpPort) {
         return SchedulerCancelResult.failed("Cancel not supported by this dispatcher", false);
     }
-    /**
-     * Notifies a downstream Worker that an upstream stage has committed its output.
-     * Enables BLOCKING exchange sources to begin delivering data.
-     *
-     * @param workerHost       the downstream Worker host
-     * @param httpPort         the downstream Worker HTTP port
-     * @param queryId          the query identifier
-     * @param upstreamStageId  the upstream stage that committed
-     */
-    default void notifyUpstreamCommit(String workerHost, int httpPort,
-                                      String queryId, int upstreamStageId) {
-        // No-op — concrete dispatchers override when commit notification is supported.
-    }
-
-    /**
-     * Notifies a downstream Worker that an upstream stage has committed its output,
-     * with retry and a failure callback invoked when all retries are exhausted.
-     *
-     * @param workerHost           the downstream Worker host
-     * @param httpPort             the downstream Worker HTTP port
-     * @param queryId              the query identifier
-     * @param upstreamStageId      the upstream stage that committed
-     * @param stageFailureCallback invoked when all retry attempts fail; may be null
-     */
-    default void notifyUpstreamCommit(String workerHost, int httpPort,
-                                      String queryId, int upstreamStageId,
-                                      Runnable stageFailureCallback) {
-        notifyUpstreamCommit(workerHost, httpPort, queryId, upstreamStageId);
-    }
-
 }

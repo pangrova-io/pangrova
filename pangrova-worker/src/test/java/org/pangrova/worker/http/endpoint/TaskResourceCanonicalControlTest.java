@@ -162,7 +162,6 @@ class TaskResourceCanonicalControlTest {
         return new TaskResource(
                 manager,
                 runtime.transports().exchangeTransport(),
-                new org.pangrova.worker.exchange.source.ExchangeSourceRegistry(),
                 "127.0.0.1",
                 runtime.resultPort(),
                 null,

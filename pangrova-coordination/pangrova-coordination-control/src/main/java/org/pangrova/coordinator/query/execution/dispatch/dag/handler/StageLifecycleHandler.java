@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 /**
  * Handler for stage lifecycle events within DAG dispatch.
  * Each implementation encapsulates a single cross-cutting concern
- * (shuffle, adaptive query, retry, commit notification, speculation).
+ * (shuffle publication, retry, speculation).
  *
  * <p>Handlers are invoked by the DAG dispatch engine on each stage
  * state transition. Exceptions thrown by a handler are caught and

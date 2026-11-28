@@ -8,14 +8,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
 import org.pangrova.protocol.task.TaskRuntimeFilterWire;
 import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
@@ -39,17 +34,14 @@ final class WorkerTaskControlClient {
     private static final int HTTP_CONFLICT = 409;
 
     private final HttpClient httpClient;
-    private final ObjectMapper mapper;
     private final TracingProvider tracingProvider;
     private final String internalAuthSecret;
 
     WorkerTaskControlClient(
             HttpClient httpClient,
-            ObjectMapper mapper,
             TracingProvider tracingProvider,
             String internalAuthSecret) {
         this.httpClient = httpClient;
-        this.mapper = mapper;
         this.tracingProvider = tracingProvider;
         this.internalAuthSecret = internalAuthSecret;
     }
@@ -121,106 +113,6 @@ final class WorkerTaskControlClient {
                 .timeout(timeout).build();
     }
 
-    void notifyUpstreamCommit(
-            String workerHost,
-            int httpPort,
-            String queryId,
-            int upstreamStageId,
-            Runnable failureCallback) {
-        String url = "http://" + workerHost + ":" + httpPort
-                + "/v1/task/upstream-commit";
-        Exception failure = retryCommitNotify(
-                url, queryId, upstreamStageId, workerHost, failureCallback);
-        if (failure != null) {
-            LOG.error("event=upstream_commit_notify_exhausted queryId={}"
-                            + " upstreamStageId={} workerHost={} attempts={} lastError={}",
-                    queryId, upstreamStageId, workerHost,
-                    RemoteTaskDispatcher.COMMIT_NOTIFY_MAX_ATTEMPTS,
-                    failure.getMessage());
-            invokeFailureCallback(
-                    failureCallback, queryId, upstreamStageId, workerHost);
-        }
-    }
-
-    private Exception retryCommitNotify(
-            String url,
-            String queryId,
-            int upstreamStageId,
-            String workerHost,
-            Runnable failureCallback) {
-        BackoffStrategy backoff = BackoffStrategy.retry(
-                RemoteTaskDispatcher.COMMIT_NOTIFY_INITIAL_BACKOFF_MS,
-                RemoteTaskDispatcher.COMMIT_NOTIFY_MAX_BACKOFF_MS);
-        Exception failure = null;
-        for (int attempt = 1;
-                attempt <= RemoteTaskDispatcher.COMMIT_NOTIFY_MAX_ATTEMPTS;
-                attempt++) {
-            failure = attemptCommitNotify(
-                    url, queryId, upstreamStageId, workerHost, attempt);
-            if (failure == null || Thread.currentThread().isInterrupted()) {
-                break;
-            }
-            if (attempt < RemoteTaskDispatcher.COMMIT_NOTIFY_MAX_ATTEMPTS) {
-                awaitRetry(backoff.next(), queryId, upstreamStageId);
-            }
-        }
-        if (Thread.currentThread().isInterrupted()) {
-            invokeFailureCallback(
-                    failureCallback, queryId, upstreamStageId, workerHost);
-            return null;
-        }
-        return failure;
-    }
-
-    private Exception attemptCommitNotify(
-            String url,
-            String queryId,
-            int upstreamStageId,
-            String workerHost,
-            int attempt) {
-        try {
-            HttpResponse<String> response = httpClient.send(
-                    commitRequest(url, queryId, upstreamStageId),
-                    HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == HTTP_OK) {
-                return null;
-            }
-            LOG.warn("event=upstream_commit_notify_failed queryId={}"
-                            + " upstreamStageId={} workerHost={} statusCode={}"
-                            + " attempt={} maxAttempts={}",
-                    queryId, upstreamStageId, workerHost, response.statusCode(),
-                    attempt, RemoteTaskDispatcher.COMMIT_NOTIFY_MAX_ATTEMPTS);
-            return new IOException("Worker returned HTTP " + response.statusCode());
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            LOG.warn("event=upstream_commit_notify_interrupted queryId={}"
-                            + " upstreamStageId={}", queryId, upstreamStageId);
-            return failure;
-        } catch (IOException failure) {
-            LOG.warn("event=upstream_commit_notify_io_error queryId={}"
-                            + " upstreamStageId={} workerHost={} error={}"
-                            + " attempt={} maxAttempts={}",
-                    queryId, upstreamStageId, workerHost, failure.getMessage(),
-                    attempt, RemoteTaskDispatcher.COMMIT_NOTIFY_MAX_ATTEMPTS);
-            return failure;
-        }
-    }
-
-    private HttpRequest commitRequest(
-            String url, String queryId, int upstreamStageId) throws IOException {
-        byte[] body = mapper.writeValueAsBytes(
-                new UpstreamCommitNotification(queryId, upstreamStageId));
-        return postRequest(url, body);
-    }
-
-    private HttpRequest postRequest(String url, byte[] body) {
-        return decorate(HttpRequest.newBuilder())
-                .uri(URI.create(url))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
-    }
-
     private HttpRequest.Builder decorate(HttpRequest.Builder builder) {
         tracingProvider.inject(null, builder, HttpRequest.Builder::header);
         if (internalAuthSecret != null && !internalAuthSecret.isEmpty()) {
@@ -251,33 +143,5 @@ final class WorkerTaskControlClient {
                 taskId, response.statusCode());
         return SchedulerCancelResult.failed(
                 "Worker returned HTTP " + response.statusCode(), true);
-    }
-
-    private static void awaitRetry(
-            long delayMs, String queryId, int upstreamStageId) {
-        try {
-            new CountDownLatch(1).await(delayMs, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            LOG.debug("event=commit_notify_retry_wait_interrupted queryId={}"
-                            + " upstreamStageId={}", queryId, upstreamStageId);
-        }
-    }
-
-    private static void invokeFailureCallback(
-            Runnable callback,
-            String queryId,
-            int upstreamStageId,
-            String workerHost) {
-        if (callback == null) {
-            return;
-        }
-        try {
-            callback.run();
-        } catch (RuntimeException failure) {
-            LOG.warn("event=commit_notify_failure_callback_error queryId={}"
-                            + " upstreamStageId={} workerHost={} error={}",
-                    queryId, upstreamStageId, workerHost, failure.getMessage());
-        }
     }
 }

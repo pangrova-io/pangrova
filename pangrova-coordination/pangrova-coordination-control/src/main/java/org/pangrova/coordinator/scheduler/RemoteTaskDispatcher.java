@@ -29,7 +29,6 @@ import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.transport.http.client.HttpClientFactory;
-import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.v2.RuntimeFilterBinding;
@@ -62,13 +61,6 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     /** Circuit breaker service name used as a prefix for per-host breaker keys. */
     private static final String BREAKER_SERVICE = "coordinator-to-worker";
-
-    /** Maximum retry attempts for commit notifications (BUG-D28). */
-    static final int COMMIT_NOTIFY_MAX_ATTEMPTS = 3;
-    /** Initial backoff for commit notification retry: 1 second. */
-    static final long COMMIT_NOTIFY_INITIAL_BACKOFF_MS = 1_000;
-    /** Maximum backoff for commit notification retry: 4 seconds. */
-    static final long COMMIT_NOTIFY_MAX_BACKOFF_MS = 4_000;
 
     private static final String INTERNAL_AUTH_HEADER = "X-Internal-Auth";
     private static final int HTTP_OK = 200;
@@ -118,7 +110,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         this.tracingProvider = checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.internalAuthSecret = internalAuthSecret;
         this.taskControlClient = new WorkerTaskControlClient(
-                httpClient, JsonMapperFactory.shared(), tracingProvider, internalAuthSecret);
+                httpClient, tracingProvider, internalAuthSecret);
     }
 
     public RemoteTaskDispatcher(HttpClient httpClient, CircuitBreakerPolicy circuitBreakerPolicy,
@@ -138,7 +130,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         this.tracingProvider = checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.internalAuthSecret = internalAuthSecret;
         this.taskControlClient = new WorkerTaskControlClient(
-                httpClient, JsonMapperFactory.shared(), tracingProvider, internalAuthSecret);
+                httpClient, tracingProvider, internalAuthSecret);
     }
 
     /**
@@ -664,26 +656,4 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     private record RecoveryDestination(String host, int port,
             org.pangrova.protocol.execution.identity.WorkerExecutionIdentity identity) { }
-
-    @Override
-    public void notifyUpstreamCommit(String workerHost, int httpPort,
-                                     String queryId, int upstreamStageId) {
-        notifyUpstreamCommit(workerHost, httpPort, queryId, upstreamStageId, null);
-    }
-
-    /**
-     * Notifies a downstream Worker that an upstream stage has committed, with retry.
-     *
-     * <p>Retries up to {@link #COMMIT_NOTIFY_MAX_ATTEMPTS} times with exponential backoff
-     * (1s/2s/4s). On final failure, invokes {@code stageFailureCallback} so the caller
-     * can fail the downstream stage explicitly (BUG-D28 fix).
-     */
-    @Override
-    public void notifyUpstreamCommit(String workerHost, int httpPort,
-                                     String queryId, int upstreamStageId,
-                                     Runnable stageFailureCallback) {
-        taskControlClient.notifyUpstreamCommit(
-                workerHost, httpPort, queryId, upstreamStageId,
-                stageFailureCallback);
-    }
 }

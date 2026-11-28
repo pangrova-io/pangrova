@@ -28,12 +28,10 @@ import org.pangrova.protocol.http.TaskShuffleEndpoint;
 import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.task.ValidatedTaskSubmission;
-import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.transport.http.SizeLimitedInputStream;
-import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,7 +63,6 @@ public final class TaskResource implements Closeable {
 
     private final TaskManager taskManager;
     private final ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport;
-    private final ExchangeSourceRegistry exchangeSourceRegistry;
     private final String workerHost;
     private final int transportPort;
     private final String resultProtocol;
@@ -84,7 +81,6 @@ public final class TaskResource implements Closeable {
         this(
                 taskManager,
                 exchangeTransport,
-                new ExchangeSourceRegistry(),
                 workerHost,
                 transportPort,
                 null);
@@ -94,44 +90,22 @@ public final class TaskResource implements Closeable {
     public TaskResource(
             TaskManager taskManager,
             ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
-            ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
             org.pangrova.observability.api.tracing.TracingProvider tracingProvider) {
         this(
                 taskManager,
                 exchangeTransport,
-                exchangeSourceRegistry,
                 workerHost,
                 transportPort,
                 tracingProvider,
-                ResultProtocol.GRPC.value());
-    }
-
-    /** Creates task endpoints with the supplied actual manager and transport owners. */
-    public TaskResource(
-            TaskManager taskManager,
-            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
-            ExchangeSourceRegistry exchangeSourceRegistry,
-            String workerHost,
-            int transportPort,
-            org.pangrova.observability.api.tracing.TracingProvider tracingProvider,
-            String resultProtocol) {
-        this(
-                taskManager,
-                exchangeTransport,
-                exchangeSourceRegistry,
-                workerHost,
-                transportPort,
-                tracingProvider,
-                new ResultBinding(resultProtocol, null));
+                new ResultBinding(ResultProtocol.GRPC.value(), null));
     }
 
     /** Creates the result-producing resource with explicit process-local signing authority. */
     public TaskResource(
             TaskManager taskManager,
             ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
-            ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
             org.pangrova.observability.api.tracing.TracingProvider tracingProvider,
@@ -139,8 +113,6 @@ public final class TaskResource implements Closeable {
         this.taskManager = checkNotNull(taskManager, "taskManager must not be null");
         this.exchangeTransport =
                 checkNotNull(exchangeTransport, "exchangeTransport must not be null");
-        this.exchangeSourceRegistry =
-                checkNotNull(exchangeSourceRegistry, "exchangeSourceRegistry must not be null");
         this.workerHost = checkNotNull(workerHost, "workerHost must not be null");
         this.transportPort = transportPort;
         this.resultProtocol = ResultProtocol.fromValue(resultBinding.protocol()).value();
@@ -413,25 +385,6 @@ public final class TaskResource implements Closeable {
             case EPOCH_AHEAD -> HTTP_TOO_EARLY;
             default -> Response.Status.CONFLICT.getStatusCode();
         };
-    }
-
-    /** Handles an upstream commit notification for a running task. */
-    @POST
-    @Path("/upstream-commit")
-    public Response onUpstreamCommit(UpstreamCommitNotification notification) {
-        if (notification == null) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(
-                            new org.pangrova.common.client.error.ErrorDetail(
-                                    "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
-                    .build();
-        }
-        exchangeSourceRegistry.notifyCommit(notification.queryId(), notification.upstreamStageId());
-        LOG.info(
-                "event=upstream_commit_received queryId={} upstreamStageId={}",
-                notification.queryId(),
-                notification.upstreamStageId());
-        return Response.ok().build();
     }
 
     /** Injects a filter into one exact admitted Native task. */
