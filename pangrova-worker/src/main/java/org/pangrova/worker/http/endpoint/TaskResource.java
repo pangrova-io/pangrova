@@ -20,6 +20,8 @@ import org.pangrova.observability.sdk.tracing.otel.CurrentSpanIds;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.protocol.http.TaskAdmitted;
+import org.pangrova.protocol.http.TaskRuntimeFilterDelivery;
+import org.pangrova.protocol.task.TaskRuntimeFilterWire;
 import org.pangrova.protocol.http.TaskRejected;
 import org.pangrova.protocol.http.TaskResultEndpoint;
 import org.pangrova.protocol.http.TaskShuffleEndpoint;
@@ -38,7 +40,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.InputStream;
-import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -433,55 +434,38 @@ public final class TaskResource implements Closeable {
         return Response.ok().build();
     }
 
-    /** Injects a dynamic filter into a running task. */
+    /** Injects a filter into one exact admitted Native task. */
     @POST
     @Path("/{taskId}/dynamic-filter")
-    public Response injectDynamicFilter(
-            @PathParam("taskId") String taskId,
-            org.pangrova.protocol.rest.task.InjectDynamicFilterRequest request) {
-        if (request == null) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(
-                            new org.pangrova.common.client.error.ErrorDetail(
-                                    "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
-                    .build();
+    @Consumes(TaskRuntimeFilterWire.MEDIA_TYPE)
+    public Response injectDynamicFilter(@PathParam("taskId") String taskId, InputStream body,
+            @Context HttpServletRequest transport) throws java.io.IOException {
+        int limit = TaskRuntimeFilterWire.MAX_BODY_BYTES;
+        long declared = transport == null ? -1 : transport.getContentLengthLong();
+        if (declared > limit) return Response.status(Response.Status.REQUEST_ENTITY_TOO_LARGE).build();
+        if (body == null) return Response.status(Response.Status.BAD_REQUEST).build();
+        byte[] encoded = body.readNBytes((declared >= 0 ? (int) declared : limit) + 1);
+        if (encoded.length > limit) return Response.status(Response.Status.REQUEST_ENTITY_TOO_LARGE).build();
+        final TaskRuntimeFilterDelivery delivery;
+        try {
+            delivery = TaskRuntimeFilterWire.decode(encoded);
+        } catch (InvalidProtocolBufferException | IllegalArgumentException malformed) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        String workerTaskId = taskManager.resolveWorkerTaskId(taskId);
-        OptionalLong handle =
-                workerTaskId == null
-                        ? OptionalLong.empty()
-                        : taskManager.getExecutorHandle(workerTaskId);
-        if (handle.isEmpty()) {
-            return Response.status(Response.Status.CONFLICT)
-                    .entity(
-                            new org.pangrova.common.client.error.ErrorDetail(
-                                    "CONFLICT",
-                                    "USER_ERROR",
-                                    "Executor not ready for task: " + taskId))
-                    .build();
+        if (!taskId.equals(delivery.getAttempt().getTaskId())) {
+            return Response.status(Response.Status.CONFLICT).build();
         }
-        byte[] commandProto =
-                org.pangrova.worker.jni.NativeCommandBuilder.injectRuntimeFilter(
-                        request.planNodeId(), request.filterProto());
-        Optional<org.pangrova.worker.execution.TaskExecutor> executor =
-                taskManager.getSharedNativeExecutor();
-        if (executor.isEmpty()) {
-            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
-                    .entity(
-                            new org.pangrova.common.client.error.ErrorDetail(
-                                    "NATIVE_EXECUTOR_UNAVAILABLE",
-                                    "SYSTEM_ERROR",
-                                    "Native executor unavailable for task: " + taskId))
-                    .build();
-        }
-        byte[] response = executor.get().executeCommand(handle.getAsLong(), commandProto);
+        OptionalLong handle = taskManager.getRuntimeFilterHandle(delivery.getAttempt());
+        if (handle.isEmpty()) return Response.status(Response.Status.CONFLICT).build();
+
+        var executor = taskManager.getSharedNativeExecutor().orElse(null);
+        if (executor == null) return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
+        var update = delivery.getUpdate();
+        var command = org.pangrova.worker.jni.NativeCommandBuilder.injectRuntimeFilter(update);
         org.pangrova.worker.jni.NativeCommandBuilder.requireSuccess(
-                response, "INJECT_DYNAMIC_FILTER task=" + taskId);
-        LOG.info(
-                "event=dynamic_filter_injected taskId={} planNodeId={}",
-                taskId,
-                request.planNodeId());
-        return Response.ok().build();
+                executor.executeCommand(handle.getAsLong(), command), "INJECT_DYNAMIC_FILTER task=" + taskId);
+        LOG.debug("event=dynamic_filter_injected taskId={} planNodeId={}", taskId, update.getPlanNodeId());
+        return Response.noContent().build();
     }
 
     private org.pangrova.observability.api.tracing.Span startSpan(String operationName) {

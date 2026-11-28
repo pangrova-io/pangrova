@@ -347,25 +347,6 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return ownershipTracker.cancelRetrier();
     }
 
-    /** Initiates dynamic filter injection for a running query. */
-    public void injectDynamicFilter(String queryId, String taskId,
-                                    String planNodeId, byte[] filterProto) {
-        checkNotNull(queryId, "queryId must not be null");
-        checkNotNull(taskId, "taskId must not be null");
-        checkNotNull(planNodeId, "planNodeId must not be null");
-        checkNotNull(filterProto, "filterProto must not be null");
-        String workerId = taskTracker.getWorkerForTask(taskId);
-        if (workerId == null) {
-            LOG.warn("event=dynamic_filter_skip queryId={} taskId={} "
-                    + "reason=worker_not_found", queryId, taskId);
-            return;
-        }
-        LOG.info("event=dynamic_filter_inject queryId={} taskId={} "
-                + "planNodeId={}", queryId, taskId, planNodeId);
-        dispatcher.injectDynamicFilter(
-                taskId, planNodeId, filterProto, workerId);
-    }
-
     // ── Construction factory methods ──
 
     private static SecurityPolicyApplier createSecurityApplier(

@@ -4,6 +4,8 @@ import java.util.concurrent.CompletableFuture;
 
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
 /**
@@ -62,18 +64,11 @@ public interface TaskDispatcher {
         return dispatchAsync(request, worker);
     }
 
-    /**
-     * Injects a dynamic filter into a running task on the specified worker.
-     * Default implementation is a no-op for dispatchers that do not support dynamic filters.
-     *
-     * @param taskId      the probe-side task identifier
-     * @param planNodeId  the TableScan plan node to receive the filter
-     * @param filterProto serialized filter expression (protobuf bytes)
-     * @param workerId    the worker hosting the task
-     */
-    default void injectDynamicFilter(String taskId, String planNodeId,
-                                     byte[] filterProto, String workerId) {
-        // No-op — concrete dispatchers override when dynamic filter support is available.
+    /** Returns true only when the exact Worker attempt acknowledged the runtime filter. */
+    default CompletableFuture<Boolean> injectDynamicFilter(TaskAttemptId attempt,
+            InjectRuntimeFilterRequest update, WorkerInfo worker) {
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("Runtime filter delivery is unavailable"));
     }
 
     /**

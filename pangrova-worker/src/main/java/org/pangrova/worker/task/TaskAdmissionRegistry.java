@@ -268,6 +268,17 @@ final class TaskAdmissionRegistry {
         }
     }
 
+    String resolveRuntimeFilterAttempt(TaskAttemptId attempt) {
+        synchronized (entries) {
+            Entry entry = entries.get(attempt.getTaskId());
+            if (entry == null || entry.sealed || entry.drainReceipt != null || !entry.handedOff
+                    || entry.preparation || !entry.attempt.equals(attempt) || entry.deadline <= admissionTime()) {
+                return null;
+            }
+            return entry.workerTaskId;
+        }
+    }
+
     void removeExpired(String canonicalTaskId, String workerTaskId) {
         synchronized (entries) {
             Entry entry = entries.get(canonicalTaskId);

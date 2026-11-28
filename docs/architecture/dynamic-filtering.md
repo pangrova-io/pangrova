@@ -12,13 +12,21 @@ Pangrova applies static and runtime Join predicates at different points in query
 |---|---|---|
 | Native hash Join | Velox build operator and probe scan in the same native task | When the complete build hash table is available, HashProbe can push an exact domain or bounded Bloom filter through the Velox driver to the corresponding scan ordinal. `ColumnAssignmentDataSource` evaluates the received filter on projected rows, including aliased columns, across source formats. Velox checks Join type and spill state before publishing. Scan output rows and producer plan node IDs identify the effect. Underlying file reads can still occur. |
 | Explicit filter binding | A caller supplies a typed `RuntimeFilterBinding` and an exact target plan node | The native task parser validates initial bindings. Runtime commands can inject a filter into an executing task. These consumers do not create a source of build-side values. |
-| Coordinator-generated cross-stage pruning | A bounded INNER Join build with eligible BIGINT equalities and a pinned Iceberg probe scan | The Coordinator uses the elected Native build receipts and committed Exchange before enumerating the probe. The probe uses the original constraints when build evidence is unavailable by the deadline. |
+| Coordinator-generated cross-stage pruning | A bounded INNER Join build with eligible BIGINT equalities and a pinned Iceberg probe scan | The Coordinator uses the elected Native build receipts and committed Exchange when enumerating the probe. The probe uses the original constraints when build evidence is unavailable at enumeration. |
 
 ## Planning and execution
 
 For a bounded static case the HEP literal-Join rule reads at most 128 rows from an integer VALUES build input. It traces integer keys through deterministic projections, including a cast that preserves the declared integer width. It adds an exact membership predicate to the probe table scan for INNER and SEMI equality. HEP leaves literal relations to this rule because transitive inference can keep re-inserting filters for nullable probe columns. The original Join retains duplicates. NULL keys do not satisfy ordinary equality, and preserved outer rows are never restricted. This predicate belongs to the compiled plan and does not use a runtime registry.
 
 The protocol carries typed range endpoints and bloom bytes with their value encoding. `TaskRequestParser` validates incoming bindings and `PlanExecutionDriver` installs accepted initial filters. SQL query results can demonstrate Join correctness. Evidence for fewer scanned rows must come from the scan operator.
+
+The Worker HTTP runtime-filter endpoint accepts a single `TaskRuntimeFilterDelivery`
+Protobuf message with a 64 KiB body limit and up to four typed row predicates.
+It resolves the full `TaskAttemptId`, including the Worker incarnation, against
+the running local admission. HTTP 409 identifies a mismatched or unavailable
+attempt. HTTP 204 acknowledges that the Native owner accepted the command.
+The scan operator provides separate evidence that the predicate took effect.
+The Worker passes the validated message to JNI without decoding a nested payload.
 
 ## Published Shuffle build with a local probe
 
@@ -43,8 +51,9 @@ probe. The pairs share one 200 ms window after initial source scheduling. Each
 probe waits independently for its complete winning build cohort and committed
 Exchange. The Coordinator unions ranges across tasks per ordinal and uses one
 enclosing interval when the range limit is exceeded.
-A winning attempt with a missing summary, a late result, or an incomplete
-cohort keeps the original scan constraints. Retired attempts cannot authorize
+Missing summaries and incomplete cohorts keep the original scan constraints.
+Complete evidence received after the wait deadline can still prune a probe
+that has yet to enumerate splits. Only the winning attempts can authorize
 pruning.
 
 Iceberg applies the intersection of the per-field domains and the original

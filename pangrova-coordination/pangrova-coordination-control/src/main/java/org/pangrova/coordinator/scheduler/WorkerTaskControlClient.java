@@ -2,6 +2,7 @@ package org.pangrova.coordinator.scheduler;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -13,8 +14,10 @@ import java.util.concurrent.TimeUnit;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.pangrova.common.concurrent.BackoffStrategy;
-import org.pangrova.protocol.rest.task.InjectDynamicFilterRequest;
+import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
+import org.pangrova.protocol.task.TaskRuntimeFilterWire;
+import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.task.CanonicalExecutionDrainReports;
@@ -32,7 +35,8 @@ final class WorkerTaskControlClient {
     private static final String INTERNAL_AUTH_HEADER = "X-Internal-Auth";
     private static final int HTTP_OK = 200;
     private static final int HTTP_ACCEPTED = 202;
-    private static final int DEFAULT_WORKER_HTTP_PORT = 8080;
+    private static final int HTTP_NO_CONTENT = 204;
+    private static final int HTTP_CONFLICT = 409;
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -50,33 +54,26 @@ final class WorkerTaskControlClient {
         this.internalAuthSecret = internalAuthSecret;
     }
 
-    void injectDynamicFilter(
-            String taskId, String planNodeId, byte[] filterProto, String workerId) {
-        String[] parts = workerId.split(":");
-        String host = parts[0];
-        int port = parts.length > 1
-                ? Integer.parseInt(parts[1]) : DEFAULT_WORKER_HTTP_PORT;
-        String url = "http://" + host + ":" + port
-                + "/v1/task/" + taskId + "/dynamic-filter";
-        LOG.debug("event=dynamic_filter_inject url={} taskId={} planNodeId={}",
-                url, taskId, planNodeId);
-        try {
-            HttpResponse<String> response = httpClient.send(
-                    dynamicFilterRequest(url, planNodeId, filterProto),
-                    HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != HTTP_OK) {
-                LOG.warn("event=dynamic_filter_inject_failed taskId={}"
-                                + " workerId={} statusCode={}",
-                        taskId, workerId, response.statusCode());
-            }
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            LOG.warn("event=dynamic_filter_inject_interrupted taskId={} workerId={}",
-                    taskId, workerId);
-        } catch (IOException failure) {
-            LOG.warn("event=dynamic_filter_inject_io_error taskId={} workerId={} error={}",
-                    taskId, workerId, failure.getMessage());
+    CompletableFuture<Boolean> injectDynamicFilter(TaskAttemptId attempt,
+            InjectRuntimeFilterRequest update, WorkerInfo worker) {
+        if (!attempt.getWorkerExecutionIdentity().equals(worker.workerExecutionIdentity().toProto())) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Runtime filter Worker target differs"));
         }
+        final URI endpoint;
+        try {
+            endpoint = new URI("http", null, worker.host(), worker.httpPort(),
+                    "/v1/task/" + attempt.getTaskId() + "/dynamic-filter", null, null);
+        } catch (URISyntaxException malformed) {
+            return CompletableFuture.failedFuture(malformed);
+        }
+        var request = decorate(HttpRequest.newBuilder()).uri(endpoint).timeout(RECOVERY_TIMEOUT)
+                .header("Content-Type", TaskRuntimeFilterWire.MEDIA_TYPE)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(TaskRuntimeFilterWire.encode(attempt, update))).build();
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.discarding()).thenApply(response -> {
+            if (response.statusCode() == HTTP_NO_CONTENT) return true;
+            if (response.statusCode() == HTTP_CONFLICT) return false;
+            throw new IllegalStateException("Worker runtime filter rejected with HTTP " + response.statusCode());
+        });
     }
 
     SchedulerCancelResult cancelTask(TaskAdmissionSealRequest seal, String workerHost, int httpPort) {
@@ -114,7 +111,7 @@ final class WorkerTaskControlClient {
         try {
             endpoint = new URI("http", null, workerHost, httpPort,
                     "/v1/task/" + seal.getAttempt().getTaskId(), null, null);
-        } catch (java.net.URISyntaxException malformed) {
+        } catch (URISyntaxException malformed) {
             throw new IllegalArgumentException("Invalid Worker task control address", malformed);
         }
         return decorate(HttpRequest.newBuilder()).uri(endpoint)
@@ -207,13 +204,6 @@ final class WorkerTaskControlClient {
                     attempt, RemoteTaskDispatcher.COMMIT_NOTIFY_MAX_ATTEMPTS);
             return failure;
         }
-    }
-
-    private HttpRequest dynamicFilterRequest(
-            String url, String planNodeId, byte[] filterProto) throws IOException {
-        byte[] body = mapper.writeValueAsBytes(
-                new InjectDynamicFilterRequest(planNodeId, filterProto));
-        return postRequest(url, body);
     }
 
     private HttpRequest commitRequest(

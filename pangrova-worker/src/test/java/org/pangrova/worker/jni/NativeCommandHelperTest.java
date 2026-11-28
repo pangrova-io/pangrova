@@ -60,8 +60,7 @@ class NativeCommandBuilderTest {
                                 .setLowerInclusive(true)
                                 .setUpperInclusive(true)))
                 .build();
-        RuntimeCommand command = parseCommand(NativeCommandBuilder.injectRuntimeFilter(
-                "node_0", filterRequest.toByteArray()));
+        RuntimeCommand command = parseCommand(NativeCommandBuilder.injectRuntimeFilter(filterRequest));
         assertThat(command.getCommandType())
                 .isEqualTo(RuntimeCommandType.RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER);
         assertThat(command.getPayload().unpack(InjectRuntimeFilterRequest.class))
@@ -69,23 +68,13 @@ class NativeCommandBuilderTest {
     }
 
     @Test
-    void runtimeFilterFailsClosedOnMalformedOrMismatchedPayload() {
-        assertThatThrownBy(() -> NativeCommandBuilder.injectRuntimeFilter("node_0", new byte[]{1}))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        InjectRuntimeFilterRequest request = InjectRuntimeFilterRequest.newBuilder()
-                .setPlanNodeId("node_1")
-                .addFilters(RuntimeFilter.newBuilder()
-                        .setColumnName("id")
-                        .setScope(RuntimeFilterScope.RUNTIME_FILTER_SCOPE_ROW_FILTER)
-                        .setRange(RangeFilter.newBuilder()
-                                .setLower(TypedValue.newBuilder().setInt64Value(1))
-                                .setUpper(TypedValue.newBuilder().setInt64Value(2))))
-                .build();
+    void runtimeFilterRequiresAScanAndTypedPredicates() {
         assertThatThrownBy(() -> NativeCommandBuilder.injectRuntimeFilter(
-                "node_0", request.toByteArray()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("mismatch");
+                InjectRuntimeFilterRequest.getDefaultInstance()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> NativeCommandBuilder.injectRuntimeFilter(
+                InjectRuntimeFilterRequest.newBuilder().setPlanNodeId("node_0").build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("scan node and filters");
     }
 
     @Test

@@ -495,15 +495,15 @@ public class TaskManager implements AutoCloseable {
         return getTaskState(taskId).map(TaskStateMapper::toReportedState);
     }
 
-    /**
-     * Returns native executor handle for a task when available.
-     */
-    public OptionalLong getExecutorHandle(String taskId) {
-        TaskInfo info = tasks.get(taskId);
-        if (info == null || info.executorHandle() == 0L) {
+    /** Resolves a Native handle only for the exact admitted running attempt. */
+    public OptionalLong getRuntimeFilterHandle(org.pangrova.protocol.v2.TaskAttemptId attempt) {
+        String local = taskAdmissions.resolveRuntimeFilterAttempt(attempt);
+        TaskInfo info = local == null ? null : tasks.get(local);
+        if (info == null || info.getState() != TaskState.RUNNING) {
             return OptionalLong.empty();
         }
-        return OptionalLong.of(info.executorHandle());
+        long handle = info.executorHandle();
+        return handle == 0L ? OptionalLong.empty() : OptionalLong.of(handle);
     }
 
     /** Snapshot of completed Native scalar-index decisions in retained task records. */

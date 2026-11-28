@@ -510,8 +510,9 @@ producer can collect ranges for up to four BIGINT equality columns. The Coordina
 unions the ranges per ordinal across the complete winning build cohort. It applies
 the domains together when the probe's Iceberg snapshot, schema, source and field
 identities match. The join still evaluates the full condition for each matching row.
-Missing evidence or a timeout releases an unfiltered probe. A late report leaves
-the already issued probe ranges unchanged.
+Missing evidence or a timeout releases the probe. Complete evidence that arrives
+after release can still constrain splits when it arrives before the probe's
+enumeration begins.
 
 ### 2.3 Custom Optimization Rules
 
@@ -725,7 +726,7 @@ Coordinator exposes (HTTP/REST):
 Worker exposes (HTTP/REST):
 - `POST /v1/task` SubmitTask
 - `DELETE /v1/task/{taskId}` CancelTask
-- `POST /v1/task/{taskId}/dynamic-filter` InjectDynamicFilter
+- `POST /v1/task/{taskId}/dynamic-filter` accepts a bounded Protobuf row-filter update for an exact attempt
 - `POST /v1/task/upstream-commit` NotifyUpstreamCommit
 - `GET /v1/health` HealthCheck
 

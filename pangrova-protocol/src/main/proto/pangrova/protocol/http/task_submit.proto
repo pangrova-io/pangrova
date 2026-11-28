@@ -47,6 +47,12 @@ message CopyTaskScope {
   int64 deadline_epoch_ms = 15;
 }
 
+// Sends one typed scan update to the exact admitted execution attempt.
+message TaskRuntimeFilterDelivery {
+  pangrova.protocol.v2.TaskAttemptId attempt = 1;
+  pangrova.protocol.v2.InjectRuntimeFilterRequest update = 2;
+}
+
 message TaskSubmitAck {
   oneof outcome {
     TaskAdmitted admitted = 1;

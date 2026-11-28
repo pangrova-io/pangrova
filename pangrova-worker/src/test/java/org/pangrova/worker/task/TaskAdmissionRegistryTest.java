@@ -311,6 +311,21 @@ class TaskAdmissionRegistryTest {
         assertThat(registry.reserve(task, "duplicate").first()).isFalse();
     }
 
+    @Test
+    void runtimeFiltersCanOnlyResolveAnExactLiveHandedOffAttempt() {
+        var registry = new TaskAdmissionRegistry(2, NOW);
+        var task = request("task", 2000);
+        var actual = task.getAttempt();
+        var admitted = registry.reserve(task, "worker-task");
+        admitted.publish(() -> {});
+        assertThat(registry.resolveRuntimeFilterAttempt(actual)).isNull();
+        admitted.handOff();
+        assertThat(registry.resolveRuntimeFilterAttempt(actual)).isEqualTo("worker-task");
+        assertThat(registry.resolveRuntimeFilterAttempt(actual.toBuilder().setAttemptId(1).build())).isNull();
+        registry.seal(sealRequest(task), true);
+        assertThat(registry.resolveRuntimeFilterAttempt(actual)).isNull();
+    }
+
     private static org.pangrova.protocol.v2.TaskAdmissionSealRequest sealRequest(TaskRequest request) {
         return org.pangrova.protocol.v2.TaskAdmissionSealRequest.newBuilder()
                 .setAttempt(request.getAttempt()).setDeadlineEpochMs(request.getDeadlineEpochMs())
